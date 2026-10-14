@@ -1,0 +1,21 @@
+# Never send secrets, sessions or host build artifacts to the Docker build context.
+.env
+.env.*
+!.env.example
+.data
+**/.wwebjs_auth
+**/.wwebjs_cache
+.git
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/*.tsbuildinfo
+packages/database/src/generated
+# Not needed to build the runtime images
+docs
+tests
+deploy
+**/*.test.ts
+**/*.md
+!apps/web/**/*.md

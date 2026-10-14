@@ -1,0 +1,246 @@
+import { OpenAICompatibleChatModel, type ChatModel } from '@vca/ai';
+import {
+  AnalyticsService,
+  AuditService,
+  ConfirmationService,
+  CustomerService,
+  OrderService,
+  ProductService,
+  type PaymentPolicyConfig,
+} from '@vca/commerce';
+import type { ApiConfig } from '@vca/config';
+import { createPrismaClient, type Database } from '@vca/database';
+import { PayPalClient, type PayPalApi } from '@vca/paypal';
+import type { Logger } from '@vca/shared';
+import {
+  CascadeSpeechToText,
+  FfmpegAudioNormalizer,
+  normalizeLugandaNumbers,
+  OpenAICompatibleSpeechToText,
+  SpeechPipeline,
+  SunbirdSpeechToText,
+  SunbirdTranslator,
+} from '@vca/speech';
+import { ConfirmationExecutor } from './modules/agent/confirmation-executor';
+import { InboundMessageService } from './modules/agent/inbound.service';
+import { createCommerceTools } from './modules/agent/tools';
+import { ChannelRegistry, HttpWhatsAppSender } from './modules/notifications/channel-registry';
+import { NotificationService } from './modules/notifications/notification.service';
+import { PaymentService } from './modules/payments/payment.service';
+import { PayPalWebhookService } from './modules/paypal/webhook.service';
+import { DisputeService } from './modules/disputes/dispute.service';
+import { ShipmentService } from './modules/shipments/shipment.service';
+
+export interface ContainerOverrides {
+  db?: Database;
+  paypal?: PayPalApi;
+  chatModel?: ChatModel | null;
+  speech?: SpeechPipeline | null;
+  channels?: ChannelRegistry;
+}
+
+function createChatModel(config: ApiConfig): ChatModel | null {
+  if (!config.AI_API_KEY) return null;
+  return new OpenAICompatibleChatModel({
+    baseUrl: config.AI_BASE_URL,
+    apiKey: config.AI_API_KEY,
+    model: config.AI_MODEL,
+    timeoutMs: config.AI_TIMEOUT_MS,
+  });
+}
+
+function createSpeechPipeline(config: ApiConfig, logger: Logger): SpeechPipeline | null {
+  // Voice is gated separately from STT credentials so a configured key can't switch it on early.
+  if (!config.VOICE_NOTES_ENABLED || config.STT_PROVIDER === 'none' || !config.STT_API_KEY)
+    return null;
+  const whisper = new OpenAICompatibleSpeechToText({
+    baseUrl: config.STT_BASE_URL,
+    apiKey: config.STT_API_KEY,
+    model: config.STT_MODEL,
+  });
+  const sunbird =
+    config.VOICE_EXPERIMENTAL_LUGANDA && config.SUNBIRD_API_KEY
+      ? { baseUrl: config.SUNBIRD_API_URL, apiKey: config.SUNBIRD_API_KEY }
+      : undefined;
+  // English via Whisper (fast, reports language + confidence). Luganda via Sunbird is an opt-in
+  // experiment (frozen): see docs/architecture/voice-commerce.md.
+  const stt = sunbird
+    ? new CascadeSpeechToText({
+        primary: whisper,
+        primaryLanguages: ['en'],
+        secondary: {
+          language: 'lg',
+          provider: new SunbirdSpeechToText({ ...sunbird, defaultLanguage: 'lg' }),
+        },
+      })
+    : whisper;
+  logger.info(
+    sunbird
+      ? 'voice: English (Whisper) + EXPERIMENTAL Luganda (Sunbird)'
+      : 'voice: English (Whisper); other languages are read back for confirmation',
+  );
+  return new SpeechPipeline({
+    stt,
+    ...(config.AUDIO_NORMALIZER === 'ffmpeg'
+      ? { normalizer: new FfmpegAudioNormalizer({ ffmpegPath: config.FFMPEG_PATH }) }
+      : {}),
+    ...(config.TRANSLATION_PROVIDER === 'sunbird' && sunbird
+      ? { translator: new SunbirdTranslator(sunbird) }
+      : {}),
+    translateLanguages: config.VOICE_TRANSLATE_LANGUAGES,
+    // Money/quantities must not depend on the LLM reading Luganda number words (see voice-commerce.md).
+    textNormalizers: { lg: normalizeLugandaNumbers },
+    workingLanguage: 'en',
+    maxDurationSeconds: config.VOICE_MAX_DURATION_SECONDS,
+  });
+}
+
+/**
+ * Composition root: the one place where concrete providers are chosen and wired.
+ * Everything else depends on interfaces, so tests pass fakes through `overrides`.
+ */
+export function createContainer(
+  config: ApiConfig,
+  logger: Logger,
+  overrides: ContainerOverrides = {},
+) {
+  const db = overrides.db ?? createPrismaClient({ databaseUrl: config.DATABASE_URL });
+  const paypal =
+    overrides.paypal ??
+    new PayPalClient({
+      clientId: config.PAYPAL_CLIENT_ID,
+      clientSecret: config.PAYPAL_CLIENT_SECRET,
+      environment: config.PAYPAL_ENV,
+      logger: logger.child({ component: 'paypal' }),
+    });
+  const chatModel =
+    overrides.chatModel !== undefined ? overrides.chatModel : createChatModel(config);
+  const speech =
+    overrides.speech !== undefined ? overrides.speech : createSpeechPipeline(config, logger);
+
+  const channels = overrides.channels ?? new ChannelRegistry();
+  if (!overrides.channels && config.WHATSAPP_GATEWAY_URL) {
+    channels.register(
+      new HttpWhatsAppSender(config.WHATSAPP_GATEWAY_URL, config.INTERNAL_SERVICE_TOKEN),
+    );
+  }
+
+  const policy: PaymentPolicyConfig = {
+    maxPaymentRequestAmount: config.MAX_PAYMENT_REQUEST_AMOUNT,
+  };
+
+  const audit = new AuditService(db);
+  const customers = new CustomerService(db);
+  const products = new ProductService(db);
+  const orders = new OrderService(db, customers, audit);
+  const confirmations = new ConfirmationService(db, audit);
+  const analytics = new AnalyticsService(db);
+  const notifications = new NotificationService(
+    db,
+    channels,
+    logger.child({ component: 'notifications' }),
+  );
+  const payments = new PaymentService(
+    db,
+    paypal,
+    orders,
+    audit,
+    notifications,
+    logger.child({ component: 'payments' }),
+    {
+      publicBaseUrl: config.API_PUBLIC_URL.replace(/\/$/, ''),
+      brandName: config.PAYPAL_BRAND_NAME,
+      policy,
+    },
+  );
+  const shipments = new ShipmentService(
+    db,
+    paypal,
+    orders,
+    audit,
+    logger.child({ component: 'shipments' }),
+  );
+  const disputes = new DisputeService(
+    db,
+    paypal,
+    audit,
+    notifications,
+    logger.child({ component: 'disputes' }),
+  );
+  const webhooks = new PayPalWebhookService(
+    db,
+    paypal,
+    payments,
+    disputes,
+    logger.child({ component: 'paypal-webhooks' }),
+    {
+      webhookId: config.PAYPAL_WEBHOOK_ID,
+      skipVerification:
+        config.PAYPAL_WEBHOOK_SKIP_VERIFICATION && config.NODE_ENV === 'development',
+    },
+  );
+  const executor = new ConfirmationExecutor({
+    orders,
+    payments,
+    shipments,
+    disputes,
+    confirmations,
+    notifications,
+    audit,
+    policy,
+    logger: logger.child({ component: 'executor' }),
+  });
+  const tools = createCommerceTools({
+    customers,
+    products,
+    orders,
+    confirmations,
+    analytics,
+    payments,
+    shipments,
+    disputes,
+    policy,
+    confirmationTtlSeconds: config.CONFIRMATION_TTL_SECONDS,
+  });
+  const inbound = new InboundMessageService({
+    db,
+    audit,
+    confirmations,
+    executor,
+    tools,
+    chatModel,
+    speech,
+    mediaMaxBytes: config.MEDIA_MAX_BYTES,
+    voiceMaxDurationSeconds: config.VOICE_MAX_DURATION_SECONDS,
+    voiceMinConfidence: config.VOICE_MIN_CONFIDENCE,
+    voiceLanguages:
+      config.VOICE_EXPERIMENTAL_LUGANDA && config.SUNBIRD_API_KEY ? ['en', 'lg'] : ['en'],
+    logger: logger.child({ component: 'inbound' }),
+  });
+
+  return {
+    config,
+    logger,
+    db,
+    paypal,
+    chatModel,
+    speech,
+    channels,
+    audit,
+    customers,
+    products,
+    orders,
+    confirmations,
+    analytics,
+    notifications,
+    payments,
+    shipments,
+    disputes,
+    webhooks,
+    tools,
+    inbound,
+    close: () => db.$disconnect(),
+  };
+}
+
+export type Container = ReturnType<typeof createContainer>;

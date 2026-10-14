@@ -1,0 +1,40 @@
+diff --git a/src/structures/Message.js b/src/structures/Message.js
+index dd977e85b0c0c40d2625cd337264fc9ae3bed17b..95ea9eb3adc12daca3cfb0dfdd1ff13ad95e857a 100644
+--- a/src/structures/Message.js
++++ b/src/structures/Message.js
+@@ -515,6 +515,17 @@ class Message extends Base {
+             return undefined;
+         }
+ 
++        // [katale patch] WhatsApp Web (July 2026) exposes the serialized id as `$1`, not
++        // `_serialized`; rebuild it from its parts as a last resort (upstream wwebjs #201697/#201908).
++        const id = this.id || {};
++        const remote =
++            typeof id.remote === 'string'
++                ? id.remote
++                : id.remote && (id.remote._serialized || (id.remote.user && id.remote.server && `${id.remote.user}@${id.remote.server}`));
++        const msgId =
++            id._serialized || id.$1 || (remote && id.id ? `${id.fromMe === true}_${remote}_${id.id}` : undefined);
++        if (!msgId) return undefined;
++
+         const result = await this.client.pupPage.evaluate(async (msgId) => {
+             const msg =
+                 window.require('WAWebCollections').Msg.get(msgId) ||
+@@ -566,6 +577,8 @@ class Message extends Base {
+                         mediaKey: msg.mediaKey,
+                         mediaKeyTimestamp: msg.mediaKeyTimestamp,
+                         type: msg.type,
++                        // [katale patch] WhatsApp Web rejects downloads without the media mimetype.
++                        mimetype: msg.mimetype,
+                         signal: new AbortController().signal,
+                         downloadQpl: mockQpl,
+                     });
+@@ -585,7 +598,7 @@ class Message extends Base {
+                 if (e.status && e.status === 404) return undefined;
+                 throw e;
+             }
+-        }, this.id._serialized);
++        }, msgId);
+ 
+         if (!result) return undefined;
+         return new MessageMedia(

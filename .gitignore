@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Generated Prisma client
+packages/database/src/generated/
+
+# Environment & secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# WhatsApp Web session data (contains authenticated session material)
+.wwebjs_auth/
+.wwebjs_cache/
+**/.wwebjs_auth/
+**/.wwebjs_cache/
+.data/
+
+# Downloaded / temporary media
+tmp/
+*.ogg
+*.opus
+*.wav
+
+# Test & coverage
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

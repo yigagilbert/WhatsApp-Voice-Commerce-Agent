@@ -1,19 +1,24 @@
 # Katale AI
 
-**A multilingual, voice-first conversational commerce agent for WhatsApp and the web, with PayPal payments.**
+**An AI commerce operations agent: WhatsApp text and voice become trusted commerce workflows —
+ordering, PayPal payment, fulfillment and tracking, dispute handling and merchant analytics.**
 
-Merchants send a voice note or text — _"Create an order for Sarah for 50 handmade baskets at $12
-each and add $80 shipping"_ — and get back a precise, backend-calculated order summary. One
-confirmation later, a PayPal payment link goes out; when the customer pays, the merchant is
-notified and the dashboard updates.
+A merchant says _"Create an order for Sarah for ten handmade baskets at twelve dollars each and add
+twenty dollars shipping"_ and gets a backend-priced draft. They approve it by typing `CONFIRM 4821`;
+PayPal takes the payment; a verified webhook marks it paid and Katale tells them. Then _"Mark
+ORD-1042 as shipped with DHL tracking 123456789"_ → `SHIP 8314` attaches tracking at PayPal. If the
+buyer opens a PayPal dispute, Katale gathers the order, payment and tracking evidence, drafts a
+factual response, and submits it only after `SUBMIT 7312`.
 
-> Status: the full commerce flow is verified over **real WhatsApp text** with a real LLM and **real
-> PayPal Sandbox**: order → confirmation → payment link → payment → "Payment received" on WhatsApp.
-> **Live at https://kataleai.space** (Docker Hub images → VM → Nginx Proxy Manager → HTTPS).
-> **English voice notes** are verified in production (voice → draft → typed CONFIRM → PayPal → paid).
-> **Luganda** voice is routed to Sunbird AI and is **experimental**. The dashboard requires a login.
-> See [PROJECT_STATUS.md](PROJECT_STATUS.md), the [deployment guide](docs/deployment/docker-hub-vm.md),
-> the [voice demo](docs/hackathon/voice-demo.md) and the [WhatsApp text demo](docs/hackathon/whatsapp-text-demo.md).
+> **AI interprets and prepares; trusted backend services verify; the merchant explicitly approves
+> consequential actions; PayPal executes; Katale records the full audit trail.**
+
+> Status: **live at https://kataleai.space** (Docker Hub images → VM → Nginx Proxy Manager → HTTPS,
+> PayPal **Sandbox**). English text and voice commerce are verified end to end in production.
+> Shipment tracking and disputes: see [PROJECT_STATUS.md](PROJECT_STATUS.md) for what is verified
+> against real PayPal Sandbox vs simulated. Local languages (Luganda) are experimental and frozen.
+> Guides: [deployment](docs/deployment/docker-hub-vm.md) · [final demo](docs/hackathon/final-demo-script.md) ·
+> [shipment & disputes](docs/hackathon/shipment-dispute-demo.md) · [AG Grid / AG Studio](docs/hackathon/ag-grid-integration.md).
 
 ---
 
@@ -67,14 +72,15 @@ More in [docs/hackathon/product-story.md](docs/hackathon/product-story.md).
 
 ## 4. Key features
 
-- 🎙️ Voice notes → Whisper (English) or Sunbird AI (Luganda, experimental) → same agent as text, with original transcript, detected language, confidence and normalised text stored separately; unclear speech is read back and payments are only approved by typing the code
-- 🤖 Provider-neutral LLM agent with Zod-typed tools (customers, products, inventory, quotes, orders, payment status, sales analytics)
+- 🎙️ English voice notes (Whisper) → the same agent as text; unclear speech is read back; approvals are always typed
+- 🤖 LLM agent with Zod-typed tools grouped as customers, catalog, orders, payments, shipments, disputes and analytics
 - 🧮 Deterministic money: integer minor units, backend-only totals, AI-stated totals compared and overridden
-- ✅ Confirmation-bound financial actions (merchant + conversation + payload hash + expiry + code)
-- 💳 PayPal Orders v2 checkout links, capture, webhook signature verification, idempotent webhook handling
-- 📊 Dashboard: revenue, outstanding, orders, payments, customers, products, activity/audit log, agent console
-- 🔎 Correlation IDs across WhatsApp → speech → agent → confirmation → PayPal → webhook → notification
-- 🌍 Multilingual-ready: Luganda/Swahili confirmation vocabulary, translation provider slot
+- ✅ Approval-bound actions: `CONFIRM` (payment request), `SHIP` (tracking), `SUBMIT` (dispute response) — each bound to the exact payload, code, expiry, single use
+- 💳 PayPal Orders v2 checkout, capture, **tracking**; Disputes v1 **sync and evidence submission**; verified, idempotent webhooks
+- 📦 Fulfillment as its own dimension (paid + not shipped = to ship); no invented delivery status
+- ⚖️ Disputes: webhook → canonical fetch → linked to order/payment/shipment → one notification → evidence (facts + missing) → code-drafted factual response → merchant SUBMIT
+- 📊 Dashboard: AG Grid (orders, payments, disputes, customers, products), AG Studio analytics with an AI assistant, plain-language activity trace
+- 🔎 One trace ID from the first message through payment, tracking and dispute response
 
 ## 5. Architecture
 
@@ -318,12 +324,13 @@ notifications, sales summary, and the audit trail.
 ## 17. Known limitations
 
 - `whatsapp-web.js` is unofficial and may break or get numbers restricted — demo/dev only.
-- Verified live: WhatsApp text and English voice, PayPal Sandbox (incl. webhooks), LLM. Luganda voice is experimental (see [voice commerce](docs/architecture/voice-commerce.md#known-luganda-limitations)).
+- Verified live: WhatsApp text and English voice, PayPal Sandbox payments (incl. webhooks), LLM. Shipment/dispute verification status is in [PROJECT_STATUS.md](PROJECT_STATUS.md). Luganda voice is experimental and off by default.
+- PayPal tracking has no delivered status; Katale shows shipped/not shipped only. Disputes: no refunds, offers or claim acceptance (by design this phase); evidence is structured data and text, no file uploads.
 - Payment links paid **on a phone** need a public `API_PUBLIC_URL` (tunnel) for the return/webhook to reach the API.
 - Dashboard auth is one shared login (single-tenant merchant shortcut); no per-merchant users yet.
 - Luganda vocabulary/number list is a starter set, not validated with native speakers; no TTS replies.
 - Invoicing, refunds and subscriptions: not implemented beyond PayPal client methods.
-- Dashboard refreshes on navigation (no live push); tables are simple (AG Grid-ready).
+- Dashboard refreshes on navigation (no live push). AG Studio shows a watermark without `AG_STUDIO_LICENSE_KEY`.
 - ASR + LLM run synchronously inside the request (fine for demo scale).
 
 ## 18. Roadmap
@@ -331,7 +338,7 @@ notifications, sales summary, and the audit trail.
 1. ~~Live PayPal Sandbox + LLM run of the core flow~~ ✅ · ~~WhatsApp text channel live~~ ✅ — next: deployed demo with webhooks
 2. ~~Voice notes (English) + Sunbird AI Luganda ASR~~ ✅ (Luganda experimental) — next: native-speaker validation; spoken replies (TTS)
 3. PayPal invoicing and refunds through the confirmation mechanism
-4. AG Grid for orders, customers, transactions, inventory; AI business insights
+4. ~~AG Grid / AG Studio analytics~~ ✅ · ~~Shipment tracking and PayPal disputes~~ ✅ — next: dispute document uploads
 5. Per-merchant users and multi-merchant onboarding (a single dashboard login exists)
 6. Official WhatsApp Cloud API adapter; web chat and Telegram channels
 7. Background jobs for slow work (ASR/LLM) and live dashboard updates

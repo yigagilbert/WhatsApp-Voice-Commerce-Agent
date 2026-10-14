@@ -1,0 +1,527 @@
+// Voice Commerce Agent — database schema.
+//
+// Conventions
+// - All monetary amounts are stored as integers in the currency's MINOR unit
+//   (e.g. cents) in `*Minor` columns, together with an ISO-4217 `currency`.
+//   Never floats. Arithmetic lives in @vca/commerce (deterministic code, not the LLM).
+// - The database is the source of truth. The AI layer only reads it through tools.
+// - Channel names are stored as lowercase strings ("whatsapp", "web", ...) so new
+//   channels need no migration.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Merchants & access
+// ---------------------------------------------------------------------------
+
+model Merchant {
+  id                String   @id @default(cuid())
+  businessName      String
+  ownerName         String
+  ownerEmail        String?
+  /// ISO-4217 code, e.g. "USD". Must be a PayPal-supported currency to take payments.
+  preferredCurrency String   @default("USD")
+  /// BCP-47 language tag, e.g. "en", "lg" (Luganda).
+  preferredLanguage String   @default("en")
+  /// IANA timezone used for "today" / "this week" analytics.
+  timezone          String   @default("Africa/Kampala")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  operators     MerchantOperator[]
+  customers     Customer[]
+  products      Product[]
+  orders        Order[]
+  payments      Payment[]
+  conversations Conversation[]
+  confirmations ActionConfirmation[]
+  auditEvents   AuditEvent[]
+  shipments     Shipment[]
+  disputes      Dispute[]
+
+  @@map("merchants")
+}
+
+/// A channel identity (e.g. a WhatsApp ID) that is allowed to operate a merchant.
+/// Messages from unknown identities are never turned into commerce actions.
+model MerchantOperator {
+  id         String       @id @default(cuid())
+  merchantId String
+  name       String
+  channel    String
+  externalId String
+  role       OperatorRole @default(OWNER)
+  createdAt  DateTime     @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([channel, externalId])
+  @@index([merchantId])
+  @@map("merchant_operators")
+}
+
+enum OperatorRole {
+  OWNER
+  STAFF
+}
+
+// ---------------------------------------------------------------------------
+// Catalog & customers
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id                String   @id @default(cuid())
+  merchantId        String
+  name              String
+  phone             String?
+  /// Channel identity used to message the customer (e.g. "15550001111@c.us").
+  whatsappId        String?
+  email             String?
+  /// ISO-3166 alpha-2 country code.
+  country           String?
+  preferredCurrency String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  merchant      Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  orders        Order[]
+  conversations Conversation[]
+
+  @@unique([merchantId, whatsappId])
+  @@index([merchantId, name])
+  @@map("customers")
+}
+
+model Product {
+  id             String   @id @default(cuid())
+  merchantId     String
+  name           String
+  description    String?
+  sku            String?
+  unitPriceMinor Int
+  currency       String
+  /// null = inventory not tracked for this product.
+  stockQuantity  Int?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  merchant   Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@unique([merchantId, sku])
+  @@index([merchantId, name])
+  @@map("products")
+}
+
+// ---------------------------------------------------------------------------
+// Orders & payments
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  DRAFT
+  AWAITING_PAYMENT
+  PAID
+  CANCELLED
+  REFUNDED
+}
+
+enum FulfillmentStatus {
+  NOT_SHIPPED
+  SHIPPED
+}
+
+enum OrderInputMode {
+  TEXT
+  VOICE
+}
+
+model Order {
+  id             String      @id @default(cuid())
+  /// Short human-friendly reference shown in chat, e.g. "ORD-7K2M9Q".
+  reference      String      @unique
+  merchantId     String
+  customerId     String
+  conversationId String?
+  status         OrderStatus @default(DRAFT)
+  currency       String
+  subtotalMinor  Int
+  shippingMinor  Int         @default(0)
+  taxMinor       Int         @default(0)
+  totalMinor     Int
+  notes          String?
+  /// Channel the order originated from ("whatsapp", "web", "api").
+  /// Channel the order came from: "whatsapp" or "web" (Agent Console).
+  source         String
+  /// How the merchant asked: typed text or a transcribed voice note.
+  inputMode      OrderInputMode @default(TEXT)
+  /// Fulfillment is a separate dimension from payment: PAID + NOT_SHIPPED = waiting to ship.
+  fulfillmentStatus FulfillmentStatus @default(NOT_SHIPPED)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  merchant     Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  items        OrderItem[]
+  payments     Payment[]
+  shipments    Shipment[]
+  disputes     Dispute[]
+
+  @@index([merchantId, createdAt])
+  @@index([merchantId, status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id             String  @id @default(cuid())
+  orderId        String
+  productId      String?
+  description    String
+  quantity       Int
+  unitPriceMinor Int
+  lineTotalMinor Int
+  position       Int     @default(0)
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+enum PaymentProvider {
+  PAYPAL
+}
+
+enum PaymentKind {
+  /// PayPal Orders v2 checkout (approve link).
+  CHECKOUT_ORDER
+  /// PayPal Invoicing v2.
+  INVOICE
+}
+
+enum PaymentStatus {
+  /// Request created at the provider; waiting for the buyer.
+  CREATED
+  /// Buyer approved; capture pending.
+  APPROVED
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+model Payment {
+  id             String          @id @default(cuid())
+  merchantId     String
+  orderId        String
+  provider       PaymentProvider
+  kind           PaymentKind
+  /// Provider-side ID (PayPal order ID or invoice ID).
+  externalId     String?
+  /// Provider capture/transaction ID once money moved.
+  captureId      String?
+  status         PaymentStatus   @default(CREATED)
+  /// Last status reported by the provider (e.g. PayPal "PAYER_ACTION_REQUIRED", "COMPLETED").
+  providerStatus String?
+  amountMinor    Int
+  currency       String
+  checkoutUrl    String?
+  /// Sent as PayPal-Request-Id so retries never create duplicate requests.
+  idempotencyKey String          @unique
+  /// Trace ID of the transaction (correlation ID of the request that drafted the order).
+  correlationId  String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  completedAt    DateTime?
+
+  merchant  Merchant   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shipments Shipment[]
+  disputes  Dispute[]
+
+  @@unique([provider, externalId])
+  @@index([merchantId, status])
+  @@index([merchantId, completedAt])
+  @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// Conversations
+// ---------------------------------------------------------------------------
+
+model Conversation {
+  id             String   @id @default(cuid())
+  merchantId     String
+  customerId     String?
+  channel        String
+  externalChatId String
+  /// Session metadata (e.g. last referenced order) — never financial truth.
+  context        Json?
+  lastMessageAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  merchant      Merchant             @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customer      Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  messages      Message[]
+  orders        Order[]
+  confirmations ActionConfirmation[]
+
+  @@unique([merchantId, channel, externalChatId])
+  @@map("conversations")
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageType {
+  TEXT
+  AUDIO
+  /// Image, document, sticker, ... — recorded but not processed yet.
+  UNSUPPORTED
+}
+
+model Message {
+  id                String           @id @default(cuid())
+  conversationId    String
+  channel           String
+  /// Provider message ID; unique per channel so redelivered messages are ignored.
+  externalMessageId String?
+  direction         MessageDirection
+  type              MessageType
+  /// Text as typed, or empty for audio before transcription.
+  content           String           @default("")
+  /// Raw ASR output for voice notes.
+  transcription     String?
+  /// BCP-47 tag detected by ASR / language identification.
+  detectedLanguage  String?
+  /// Text fed to the agent (translated/normalized when applicable).
+  normalizedText    String?
+  mediaMimeType     String?
+  correlationId     String?
+  createdAt         DateTime         @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([channel, externalMessageId])
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+// ---------------------------------------------------------------------------
+// Financial safety: confirmations, audit, webhook idempotency
+// ---------------------------------------------------------------------------
+
+enum ConfirmationAction {
+  CREATE_PAYMENT_REQUEST
+  ADD_SHIPMENT_TRACKING
+  SUBMIT_DISPUTE_RESPONSE
+  SEND_INVOICE
+  REFUND_PAYMENT
+}
+
+enum ConfirmationStatus {
+  PENDING
+  /// Claimed by a confirm reply; execution in progress.
+  CONFIRMED
+  EXECUTED
+  CANCELLED
+  EXPIRED
+  FAILED
+}
+
+/// A sensitive action proposed by the agent, waiting for explicit merchant confirmation.
+/// Bound to merchant + conversation + action + exact payload (hash) + expiry.
+model ActionConfirmation {
+  id             String             @id @default(cuid())
+  merchantId     String
+  conversationId String
+  action         ConfirmationAction
+  payload        Json
+  /// SHA-256 of the canonical payload; re-checked before execution.
+  payloadHash    String
+  /// Short code the merchant can quote ("confirm 4821").
+  code           String
+  /// Deterministic, backend-generated summary shown to the merchant.
+  summary        String
+  status         ConfirmationStatus @default(PENDING)
+  expiresAt      DateTime
+  confirmedAt    DateTime?
+  executedAt     DateTime?
+  result         Json?
+  error          String?
+  correlationId  String?
+  createdAt      DateTime           @default(now())
+
+  merchant     Merchant     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, status])
+  @@index([merchantId, createdAt])
+  @@map("action_confirmations")
+}
+
+enum AuditActor {
+  AGENT
+  MERCHANT
+  SYSTEM
+  PROVIDER
+}
+
+/// Append-only trail of important AI-generated and financial events.
+model AuditEvent {
+  id            String     @id @default(cuid())
+  merchantId    String?
+  actor         AuditActor
+  /// Dotted event type, e.g. "agent.intent_interpreted", "payment.completed".
+  type          String
+  entityType    String?
+  entityId      String?
+  data          Json?
+  correlationId String?
+  createdAt     DateTime   @default(now())
+
+  merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_events")
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+/// Every provider webhook is recorded once (provider + eventId unique) so
+/// redelivered events never trigger duplicate side effects.
+model WebhookEvent {
+  id          String             @id @default(cuid())
+  provider    PaymentProvider
+  eventId     String
+  eventType   String
+  status      WebhookEventStatus @default(RECEIVED)
+  payload     Json
+  error       String?
+  receivedAt  DateTime           @default(now())
+  processedAt DateTime?
+
+  @@unique([provider, eventId])
+  @@map("webhook_events")
+}
+
+
+// ─── Fulfillment ────────────────────────────────────────────────────────────
+
+/// Mirrors PayPal's tracker status (Orders v2 trackers are SHIPPED or CANCELLED; PayPal has no
+/// delivered state, so Katale doesn't invent one).
+enum ShipmentStatus {
+  SHIPPED
+  CANCELLED
+}
+
+/// A tracking number attached to a paid order. Created only after PayPal accepted the tracker.
+model Shipment {
+  id                String         @id @default(cuid())
+  merchantId        String
+  orderId           String
+  paymentId         String?
+  /// PayPal carrier code (e.g. DHL, UPS, OTHER).
+  carrier           String
+  /// The merchant's carrier name when carrier = OTHER.
+  carrierNameOther  String?
+  trackingNumber    String
+  status            ShipmentStatus @default(SHIPPED)
+  /// PayPal tracker ID (<captureId>-<trackingNumber>).
+  providerTrackerId String?
+  providerSyncedAt  DateTime?
+  shippedAt         DateTime       @default(now())
+  correlationId     String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment  Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@unique([orderId, trackingNumber])
+  @@index([merchantId, createdAt])
+  @@map("shipments")
+}
+
+// ─── Disputes ───────────────────────────────────────────────────────────────
+
+/// A PayPal dispute, synchronised from PayPal (webhook or refresh). Status/reason values are
+/// PayPal's own enums, stored as received. Order/payment links are optional: a dispute may not
+/// match a Katale payment.
+model Dispute {
+  id                  String    @id @default(cuid())
+  merchantId          String?
+  orderId             String?
+  paymentId           String?
+  paypalDisputeId     String    @unique
+  /// e.g. MERCHANDISE_OR_SERVICE_NOT_RECEIVED
+  reason              String
+  /// OPEN | WAITING_FOR_BUYER_RESPONSE | WAITING_FOR_SELLER_RESPONSE | UNDER_REVIEW | RESOLVED | OTHER
+  status              String
+  /// INQUIRY | CHARGEBACK | PRE_ARBITRATION | ARBITRATION
+  lifecycleStage      String?
+  /// PayPal's outcome code once resolved (e.g. RESOLVED_SELLER_FAVOUR)
+  outcome             String?
+  amountMinor         Int?
+  currency            String?
+  /// Capture ID PayPal reports as the disputed seller transaction.
+  sellerTransactionId String?
+  buyerMessage        String?
+  sellerResponseDueAt DateTime?
+  openedAt            DateTime?
+  providerUpdatedAt   DateTime?
+  /// Last status the merchant was told about (avoids repeated WhatsApp notifications).
+  notifiedStatus      String?
+  /// Canonical dispute details from GET /v1/customer/disputes/{id} (not shown by default).
+  providerData        Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  merchant  Merchant?         @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  order     Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  payment   Payment?          @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  responses DisputeResponse[]
+
+  @@index([merchantId, status])
+  @@map("disputes")
+}
+
+/// A merchant-approved response submitted to PayPal (one per SUBMIT confirmation).
+model DisputeResponse {
+  id             String   @id @default(cuid())
+  disputeId      String
+  merchantId     String
+  confirmationId String   @unique
+  responseText   String
+  /// Evidence sent: [{ type, label, detail }]
+  evidence       Json
+  status         String
+  error          String?
+  submittedAt    DateTime?
+  createdAt      DateTime @default(now())
+
+  dispute Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId])
+  @@map("dispute_responses")
+}

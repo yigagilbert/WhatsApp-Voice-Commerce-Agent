@@ -1,0 +1,92 @@
+# Local development stack.
+#   pnpm db:up                                   → Postgres only (typical: run apps with pnpm dev)
+#   docker compose --profile app up --build      → Postgres + API + dashboard in containers
+#   docker compose --profile whatsapp up --build → also the WhatsApp worker (scan QR from logs)
+name: voice-commerce-agent
+
+x-app-env: &app-env
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    DATABASE_URL: postgresql://vca:vca@postgres:5432/vca?schema=public
+    API_BASE_URL: http://api:4000
+    WHATSAPP_API_BASE_URL: http://api:4000
+    WHATSAPP_GATEWAY_URL: http://whatsapp:4100
+    WHATSAPP_GATEWAY_HOST: 0.0.0.0
+    API_HOST: 0.0.0.0
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vca
+      POSTGRES_PASSWORD: vca
+      POSTGRES_DB: vca
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U vca -d vca']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    profiles: ['app', 'whatsapp']
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: api
+    # Local convenience: apply migrations on start. Production runs them as a separate step.
+    command: ['sh', '-c', 'katale-migrate && node dist/index.js']
+    <<: *app-env
+    ports:
+      - '4000:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  web:
+    profiles: ['app', 'whatsapp']
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: web
+    <<: *app-env
+    ports:
+      - '3000:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+
+  whatsapp:
+    profiles: ['whatsapp']
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: whatsapp
+    <<: *app-env
+    init: true
+    # Persist the LocalAuth session so the QR code is only scanned once.
+    volumes:
+      - whatsapp-session:/data/whatsapp
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  whatsapp-session:

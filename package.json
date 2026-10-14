@@ -1,0 +1,68 @@
+{
+  "name": "voice-commerce-agent",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multilingual, voice-first conversational commerce agent for WhatsApp and the web, with PayPal payments.",
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @vca/api --filter @vca/web dev",
+    "dev:api": "pnpm --filter @vca/api dev",
+    "dev:web": "pnpm --filter @vca/web dev",
+    "dev:whatsapp": "pnpm --filter @vca/whatsapp dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck && tsc --noEmit -p .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:external": "vitest run --config vitest.external.config.ts",
+    "test:voice:external": "vitest run --config vitest.external.config.ts tests/external/voice-commerce.test.ts",
+    "paypal:check": "tsx scripts/paypal-check.ts",
+    "paypal:smoke": "tsx scripts/paypal-smoke.ts",
+    "paypal:webhook": "tsx scripts/paypal-webhook.ts",
+    "paypal:dispute": "tsx scripts/paypal-dispute.ts",
+    "ai:check": "tsx scripts/ai-check.ts",
+    "operator:add": "tsx scripts/operator-add.ts",
+    "demo:reset": "tsx scripts/demo-reset.ts",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter @vca/database db:generate",
+    "db:migrate": "pnpm --filter @vca/database db:migrate",
+    "db:deploy": "pnpm --filter @vca/database db:deploy",
+    "db:seed": "pnpm --filter @vca/database db:seed",
+    "db:studio": "pnpm --filter @vca/database db:studio",
+    "verify": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
+    "postinstall": "pnpm --filter @vca/database db:generate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@next/eslint-plugin-next": "^16.3.8",
+    "@types/node": "^24.19.1",
+    "@vca/ai": "workspace:*",
+    "@vca/config": "workspace:*",
+    "@vca/database": "workspace:*",
+    "@vca/paypal": "workspace:*",
+    "@vca/shared": "workspace:*",
+    "@vca/speech": "workspace:*",
+    "eslint": "^10.12.0",
+    "fastify": "^5.12.5",
+    "globals": "^16.0.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^5.0.3"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "whatsapp-web.js@1.34.7": "patches/whatsapp-web.js@1.34.7.patch"
+    }
+  }
+}

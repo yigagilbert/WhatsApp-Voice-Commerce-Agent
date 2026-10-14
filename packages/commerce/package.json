@@ -1,0 +1,19 @@
+{
+  "name": "@vca/commerce",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./money": "./src/money.ts",
+    "./labels": "./src/labels.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vca/database": "workspace:*",
+    "@vca/shared": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

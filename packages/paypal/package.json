@@ -1,0 +1,16 @@
+{
+  "name": "@vca/paypal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vca/shared": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

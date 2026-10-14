@@ -1,0 +1,137 @@
+{
+  "description": "Katale AI voice-commerce evaluation set. English clips are synthetic (macOS `say`, Ogg/Opus mono 16 kHz, WhatsApp-like) in tests/fixtures/voice. Luganda entries record real merchant voice notes tested over WhatsApp; recordings are NOT committed, only reference transcripts and observed results.",
+  "cases": [
+    {
+      "id": "en-order-001",
+      "language": "en",
+      "audio": "tests/fixtures/voice/en-order-001.ogg",
+      "reference": "Create an order for Sarah for ten handmade baskets at twelve dollars each and add twenty dollars shipping.",
+      "expectedIntent": "create_order",
+      "expectedTool": "create_draft_order",
+      "expectedCustomer": "Sarah",
+      "expectedProduct": "Handmade Basket",
+      "expectedQuantity": 10,
+      "expectedUnitPrice": 12,
+      "expectedShipping": 20
+    },
+    {
+      "id": "en-clarify-002",
+      "language": "en",
+      "audio": "tests/fixtures/voice/en-clarify-002.ogg",
+      "reference": "Create an order for Sarah for some baskets.",
+      "expectedIntent": "clarify_quantity",
+      "expectedTool": null,
+      "expectedReplyPattern": "how many|quantity"
+    },
+    {
+      "id": "en-highprice-003",
+      "language": "en",
+      "audio": "tests/fixtures/voice/en-highprice-003.ogg",
+      "reference": "Create an order for Sarah for twenty baskets at one thousand dollars each.",
+      "expectedIntent": "create_order",
+      "expectedTool": "create_draft_order",
+      "expectedQuantity": 20,
+      "expectedUnitPrice": 1000,
+      "note": "Backend must flag the catalog-price override and refuse the $20,000 payment request (limit $10,000)."
+    },
+    {
+      "id": "en-cancel-004",
+      "language": "en",
+      "audio": "tests/fixtures/voice/en-cancel-004.ogg",
+      "reference": "Cancel Sarah's last order.",
+      "expectedIntent": "unsupported_cancel",
+      "expectedTool": null,
+      "expectedReplyPattern": "cannot|can't|not able|unable"
+    },
+    {
+      "id": "en-sales-005",
+      "language": "en",
+      "audio": "tests/fixtures/voice/en-sales-005.ogg",
+      "reference": "How much have I sold this week?",
+      "expectedIntent": "sales_summary",
+      "expectedTool": "get_sales_summary",
+      "expectedPeriod": "this_week"
+    }
+  ],
+  "lugandaFieldResults": [
+    {
+      "id": "lg-stock-001",
+      "date": "2026-10-06",
+      "build": "v0.1.0-202610060937",
+      "intent": "inventory question",
+      "sttProvider": "sunbird:lug",
+      "transcript": "Odda ki ze tulina mu sitooku essaawa zino?",
+      "detectedLanguage": "lg",
+      "audioSeconds": 3.7,
+      "sttMs": 17753,
+      "voiceToReplyMs": 20533,
+      "agentAction": "check_inventory",
+      "result": "partial — answered only about baskets (history drift); in isolation the model calls list_products and answers in Luganda (3/3)"
+    },
+    {
+      "id": "lg-order-002",
+      "date": "2026-10-06",
+      "build": "v0.1.0-202610060937",
+      "intent": "create order: Sarah, 10 handmade baskets, $12 each, $20 shipping",
+      "sttProvider": "sunbird:lug",
+      "transcript": "Kola HB order eya ssaala ayagala HB kkumi buli emu ku dollar kkumi na bbiri otegeko ne Shipping price ya dollar abiri.",
+      "detectedLanguage": "lg",
+      "audioSeconds": 12.7,
+      "sttMs": 4054,
+      "voiceToReplyMs": 8906,
+      "agentAction": "create_draft_order",
+      "expected": {
+        "quantity": 10,
+        "unitPrice": 12,
+        "shipping": 20
+      },
+      "observed": {
+        "quantity": 10,
+        "unitPrice": 12,
+        "shipping": 2
+      },
+      "result": "FAIL on shipping — LLM read 'abiri' (20) as 'bbiri' (2). Fixed by deterministic normalizeLugandaNumbers: offline re-run 3/3 quantity 10, unit 12, shipping 20"
+    },
+    {
+      "id": "lg-spoken-confirm-003",
+      "intent": "spoken 'Confirm 2720'",
+      "sttProvider": "openai-compatible:whisper-1",
+      "transcript": "Confirm 2720.",
+      "detectedLanguage": "en",
+      "result": "PASS — refused, asked to type CONFIRM 2720"
+    },
+    {
+      "id": "lg-order-004",
+      "intent": "5 coffee gift packs for James (code-switched, mostly English)",
+      "sttProvider": "sunbird:lug",
+      "transcript": "5 odas for jams 5 koffi gifts gistpaks for jams.",
+      "detectedLanguage": "lg",
+      "audioSeconds": 10.3,
+      "sttMs": 2797,
+      "voiceToReplyMs": 4381,
+      "agentAction": "clarification (no tools)",
+      "result": "safe — asked to clarify; no draft"
+    },
+    {
+      "id": "lg-order-005",
+      "intent": "follow-up: five coffee gift packs, customer James",
+      "sttProvider": "sunbird:lug",
+      "transcript": "Yes, I want five coffee gifts, you are right, coffee gifts, but I want five, and the customer is called James.",
+      "detectedLanguage": "lg",
+      "audioSeconds": 9.4,
+      "sttMs": 9678,
+      "voiceToReplyMs": 12631,
+      "agentAction": "find_product + find_customer, then asked again",
+      "result": "partial — resolved Coffee Gift Pack + James Carter but asked about 'jams' from the previous transcript"
+    }
+  ],
+  "lugandaComparison": {
+    "date": "2026-10-06",
+    "transcript": "lg-order-002",
+    "runsPerVariant": 3,
+    "A0_direct_no_glossary": "no draft; treated 'Kola' (make) as a customer name (3/3)",
+    "A_direct_with_glossary": "draft 10 × $12 but shipping $2 (3/3)",
+    "B_translate_first_sunbird": "translation hallucinated 'shoes'/'pairs'; agent asked to clarify (3/3)",
+    "C_direct_with_deterministic_number_normalisation": "draft quantity 10, unit 12, shipping 20 (3/3) — chosen"
+  }
+}

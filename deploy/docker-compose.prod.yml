@@ -1,0 +1,88 @@
+# Katale AI — production stack. Runs PREBUILT images from Docker Hub; nothing is built here.
+#
+# On the VM this file lives at /opt/apps/katale-ai/docker-compose.yml next to a chmod-600 .env
+# (template: deploy/.env.production.example). Deploy / update / rollback = change KATALE_TAG in
+# .env, then:  docker compose pull && docker compose run --rm api katale-migrate && docker compose up -d
+#
+# Networking: no host ports are published. The reverse proxy (Nginx Proxy Manager on the VM)
+# reaches `katale-web:3000` and `katale-api:4000` over its external Docker network; Postgres and
+# the WhatsApp gateway are only reachable on the private `internal` network.
+name: katale-ai
+
+x-app: &app
+  env_file: .env
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: '10m', max-file: '5' }
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-katale}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-katale}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-katale} -d ${POSTGRES_DB:-katale}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options: { max-size: '10m', max-file: '5' }
+
+  api:
+    <<: *app
+    image: ${KATALE_IMAGE_NAMESPACE:?set KATALE_IMAGE_NAMESPACE}/katale-api:${KATALE_TAG:?set KATALE_TAG}
+    environment:
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      API_PORT: '4000'
+      TRUST_PROXY: 'true'
+      WHATSAPP_GATEWAY_URL: http://whatsapp:4100
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks:
+      internal: {}
+      proxy: { aliases: [katale-api] }
+
+  web:
+    <<: *app
+    image: ${KATALE_IMAGE_NAMESPACE}/katale-web:${KATALE_TAG}
+    environment:
+      NODE_ENV: production
+      API_BASE_URL: http://api:4000
+    depends_on:
+      api: { condition: service_healthy }
+    networks:
+      internal: {}
+      proxy: { aliases: [katale-web] }
+
+  whatsapp:
+    <<: *app
+    image: ${KATALE_IMAGE_NAMESPACE}/katale-whatsapp:${KATALE_TAG}
+    # Reaps Chromium child processes.
+    init: true
+    environment:
+      NODE_ENV: production
+      WHATSAPP_API_BASE_URL: http://api:4000
+      WHATSAPP_SESSION_DIR: /data/whatsapp
+      WHATSAPP_GATEWAY_HOST: 0.0.0.0
+    # LocalAuth session on the host — survives image upgrades, recreation and reboots.
+    volumes:
+      - ./data/whatsapp:/data/whatsapp
+    depends_on:
+      api: { condition: service_healthy }
+    networks: [internal]
+
+networks:
+  internal:
+    name: katale-ai-internal
+  proxy:
+    external: true
+    name: ${KATALE_PROXY_NETWORK:-nginxproxymanager_network}

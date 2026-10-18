@@ -21,6 +21,7 @@ import { canApprove, toMinorUnits, normalizeCurrency } from '@vca/commerce';
 import { z } from 'zod';
 import type { PaymentService } from '../payments/payment.service';
 import type { PaymentReminderService } from '../payments/reminder.service';
+import type { CustomerConversationService } from '../customer/customer-conversation.service';
 import type { ReportService } from '../reports/report.service';
 import { ShipmentService, carrierDisplay } from '../shipments/shipment.service';
 import { reasonLabel, statusLabel, type DisputeService } from '../disputes/dispute.service';
@@ -54,6 +55,8 @@ const needsOwner = (ctx: AgentContext, summary: string, ask: string) => {
 };
 
 export interface ToolDeps {
+  /** Customer chats on the shop's WhatsApp (hand-offs): list, reply as the team, resume the bot. */
+  customerChats?: Pick<CustomerConversationService, 'recentChats' | 'replyAsTeam' | 'resume'>;
   customers: CustomerService;
   products: ProductService;
   orders: OrderService;
@@ -171,6 +174,24 @@ async function proposePaymentRequest(
  * The commerce tools the LLM may call. Adding a capability = adding one `defineTool` here.
  * No tool can move money: the most a tool can do is *propose* a payment request.
  */
+/** A customer chat of this merchant by (part of) the customer's name; ambiguous names are refused. */
+async function findCustomerChat(deps: ToolDeps, merchantId: string, name: string) {
+  if (!deps.customerChats) throw new ValidationError('Customer chats are not available.');
+  const chats = (await deps.customerChats.recentChats(merchantId, 100)).filter((c) => c.customer);
+  const q = name.trim().toLowerCase();
+  const exact = chats.filter((c) => c.customer!.name.toLowerCase() === q);
+  const matches = exact.length
+    ? exact
+    : chats.filter((c) => c.customer!.name.toLowerCase().includes(q));
+  const unique = [...new Map(matches.map((c) => [c.customer!.id, c])).values()];
+  if (!unique.length) throw new ValidationError(`No customer chat found for "${name}".`);
+  if (unique.length > 1)
+    throw new ValidationError(
+      `Several customers match "${name}": ${unique.map((c) => c.customer!.name).join(', ')}. Which one?`,
+    );
+  return unique[0]!;
+}
+
 export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> {
   const registry = new ToolRegistry<AgentContext>();
 
@@ -592,6 +613,58 @@ export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> 
             status: 'awaiting_merchant_confirmation',
             note: 'The merchant must reply REMIND <code>. Do not say the reminder was sent.',
           };
+        },
+      }),
+    )
+    // ─── Customer chats (hand-offs from the shop's WhatsApp) ───────────────────
+    .register(
+      defineTool({
+        name: 'customer_chats',
+        kind: 'read',
+        description:
+          'Customers who messaged the shop’s WhatsApp number, most recent first, and which ones are waiting for a person (automated replies paused). ' +
+          'Use for "which customers need help?", "any customer messages?".',
+        input: z.object({}),
+        async execute(_input, ctx) {
+          const chats = await deps.customerChats!.recentChats(ctx.merchant.id, 15);
+          const now = Date.now();
+          return chats.map((c) => ({
+            customer: c.customer?.name ?? 'Unknown',
+            waiting_for_person: !!c.handoffUntil && c.handoffUntil.getTime() > now,
+            last_message_at: c.lastMessageAt.toISOString(),
+          }));
+        },
+      }),
+    )
+    .register(
+      defineTool({
+        name: 'reply_to_customer',
+        kind: 'read',
+        description:
+          'Send a WhatsApp message to a customer who wrote to the shop, as the shop’s team. Use for "reply to Sarah: …". ' +
+          'Pass the merchant’s words exactly as written; never add prices, promises or discounts they didn’t write. Automated replies stay paused for that customer.',
+        input: z.object({
+          customer: z.string().trim().min(1).max(80),
+          message: z.string().trim().min(1).max(1500),
+        }),
+        async execute({ customer, message }, ctx) {
+          const chat = await findCustomerChat(deps, ctx.merchant.id, customer);
+          await deps.customerChats!.replyAsTeam(ctx.merchant.id, chat.customer!.id, message);
+          return { sent_to: chat.customer!.name, message };
+        },
+      }),
+    )
+    .register(
+      defineTool({
+        name: 'resume_customer_chat',
+        kind: 'read',
+        description:
+          'Switch Katale’s automated replies back on for a customer after a hand-off. Use for "resume Sarah", "the bot can take over again".',
+        input: z.object({ customer: z.string().trim().min(1).max(80) }),
+        async execute({ customer }, ctx) {
+          const chat = await findCustomerChat(deps, ctx.merchant.id, customer);
+          await deps.customerChats!.resume(ctx.merchant.id, chat.customer!.id, 'whatsapp');
+          return { resumed: chat.customer!.name };
         },
       }),
     )

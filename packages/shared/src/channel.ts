@@ -45,7 +45,13 @@ export const inboundChannelMessageSchema = z
       .string()
       .regex(/^\+\d{6,15}$/)
       .optional(),
+    /** Display name from the sender's profile (user-controlled: display only, never trusted). */
     senderName: z.string().max(255).optional(),
+    /**
+     * The bot account that received the message (WhatsApp: the linked number's ID). Decides which
+     * merchant a customer is talking to.
+     */
+    recipientId: z.string().min(1).max(255).optional(),
     sentAt: z.coerce.date(),
     /**
      * `unsupported`: a real user message the core can't handle yet (image, document, ...).

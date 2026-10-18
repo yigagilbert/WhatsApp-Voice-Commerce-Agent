@@ -18,7 +18,7 @@ export async function whatsappSessionRoutes(
     if (!gateway)
       return {
         status: 503,
-        body: { error: 'WhatsApp worker not configured (WHATSAPP_GATEWAY_URL)' },
+        body: { error: { message: 'WhatsApp worker not configured (WHATSAPP_GATEWAY_URL)' } },
       };
     try {
       const res = await fetch(`${gateway.replace(/\/$/, '')}${path}`, {
@@ -31,7 +31,7 @@ export async function whatsappSessionRoutes(
       });
       return { status: res.status, body: (await res.json().catch(() => ({}))) as unknown };
     } catch {
-      return { status: 503, body: { error: 'WhatsApp worker unreachable' } };
+      return { status: 503, body: { error: { message: 'WhatsApp worker unreachable' } } };
     }
   };
 
@@ -42,7 +42,9 @@ export async function whatsappSessionRoutes(
 
   app.get('/api/whatsapp/session', async (_request, reply) => {
     const { status, body } = await call('GET', '/internal/session');
-    return reply.status(status).header('cache-control', 'no-store').send(body);
+    // The full bot number stays server-side (the page shows the masked one).
+    const { botId: _botId, ...rest } = (body ?? {}) as Record<string, unknown>;
+    return reply.status(status).header('cache-control', 'no-store').send(rest);
   });
 
   for (const action of ['reconnect', 'logout'] as const) {

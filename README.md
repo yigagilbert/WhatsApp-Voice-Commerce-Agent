@@ -79,6 +79,7 @@ More in [docs/hackathon/product-story.md](docs/hackathon/product-story.md).
 - 💳 PayPal Orders v2 checkout, capture, **tracking**; Disputes v1 **sync and evidence submission**; verified, idempotent webhooks
 - 🧺 Inventory by chat: sales reduce stock automatically (ledgered), "I just received 50 baskets", low-stock and out-of-stock alerts, reorder suggestions
 - 📈 Charts sent as WhatsApp images (revenue trend, revenue by product, stock levels) and period comparisons, all from database aggregates
+- 🛍️ Customer shopping on the shop's own WhatsApp number (off by default): numbered menu, product search, photos, availability labels, questions answered from your shop info, hand-off to a person — separate customer assistant, never the admin tools
 - 🔔 Payment reminders: "remind Sarah about ORD-123" → preview → `REMIND <code>` (or the dashboard button); PayPal is checked first, expired links are renewed; one per day, three per link
 - 🧾 Sales cross-checked with PayPal: open links re-checked in the background, missed payments recorded, mismatches flagged in the report
 - 🔒 Owner and staff admins: staff can't approve payment requests or dispute responses
@@ -188,17 +189,17 @@ Full guide and troubleshooting: [docs/development/local-setup.md](docs/developme
 One root `.env` for every app, validated at startup (`packages/config`). Full annotated list in
 [`.env.example`](.env.example).
 
-| Group     | Variables                                                                                                                                                                                               | Required for      |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| Core      | `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`                                                                                                                                                                 | everything        |
-| API       | `API_PORT`, `API_PUBLIC_URL`, `API_AUTH_TOKEN`, `INTERNAL_SERVICE_TOKEN`, `CORS_ORIGINS`, `RATE_LIMIT_MAX`                                                                                              | API               |
-| AI        | `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_MS`                                                                                                                                 | agent replies     |
-| Speech    | `VOICE_NOTES_ENABLED`, `VOICE_MAX_DURATION_SECONDS`, `VOICE_MIN_CONFIDENCE`, `STT_*`, `SUNBIRD_API_URL`, `SUNBIRD_API_KEY`, `TRANSLATION_PROVIDER`, `VOICE_TRANSLATE_LANGUAGES`, `MEDIA_MAX_BYTES`      | voice notes       |
-| PayPal    | `PAYPAL_ENV`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_BRAND_NAME`, `PAYPAL_WEBHOOK_SKIP_VERIFICATION`                                                                  | payments          |
-| Policy    | `DEFAULT_CURRENCY`, `CONFIRMATION_TTL_SECONDS`, `MAX_PAYMENT_REQUEST_AMOUNT`, `DEFAULT_PHONE_REGION`, `REPORT_SCHEDULER_ENABLED`, `UNAUTHORIZED_REPLY_COOLDOWN_HOURS`, `PAYMENT_RECONCILIATION_ENABLED` | —                 |
-| WhatsApp  | `WHATSAPP_API_BASE_URL`, `WHATSAPP_SESSION_DIR`, `WHATSAPP_CLIENT_ID`, `WHATSAPP_HEADLESS`, `WHATSAPP_CHROME_PATH`, `WHATSAPP_GATEWAY_PORT/HOST/URL`                                                    | worker            |
-| Seed      | `SEED_MERCHANT_WHATSAPP_ID`                                                                                                                                                                             | WhatsApp operator |
-| Dashboard | `API_BASE_URL` (+ `API_AUTH_TOKEN`, server-side only), `DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD`, `DASHBOARD_SESSION_HOURS`                                                                            | web               |
+| Group     | Variables                                                                                                                                                                                                                                                               | Required for      |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Core      | `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`                                                                                                                                                                                                                                 | everything        |
+| API       | `API_PORT`, `API_PUBLIC_URL`, `API_AUTH_TOKEN`, `INTERNAL_SERVICE_TOKEN`, `CORS_ORIGINS`, `RATE_LIMIT_MAX`                                                                                                                                                              | API               |
+| AI        | `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_MS`                                                                                                                                                                                                 | agent replies     |
+| Speech    | `VOICE_NOTES_ENABLED`, `VOICE_MAX_DURATION_SECONDS`, `VOICE_MIN_CONFIDENCE`, `STT_*`, `SUNBIRD_API_URL`, `SUNBIRD_API_KEY`, `TRANSLATION_PROVIDER`, `VOICE_TRANSLATE_LANGUAGES`, `MEDIA_MAX_BYTES`                                                                      | voice notes       |
+| PayPal    | `PAYPAL_ENV`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_BRAND_NAME`, `PAYPAL_WEBHOOK_SKIP_VERIFICATION`                                                                                                                                  | payments          |
+| Policy    | `DEFAULT_CURRENCY`, `CONFIRMATION_TTL_SECONDS`, `MAX_PAYMENT_REQUEST_AMOUNT`, `DEFAULT_PHONE_REGION`, `REPORT_SCHEDULER_ENABLED`, `UNAUTHORIZED_REPLY_COOLDOWN_HOURS`, `PAYMENT_RECONCILIATION_ENABLED`, `CUSTOMER_COMMERCE_ENABLED`, `CUSTOMER_COMMERCE_PILOT_NUMBERS` | —                 |
+| WhatsApp  | `WHATSAPP_API_BASE_URL`, `WHATSAPP_SESSION_DIR`, `WHATSAPP_CLIENT_ID`, `WHATSAPP_HEADLESS`, `WHATSAPP_CHROME_PATH`, `WHATSAPP_GATEWAY_PORT/HOST/URL`                                                                                                                    | worker            |
+| Seed      | `SEED_MERCHANT_WHATSAPP_ID`                                                                                                                                                                                                                                             | WhatsApp operator |
+| Dashboard | `API_BASE_URL` (+ `API_AUTH_TOKEN`, server-side only), `DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD`, `DASHBOARD_SESSION_HOURS`                                                                                                                                            | web               |
 
 Optional providers degrade gracefully — the API starts without AI, speech, PayPal or WhatsApp and
 `/api/health/ready` reports what is missing.
@@ -243,7 +244,7 @@ Full guide (env, migrations, NPM, webhook, backups, rollback): [docs/deployment/
    otherwise they get "coming soon". Other media get a polite reply.
 
 Demo script: [docs/hackathon/whatsapp-text-demo.md](docs/hackathon/whatsapp-text-demo.md).
-Customer-facing commerce on the same bot (plan, not built yet): [docs/architecture/customer-commerce-plan.md](docs/architecture/customer-commerce-plan.md).
+Customer shopping on the same bot (Phase 0 + 1 built, off by default): [docs/architecture/customer-commerce-plan.md](docs/architecture/customer-commerce-plan.md).
 Setup details, recovery, limitations and the Cloud API migration path:
 [docs/architecture/whatsapp-integration.md](docs/architecture/whatsapp-integration.md).
 

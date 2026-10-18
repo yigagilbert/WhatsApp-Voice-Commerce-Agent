@@ -1,7 +1,10 @@
 # Customer commerce over WhatsApp — feasibility and plan
 
-_Status: research and plan only (2026-10-18). Nothing here is implemented. Admin functionality is
-unchanged; unregistered numbers keep getting the generic welcome until this is switched on._
+_Status (2026-10-18): **Phase 0 and Phase 1 implemented**, behind `CUSTOMER_COMMERCE_ENABLED=false`
+(production) and a per-number dashboard switch. Phase 2 (cart, order confirmation, PayPal checkout)
+is next. Decisions confirmed: one bot number per merchant, automatic payment links (admin approval
+optional), availability labels only, 12 h configurable hand-off, product photos uploaded in the
+dashboard._
 
 ## 1. Summary
 
@@ -206,3 +209,30 @@ untouched.
 3. Show exact stock to customers or only in stock / low / sold out (recommended).
 4. Hand-off: bot silent for how long (e.g. 12 h) after a customer asks for a person.
 5. Product photos: upload in the dashboard (recommended) or image URLs.
+
+## 13. What was built (Phase 0 + 1)
+
+| Piece                                                                                                                                                            | Where                                                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Bot number → merchant (`WhatsAppAccount`), no takeover between shops                                                                                             | `packages/commerce/src/services/whatsapp-account.service.ts`              |
+| Routing: admin of _this_ shop → admin agent; customer (both switches on) → customer flow; otherwise generic welcome                                              | `InboundMessageService.handle`                                            |
+| Customer identity: WhatsApp ID / `@lid`, link only via WhatsApp-verified phone, one record per shop                                                              | `packages/commerce/src/services/customer-identity.service.ts`             |
+| Customer catalog: visible + active only, In stock / Low stock / Out of stock, photos                                                                             | `apps/api/src/modules/customer/catalog.ts`                                |
+| Numbered menu (1 browse, 2 ask, 3 person), numbered lists across pages, `more`, details with photo                                                               | `customer-conversation.service.ts`                                        |
+| Customer agent: own prompt, 4 tools (`browse_products`, `product_details`, `shop_info`, `request_human`)                                                         | `customer-prompt.ts`, `customer-tools.ts`                                 |
+| Hand-off: replies paused for `handoffHours`, admins alerted, messages forwarded; admins reply ("reply to Sarah: …") and resume from WhatsApp or the dashboard    | admin tools `customer_chats`, `reply_to_customer`, `resume_customer_chat` |
+| Abuse limits: 15 messages/min, 300/day per customer                                                                                                              | `customer-conversation.service.ts`                                        |
+| Dashboard: connect the shop number, customer settings, shop info, customer chats + resume (WhatsApp page); product photo, description, visibility (product page) | `apps/web/app/whatsapp`, `apps/web/app/products/[id]`                     |
+
+**Controlled testing first:** connect the shop number in the dashboard, then set
+`CUSTOMER_COMMERCE_PILOT_NUMBERS=+2567…` (a phone that is **not** an admin of the shop) and restart
+the API. Only that number gets the customer experience; everyone else keeps the generic welcome.
+
+**Turning it on (when approved):** set `CUSTOMER_COMMERCE_ENABLED=true` on the API and redeploy, then
+in the dashboard → WhatsApp: _Use this number as this shop's number_ → tick _Let customers shop on
+this number_ → add shop information. Admin numbers keep the admin assistant.
+
+**Known limits of Phase 1:** customers can't order yet (the assistant says ordering is coming soon and
+offers a person); customer voice notes get "please type"; rate limits and the welcome cooldown are in
+memory (reset on restart); one WhatsApp worker session per server (several shops need several
+workers — the data model already supports it).

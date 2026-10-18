@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 import type { ColDef } from 'ag-grid-community';
 import { CommerceGrid, formatMinor } from '@/components/grid/commerce-grid';
@@ -8,6 +9,7 @@ import type { ProductStat } from '@/lib/types';
 type Row = ProductStat & { price: number; revenue: number; activeLabel: string };
 
 export function ProductsGrid({ products }: { products: ProductStat[] }) {
+  const router = useRouter();
   const rows = useMemo<Row[]>(
     () =>
       products.map((p) => ({
@@ -72,6 +74,7 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
   );
   return (
     <CommerceGrid<Row>
+      onRowClick={(row) => router.push(`/products/${row.id}`)}
       rows={rows}
       columns={columns}
       getRowId={(r) => r.id}

@@ -1,6 +1,9 @@
 import { runAgent, type ChatMessage, type ChatModel, type ToolRegistry } from '@vca/ai';
 import {
   canApprove,
+  chatIdToPhone,
+  type CustomerIdentityService,
+  type WhatsAppAccountService,
   parseConfirmationReply,
   type AdminService,
   type AuditService,
@@ -21,6 +24,7 @@ import {
   type SpeechPipeline,
   type SpeechPipelineResult,
 } from '@vca/speech';
+import type { CustomerConversationService } from '../customer/customer-conversation.service';
 import type { ConfirmationExecutor } from './confirmation-executor';
 import { approvalWord, copy } from './copy';
 import { buildSystemPrompt } from './system-prompt';
@@ -64,6 +68,19 @@ export interface InboundServiceDeps {
   /** Spoken languages handled directly; a note heard in any other language is read back first. */
   voiceLanguages?: string[];
   admins: AdminService;
+  /**
+   * Customer commerce (all optional; without them every non-admin gets the generic welcome).
+   * Customers are served only when the server flag is on AND the receiving bot number is
+   * connected to a merchant with customer commerce enabled.
+   */
+  customers?: {
+    enabled: boolean;
+    /** E.164 numbers allowed to shop while customer commerce is off (controlled testing). */
+    pilotNumbers?: string[];
+    accounts: WhatsAppAccountService;
+    identity: CustomerIdentityService;
+    conversations: CustomerConversationService;
+  };
   /** Minimum time between two welcome replies to the same unregistered sender (default 24 h). */
   welcomeCooldownMs?: number;
   logger: Logger;
@@ -100,11 +117,36 @@ export class InboundMessageService {
     //    Anyone else (customers, deactivated admins, strangers) gets the same generic welcome, at
     //    most once per cooldown, and nothing else: no agent, no tools, no data, no lookups, and no
     //    merchant, conversation, message or order is created for them.
+    // The bot number that received the message decides the merchant (one number = one shop).
+    // When it is connected, only that merchant's admins are admins here.
+    const account =
+      message.channel === 'whatsapp' && this.deps.customers
+        ? await this.deps.customers.accounts.forBot(message.recipientId)
+        : null;
     const auth = await this.deps.admins.authorize(
       message.channel,
       message.senderId,
       message.senderPhone,
+      account?.merchantId,
     );
+    const customers = this.deps.customers;
+    const senderPhone = message.senderPhone ?? chatIdToPhone(message.senderId);
+    // Pilot numbers (controlled testing) get the customer experience on a connected shop number
+    // even while customer shopping is switched off for everyone else.
+    const pilot = !!senderPhone && !!customers?.pilotNumbers?.includes(senderPhone);
+    if (
+      !auth.ok &&
+      auth.reason === 'unknown' &&
+      account &&
+      customers &&
+      (pilot || (customers.enabled && account.customerCommerceEnabled))
+    ) {
+      // A customer of this shop: the customer experience, never the admin agent or its tools.
+      const ctx = getContext();
+      if (ctx) ctx.merchantId = account.merchantId;
+      const identified = await customers.identity.identify(account.merchantId, message);
+      return customers.conversations.handle(message, account, identified);
+    }
     if (!auth.ok) {
       // Logged (server-side only) so the owner can troubleshoot admin matching; never sent back.
       logger.info(

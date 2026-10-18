@@ -3,6 +3,8 @@ import {
   AnalyticsService,
   InventoryService,
   AdminService,
+  CustomerIdentityService,
+  WhatsAppAccountService,
   AuditService,
   ConfirmationService,
   CustomerService,
@@ -32,6 +34,9 @@ import { PaymentService } from './modules/payments/payment.service';
 import { PaymentReminderService } from './modules/payments/reminder.service';
 import { PaymentReconciler } from './modules/payments/reconciliation.service';
 import { WhatsAppConnectionMonitor } from './modules/whatsapp/connection-monitor';
+import { CustomerCatalog } from './modules/customer/catalog';
+import { CustomerConversationService } from './modules/customer/customer-conversation.service';
+import { createCustomerTools } from './modules/customer/customer-tools';
 import { PayPalWebhookService } from './modules/paypal/webhook.service';
 import { DisputeService } from './modules/disputes/dispute.service';
 import { ShipmentService } from './modules/shipments/shipment.service';
@@ -214,7 +219,21 @@ export function createContainer(
     policy,
     logger: logger.child({ component: 'executor' }),
   });
+  // Customer commerce: its own catalog view, tools and conversation flow (admin tools never used).
+  const whatsappAccounts = new WhatsAppAccountService(db, audit);
+  const customerIdentity = new CustomerIdentityService(db, audit, config.DEFAULT_PHONE_REGION);
+  const customerCatalog = new CustomerCatalog(db);
+  const customerChats = new CustomerConversationService({
+    db,
+    audit,
+    catalog: customerCatalog,
+    tools: createCustomerTools(customerCatalog),
+    chatModel,
+    notifications,
+    logger: logger.child({ component: 'customer-chat' }),
+  });
   const tools = createCommerceTools({
+    customerChats,
     customers,
     products,
     orders,
@@ -266,6 +285,13 @@ export function createContainer(
     voiceLanguages:
       config.VOICE_EXPERIMENTAL_LUGANDA && config.SUNBIRD_API_KEY ? ['en', 'lg'] : ['en'],
     admins,
+    customers: {
+      enabled: config.CUSTOMER_COMMERCE_ENABLED,
+      pilotNumbers: config.CUSTOMER_COMMERCE_PILOT_NUMBERS,
+      accounts: whatsappAccounts,
+      identity: customerIdentity,
+      conversations: customerChats,
+    },
     welcomeCooldownMs: config.UNAUTHORIZED_REPLY_COOLDOWN_HOURS * 60 * 60 * 1000,
     logger: logger.child({ component: 'inbound' }),
   });
@@ -290,6 +316,9 @@ export function createContainer(
     payments,
     reminders,
     reconciler,
+    whatsappAccounts,
+    customerCatalog,
+    customerChats,
     shipments,
     disputes,
     webhooks,

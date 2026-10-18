@@ -3,6 +3,13 @@ import { ErrorNotice, PageHeader } from '@/components/ui';
 import { apiGet } from '@/lib/api';
 import { dateTime } from '@/lib/format';
 import { AutoRefresh, SessionControls } from './controls';
+import {
+  ConnectShopNumber,
+  CustomerChats,
+  ShopSettingsForm,
+  type CustomerChat,
+  type ShopView,
+} from './shop-settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +63,7 @@ export default async function WhatsAppPage() {
         <PageHeader title="WhatsApp" />
         <ErrorNotice message={result.error} />
         <AutoRefresh seconds={10} />
+        <ShopSection />
       </>
     );
   }
@@ -114,6 +122,45 @@ export default async function WhatsAppPage() {
           </div>
         )}
       </section>
+      <ShopSection />
+    </>
+  );
+}
+
+/** The shop's number, customer-shopping settings and customer chats (shown even if the bot is down). */
+async function ShopSection() {
+  const [shop, chats] = await Promise.all([
+    apiGet<ShopView>('/api/whatsapp/account'),
+    apiGet<CustomerChat[]>('/api/customer-chats'),
+  ]);
+  const account = shop.ok
+    ? (shop.data.accounts.find((a) => a.active) ?? shop.data.accounts[0])
+    : undefined;
+  return (
+    <>
+      <section className="mt-6 max-w-2xl space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-800">Shop number and customers</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Each business has its own WhatsApp number. Customers who message it see only this
+            shop&apos;s products; your admin numbers keep the admin assistant.
+          </p>
+        </div>
+        {!shop.ok ? (
+          <ErrorNotice message={shop.error} />
+        ) : (
+          <>
+            <ConnectShopNumber view={shop.data} />
+            {account && <ShopSettingsForm account={account} available={shop.data.available} />}
+          </>
+        )}
+      </section>
+      {account && (
+        <section className="mt-6 max-w-2xl">
+          <h2 className="mb-3 text-sm font-semibold text-slate-800">Customer chats</h2>
+          {chats.ok ? <CustomerChats chats={chats.data} /> : <ErrorNotice message={chats.error} />}
+        </section>
+      )}
     </>
   );
 }

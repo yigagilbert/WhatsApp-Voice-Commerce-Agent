@@ -26,6 +26,8 @@ packages/database/src/generated/
 # Downloaded / temporary media
 tmp/
 *.ogg
+# …except the synthetic (text-to-speech) voice fixtures the tests use.
+!tests/fixtures/**/*.ogg
 *.opus
 *.wav
 

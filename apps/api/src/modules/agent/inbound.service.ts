@@ -1,5 +1,11 @@
 import { runAgent, type ChatMessage, type ChatModel, type ToolRegistry } from '@vca/ai';
-import { parseConfirmationReply, type AuditService, type ConfirmationService } from '@vca/commerce';
+import {
+  canApprove,
+  parseConfirmationReply,
+  type AdminService,
+  type AuditService,
+  type ConfirmationService,
+} from '@vca/commerce';
 import type { Conversation, Database, Merchant } from '@vca/database';
 import {
   getContext,
@@ -27,14 +33,19 @@ const HISTORY_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 /** How long an "I heard: … is that right?" transcript waits for the merchant's YES. */
 const PENDING_TRANSCRIPT_TTL_MS = 10 * 60 * 1000;
 
+/** The agent's reply text plus any chart images built by tools. */
+interface AgentReply {
+  text: string;
+  attachments: NonNullable<AgentContext['attachments']>;
+}
+
 /** Conversation.context — session metadata only, never financial truth. */
 interface ConversationContext {
   pendingTranscript?: { text: string; language?: string; messageId: string; at: number };
 }
 
-/** Unknown senders get the onboarding reply at most once per window (no reply loops/spam). */
-const ONBOARDING_REPLY_WINDOW_MS = 60 * 60 * 1000;
-const ONBOARDING_TRACKED_SENDERS = 1000;
+/** Senders remembered for the welcome cooldown (oldest forgotten first). */
+const WELCOME_TRACKED_SENDERS = 10_000;
 
 const isUniqueViolation = (error: unknown) =>
   typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
@@ -52,6 +63,9 @@ export interface InboundServiceDeps {
   voiceMinConfidence: number;
   /** Spoken languages handled directly; a note heard in any other language is read back first. */
   voiceLanguages?: string[];
+  admins: AdminService;
+  /** Minimum time between two welcome replies to the same unregistered sender (default 24 h). */
+  welcomeCooldownMs?: number;
   logger: Logger;
 }
 
@@ -61,19 +75,20 @@ export interface InboundServiceDeps {
  * Channel adapters (WhatsApp worker, web console) call this through POST /api/agent/message.
  */
 export class InboundMessageService {
-  private readonly onboardingRepliedAt = new Map<string, number>();
+  private readonly welcomedAt = new Map<string, number>();
 
   constructor(private readonly deps: InboundServiceDeps) {}
 
-  /** True if an unknown sender should get the onboarding reply now (throttled per sender). */
-  private shouldSendOnboarding(key: string, now = Date.now()): boolean {
-    const last = this.onboardingRepliedAt.get(key);
-    if (last && now - last < ONBOARDING_REPLY_WINDOW_MS) return false;
-    this.onboardingRepliedAt.delete(key);
-    this.onboardingRepliedAt.set(key, now);
-    if (this.onboardingRepliedAt.size > ONBOARDING_TRACKED_SENDERS) {
-      const oldest = this.onboardingRepliedAt.keys().next().value;
-      if (oldest !== undefined) this.onboardingRepliedAt.delete(oldest);
+  /** True if an unregistered sender should get the welcome now (once per cooldown per sender). */
+  private shouldWelcome(key: string, now = Date.now()): boolean {
+    const cooldown = this.deps.welcomeCooldownMs ?? 24 * 60 * 60 * 1000;
+    const last = this.welcomedAt.get(key);
+    if (last !== undefined && now - last < cooldown) return false;
+    this.welcomedAt.delete(key);
+    this.welcomedAt.set(key, now);
+    if (this.welcomedAt.size > WELCOME_TRACKED_SENDERS) {
+      const oldest = this.welcomedAt.keys().next().value;
+      if (oldest !== undefined) this.welcomedAt.delete(oldest);
     }
     return true;
   }
@@ -81,32 +96,35 @@ export class InboundMessageService {
   async handle(message: InboundChannelMessage): Promise<InboundProcessingResult> {
     const { db, logger } = this.deps;
 
-    // 1. Only known operators can drive a merchant. Unknown senders get an onboarding reply
-    //    (throttled) — no merchant, conversation, message or order is created for them.
-    const operator = await db.merchantOperator.findUnique({
-      where: { channel_externalId: { channel: message.channel, externalId: message.senderId } },
-      include: { merchant: true },
-    });
-    if (!operator) {
-      // The sender ID is logged so an admin can register it as an operator (`pnpm operator:add`).
+    // 1. Only active admins can drive a merchant (matched by chat ID, linked ID or phone).
+    //    Anyone else (customers, deactivated admins, strangers) gets the same generic welcome, at
+    //    most once per cooldown, and nothing else: no agent, no tools, no data, no lookups, and no
+    //    merchant, conversation, message or order is created for them.
+    const auth = await this.deps.admins.authorize(
+      message.channel,
+      message.senderId,
+      message.senderPhone,
+    );
+    if (!auth.ok) {
+      // Logged (server-side only) so the owner can troubleshoot admin matching; never sent back.
       logger.info(
-        { channel: message.channel, senderId: message.senderId },
-        'message from unknown sender ignored',
+        { channel: message.channel, senderId: message.senderId, reason: auth.reason },
+        'message from unauthorized sender ignored',
       );
-      const reply = this.shouldSendOnboarding(`${message.channel}:${message.senderId}`);
       return {
         status: 'ignored',
-        replies: reply
+        replies: this.shouldWelcome(`${message.channel}:${message.senderId}`)
           ? [
               {
                 channel: message.channel,
                 externalChatId: message.externalChatId,
-                text: copy.notRegistered(message.senderId),
+                text: copy.welcome,
               },
             ]
           : [],
       };
     }
+    const operator = auth.operator;
     const merchant = operator.merchant;
     const ctx = getContext();
     if (ctx) ctx.merchantId = merchant.id;
@@ -195,7 +213,12 @@ export class InboundMessageService {
     }
     if (!text) return this.reply(conversation, copy.emptyMessage);
 
-    const voiceReply = async (reply: string, outcome: string) => {
+    const voiceReply = async (
+      reply: string | AgentReply,
+      outcome: string,
+    ): Promise<InboundProcessingResult> => {
+      const { text: replyText, attachments } =
+        typeof reply === 'string' ? { text: reply, attachments: [] } : reply;
       if (voice) {
         const metrics = {
           outcome,
@@ -216,7 +239,7 @@ export class InboundMessageService {
           data: metrics,
         });
       }
-      return this.reply(conversation, reply);
+      return this.reply(conversation, replyText, attachments);
     };
 
     const confirmationReply = parseConfirmationReply(text);
@@ -275,7 +298,12 @@ export class InboundMessageService {
       //    Either way, nothing financial executes without a matching pending confirmation.
       return this.reply(
         conversation,
-        await this.handleConfirmationReply(merchant, conversation, confirmationReply),
+        await this.handleConfirmationReply(
+          merchant,
+          conversation,
+          confirmationReply,
+          operator.role,
+        ),
       );
     }
 
@@ -290,6 +318,7 @@ export class InboundMessageService {
           language,
           stored.id,
           !!voice || !!pending,
+          operator.role,
         ),
         'agent',
       );
@@ -358,8 +387,15 @@ export class InboundMessageService {
     merchant: Merchant,
     conversation: Conversation,
     reply: NonNullable<ReturnType<typeof parseConfirmationReply>>,
+    role: 'OWNER' | 'STAFF' = 'OWNER',
   ): Promise<string> {
     const result = await this.deps.confirmations.claim(merchant.id, conversation.id, reply);
+    // Defence in depth: staff never get owner-only proposals, but a role can change while one
+    // is pending. Such an approval is refused and nothing runs.
+    if (result.status === 'claimed' && !canApprove(role, result.confirmation.action)) {
+      await this.deps.confirmations.markFailed(result.confirmation.id, 'owner approval required');
+      return copy.ownerOnly;
+    }
     switch (result.status) {
       case 'none': {
         if (reply.kind !== 'confirm') return copy.nothingToCancel;
@@ -397,9 +433,10 @@ export class InboundMessageService {
     language: string | undefined,
     currentMessageId: string,
     fromVoice = false,
-  ): Promise<string> {
+    operatorRole: 'OWNER' | 'STAFF' = 'OWNER',
+  ): Promise<AgentReply> {
     if (!this.deps.chatModel) {
-      return copy.aiNotConfigured;
+      return { text: copy.aiNotConfigured, attachments: [] };
     }
 
     const previous = await this.deps.db.message.findMany({
@@ -428,6 +465,7 @@ export class InboundMessageService {
       proposals: [],
       notices: [],
       fromVoice,
+      operatorRole,
     };
     const result = await runAgent({
       model: this.deps.chatModel,
@@ -466,32 +504,45 @@ export class InboundMessageService {
 
     // If a sensitive action was proposed (or refused by policy), the backend's deterministic
     // summary IS the reply — the model never restates amounts for financial actions.
+    const attachments = context.attachments ?? [];
     const proposal = context.proposals.at(-1);
-    if (proposal) return proposal.prompt;
+    if (proposal) return { text: proposal.prompt, attachments: [] };
     const notice = context.notices.at(-1);
-    return notice ?? result.reply;
+    return { text: notice ?? result.reply, attachments };
   }
 
-  private async reply(conversation: Conversation, text: string): Promise<InboundProcessingResult> {
-    await this.deps.db.message.create({
-      data: {
-        conversationId: conversation.id,
-        channel: conversation.channel,
-        direction: 'OUTBOUND',
-        type: 'TEXT',
-        content: text,
-        correlationId: getCorrelationId() ?? null,
-      },
-    });
-    return {
-      status: 'processed',
-      replies: [
-        {
-          channel: conversation.channel as InboundProcessingResult['replies'][number]['channel'],
-          externalChatId: conversation.externalChatId,
-          text,
+  /**
+   * Stores and returns the reply. Charts go first, each as an image with the backend's caption;
+   * the agent's text follows as its own message.
+   */
+  private async reply(
+    conversation: Conversation,
+    text: string,
+    attachments: AgentReply['attachments'] = [],
+  ): Promise<InboundProcessingResult> {
+    const channel = conversation.channel as InboundProcessingResult['replies'][number]['channel'];
+    const replies: InboundProcessingResult['replies'] = [
+      ...attachments.map((a) => ({
+        channel,
+        externalChatId: conversation.externalChatId,
+        text: a.caption,
+        media: a.media,
+      })),
+      ...(text.trim() ? [{ channel, externalChatId: conversation.externalChatId, text }] : []),
+    ];
+    for (const r of replies) {
+      await this.deps.db.message.create({
+        data: {
+          conversationId: conversation.id,
+          channel: conversation.channel,
+          direction: 'OUTBOUND',
+          type: 'TEXT',
+          // Image bytes are not stored; the transcript records that a chart was sent.
+          content: r.media ? `[chart image] ${r.text}` : r.text,
+          correlationId: getCorrelationId() ?? null,
         },
-      ],
-    };
+      });
+    }
+    return { status: 'processed', replies };
   }
 }

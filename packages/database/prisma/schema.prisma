@@ -46,6 +46,9 @@ model Merchant {
   auditEvents   AuditEvent[]
   shipments     Shipment[]
   disputes      Dispute[]
+  stockMovements StockMovement[]
+  reportSchedule ReportSchedule?
+  reportRuns     ReportRun[]
 
   @@map("merchants")
 }
@@ -57,13 +60,26 @@ model MerchantOperator {
   merchantId String
   name       String
   channel    String
+  /// The chat ID messages arrive from / are sent to (e.g. 256700000000@c.us, …@lid, "dashboard").
   externalId String
   role       OperatorRole @default(OWNER)
+  /// WhatsApp admins: phone in E.164 (+256700000000). Senders are matched by ID, linked ID or phone.
+  phone          String?
+  /// WhatsApp linked ID (…@lid) learned when this admin first messages the bot.
+  whatsappLid    String?
+  /// Only active admins can operate the bot or receive business information.
+  active         Boolean      @default(true)
+  receiveReports Boolean      @default(true)
+  receiveAlerts  Boolean      @default(true)
   createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @default(now()) @updatedAt
 
-  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchant   Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  deliveries ReportDelivery[]
 
   @@unique([channel, externalId])
+  @@unique([channel, phone])
+  @@index([channel, whatsappLid])
   @@index([merchantId])
   @@map("merchant_operators")
 }
@@ -111,12 +127,17 @@ model Product {
   currency       String
   /// null = inventory not tracked for this product.
   stockQuantity  Int?
+  /// Alert when stock falls to or below this level (null = no low-stock alerts).
+  reorderLevel   Int?
+  /// Set when a low-stock alert was sent; cleared when stock is back above the reorder level.
+  lowStockAlertedAt DateTime?
   active         Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  merchant   Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  orderItems OrderItem[]
+  merchant       Merchant        @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  orderItems     OrderItem[]
+  stockMovements StockMovement[]
 
   @@unique([merchantId, sku])
   @@index([merchantId, name])
@@ -244,6 +265,11 @@ model Payment {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   completedAt    DateTime?
+  /// Payment reminders sent to the customer for this link (merchant-approved, rate limited).
+  reminderCount  Int             @default(0)
+  lastReminderAt DateTime?
+  /// Last time the reconciler asked PayPal about this payment (throttles background checks).
+  providerCheckedAt DateTime?
 
   merchant  Merchant   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -328,6 +354,7 @@ enum ConfirmationAction {
   CREATE_PAYMENT_REQUEST
   ADD_SHIPMENT_TRACKING
   SUBMIT_DISPUTE_RESPONSE
+  SEND_PAYMENT_REMINDER
   SEND_INVOICE
   REFUND_PAYMENT
 }
@@ -524,4 +551,137 @@ model DisputeResponse {
 
   @@index([disputeId])
   @@map("dispute_responses")
+}
+
+
+// ─── Inventory ──────────────────────────────────────────────────────────────
+
+enum StockMovementType {
+  SALE
+  RESTOCK
+  ADJUSTMENT
+  RETURN
+  DAMAGED
+}
+
+/// Append-only stock ledger: every change to Product.stockQuantity, with the balance after it.
+model StockMovement {
+  id            String            @id @default(cuid())
+  merchantId    String
+  productId     String
+  type          StockMovementType
+  /// Signed change in units (sales are negative).
+  quantity      Int
+  balanceAfter  Int
+  orderId       String?
+  note          String?
+  actor         AuditActor
+  correlationId String?
+  createdAt     DateTime          @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  /// One SALE movement per order line: a paid order never reduces stock twice.
+  @@unique([orderId, productId, type])
+  @@index([merchantId, createdAt])
+  @@index([productId, createdAt])
+  @@map("stock_movements")
+}
+
+
+// ─── Proactive reports ──────────────────────────────────────────────────────
+
+enum ReportFrequency {
+  DAILY
+  WEEKLY
+  /// On the 1st of each month, covering the previous calendar month.
+  MONTHLY
+}
+
+/// When and what the business report contains. One per merchant.
+model ReportSchedule {
+  id               String          @id @default(cuid())
+  merchantId       String          @unique
+  enabled          Boolean         @default(false)
+  frequency        ReportFrequency @default(WEEKLY)
+  /// 1 = Monday … 7 = Sunday (weekly reports).
+  weekday          Int             @default(1)
+  hour             Int             @default(8)
+  minute           Int             @default(0)
+  /// IANA time zone; null = the merchant's.
+  timezone         String?
+  includeSales     Boolean         @default(true)
+  includeInventory Boolean         @default(true)
+  includeUnpaid    Boolean         @default(true)
+  includeDisputes  Boolean         @default(true)
+  includeChart     Boolean         @default(true)
+  includeInsights  Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@map("report_schedules")
+}
+
+enum ReportRunStatus {
+  SENDING
+  SENT
+  PARTIAL
+  FAILED
+}
+
+/// One generated report. (merchant, periodKey) is unique, so a slot is never reported twice.
+model ReportRun {
+  id           String          @id @default(cuid())
+  merchantId   String
+  /// e.g. "WEEKLY:2026-10-19" (scheduled slot, local date) or "MANUAL:<timestamp>".
+  periodKey    String
+  trigger      String
+  scheduledFor DateTime
+  status       ReportRunStatus @default(SENDING)
+  text         String
+  /// The chart image (base64 PNG), kept so retries send the same report.
+  chartBase64  String?
+  chartCaption String?
+  createdAt    DateTime        @default(now())
+  completedAt  DateTime?
+
+  merchant   Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  deliveries ReportDelivery[]
+
+  @@unique([merchantId, periodKey])
+  @@index([merchantId, createdAt])
+  @@map("report_runs")
+}
+
+enum ReportDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+/// Delivery of one report to one admin, with retries. Text and chart are tracked separately so a
+/// retry never repeats the part that already arrived.
+model ReportDelivery {
+  id            String               @id @default(cuid())
+  runId         String
+  operatorId    String
+  chatId        String
+  status        ReportDeliveryStatus @default(PENDING)
+  attempts      Int                  @default(0)
+  lastError     String?
+  textSentAt    DateTime?
+  chartSentAt   DateTime?
+  sentAt        DateTime?
+  nextAttemptAt DateTime             @default(now())
+  createdAt     DateTime             @default(now())
+
+  run      ReportRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  operator MerchantOperator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, operatorId])
+  @@index([status, nextAttemptAt])
+  @@map("report_deliveries")
 }

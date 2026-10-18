@@ -185,7 +185,9 @@ export interface Payment {
   externalId: string | null;
   createdAt: string;
   completedAt: string | null;
-  order: { reference: string; customer?: { name: string } };
+  reminderCount?: number;
+  lastReminderAt?: string | null;
+  order: { reference: string; status?: string; customer?: { name: string } };
 }
 
 export interface AuditEvent {

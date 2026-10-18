@@ -59,8 +59,13 @@ Wait for `WhatsApp client ready`.
 
 ## Register the merchant (first time)
 
+Preferred: add the merchant's phone number in the dashboard → **Admins** and press **Send test**.
+
+CLI alternative:
+
 1. From the merchant phone, message the bot: `Hello`
-2. Katale AI replies: _"This WhatsApp number isn't linked… Your WhatsApp ID: 2012…@lid"_
+2. Katale AI replies with the generic welcome; the API log shows the sender as
+   `message from unauthorized sender ignored` with `senderId: "2012…@lid"`.
 3. Register that ID:
 
 ```bash

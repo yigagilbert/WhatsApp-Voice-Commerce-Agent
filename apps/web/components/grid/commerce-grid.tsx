@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import {
   AllCommunityModule,
@@ -78,6 +78,14 @@ export function CommerceGrid<T>({
     [],
   );
 
+  // Pages pass `summarize` inline (a new function each render) and a new pinned summary row makes
+  // AG Grid fire rowDataUpdated again. Keep the callback stable and only update state when the
+  // summary actually changed, otherwise the grid re-renders in a loop.
+  const summarizeRef = useRef(summarize);
+  useEffect(() => {
+    summarizeRef.current = summarize;
+  }, [summarize]);
+  const lastSummary = useRef<string | null>(null);
   const refreshSummary = useCallback(() => {
     if (!api.current) return;
     const visible: T[] = [];
@@ -85,8 +93,14 @@ export function CommerceGrid<T>({
       if (node.data) visible.push(node.data);
     });
     setShown(visible.length);
-    if (summarize) setSummaryRow(visible.length ? [summarize(visible)] : undefined);
-  }, [summarize]);
+    const summarizeRows = summarizeRef.current;
+    if (!summarizeRows) return;
+    const next = visible.length ? [summarizeRows(visible)] : undefined;
+    const key = JSON.stringify(next ?? null);
+    if (key === lastSummary.current) return;
+    lastSummary.current = key;
+    setSummaryRow(next);
+  }, []);
 
   const chooseStatus = (value: string) => {
     statusRef.current = value;

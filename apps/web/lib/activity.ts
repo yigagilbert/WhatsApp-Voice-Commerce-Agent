@@ -57,6 +57,13 @@ const TOOL_LABELS: Record<string, string> = {
   get_dispute: 'review a dispute',
   prepare_dispute_response: 'draft a dispute response',
   refresh_disputes: 'refresh disputes',
+  inventory_report: 'inventory report',
+  stock_history: 'stock history',
+  adjust_stock: 'record a stock change',
+  add_product: 'add a product',
+  update_product: 'update a product',
+  compare_sales: 'compare periods',
+  send_chart: 'send a chart',
   create_customer: 'add a customer',
 };
 
@@ -141,6 +148,78 @@ export function describeEvent(event: Pick<AuditEvent, 'type' | 'data'>): Describ
         title: `Merchant typed ${word} ${str(d.code) ?? ''}`.trim(),
       };
     }
+    case 'inventory.adjusted':
+      return {
+        stage: 'Backend verifies',
+        title:
+          `Stock ${Number(d.change) >= 0 ? '+' : ''}${String(d.change ?? '')} ${str(d.product) ?? ''}`.trim(),
+        detail: join(
+          str(d.type)?.toLowerCase(),
+          d.before !== undefined ? `${String(d.before)} → ${String(d.after)}` : undefined,
+        ),
+      };
+    case 'inventory.reorder_level_set':
+      return {
+        stage: 'Backend verifies',
+        title: `Reorder level for ${str(d.product) ?? 'product'}: ${d.reorderLevel === null ? 'off' : String(d.reorderLevel)}`,
+      };
+    case 'product.created':
+      return { stage: 'Backend verifies', title: `Product added: ${str(d.product) ?? ''}` };
+    case 'product.updated':
+      return {
+        stage: 'Backend verifies',
+        title: `Product updated: ${str(d.product) ?? ''}`,
+        detail:
+          num(d.priceBeforeMinor) !== undefined
+            ? `price ${usd(d.priceBeforeMinor, 'USD')} → ${usd(d.priceAfterMinor, 'USD')}`
+            : undefined,
+      };
+    case 'admin.added':
+      return {
+        stage: 'Backend verifies',
+        title: `Admin added: ${str(d.name) ?? ''}`,
+        detail: str(d.phone),
+      };
+    case 'admin.updated':
+      return {
+        stage: 'Backend verifies',
+        title: `Admin ${d.active === false ? 'deactivated' : d.active === true ? 'activated' : 'updated'}: ${str(d.name) ?? ''}`,
+      };
+    case 'admin.removed':
+      return {
+        stage: 'Backend verifies',
+        title: `Admin removed: ${str(d.name) ?? ''}`,
+        detail: str(d.phone),
+      };
+    case 'report.schedule_updated':
+      return {
+        stage: 'Backend verifies',
+        title: d.enabled
+          ? `Reports scheduled ${String(d.frequency ?? '').toLowerCase()} at ${str(d.time) ?? ''}`
+          : 'Scheduled reports turned off',
+      };
+    case 'report.generated':
+      return {
+        stage: 'Notified',
+        title: `Business report generated (${d.trigger === 'MANUAL' ? 'manual' : 'scheduled'})`,
+        detail: `${num(d.recipients) ?? 0} recipient(s)`,
+      };
+    case 'report.sent':
+    case 'report.partial':
+    case 'report.failed':
+      return {
+        stage: event.type === 'report.sent' ? 'Notified' : 'Problem',
+        title: {
+          'report.sent': 'Business report delivered',
+          'report.partial': 'Business report partly delivered',
+          'report.failed': 'Business report not delivered',
+        }[event.type]!,
+        detail: `${num(d.delivered) ?? 0} of ${num(d.recipients) ?? 0} admins`,
+      };
+    case 'whatsapp.reconnect_requested':
+      return { stage: 'Input', title: 'WhatsApp reconnect requested from the dashboard' };
+    case 'whatsapp.logout_requested':
+      return { stage: 'Input', title: 'WhatsApp device unlinked from the dashboard' };
     case 'shipment.tracking_added':
       return {
         stage: 'PayPal executes',
@@ -208,6 +287,21 @@ export function describeEvent(event: Pick<AuditEvent, 'type' | 'data'>): Describ
       return {
         stage: 'PayPal executes',
         title: 'Buyer approved; PayPal is completing the capture',
+      };
+    case 'payment.reminder_sent':
+      return {
+        stage: 'Notified',
+        title: `Payment reminder ${num(d.reminderNumber) ?? ''} sent for ${str(d.orderReference) ?? 'an order'}`,
+        detail: join(
+          d.via === 'dashboard' ? 'from the dashboard' : 'approved with REMIND',
+          d.renewedLink === true && 'new PayPal link',
+        ),
+      };
+    case 'payment.link_renewed':
+      return {
+        stage: 'PayPal executes',
+        title: `Expired PayPal link replaced for ${str(d.orderReference) ?? 'an order'}`,
+        detail: usd(d.amountMinor, d.currency),
       };
     case 'notification.sent':
       return { stage: 'Notified', title: 'WhatsApp message sent', detail: str(d.preview) };

@@ -32,6 +32,16 @@ describe.skipIf(!config.AI_API_KEY)(`Merchant questions (${config.AI_MODEL})`, (
     },
   );
 
+  it.each([
+    ['How much did I sell last month?'],
+    ['What were my sales last month compared to the month before?'],
+  ])('sales: %s → period last_month', async (question) => {
+    const { calls } = await interpret(question);
+    const sales = calls.filter((c) => ['get_sales_summary', 'compare_sales'].includes(c.name));
+    expect(sales.length, names(calls).join(', ')).toBeGreaterThan(0);
+    expect(sales.map((c) => args(c).period)).toContain('last_month');
+  });
+
   it("orders: which orders haven't been paid → find_orders(AWAITING_PAYMENT)", async () => {
     const { calls, text } = await interpret("Which orders haven't been paid?");
     expect(args(calls.find((c) => c.name === 'find_orders'))).toMatchObject({

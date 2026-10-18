@@ -95,6 +95,18 @@ export const commerceSchema = z.object({
     .default('USD'),
   CONFIRMATION_TTL_SECONDS: z.coerce.number().int().min(30).max(86_400).default(600),
   MAX_PAYMENT_REQUEST_AMOUNT: z.coerce.number().positive().default(10_000),
+  /** Country used for admin phone numbers typed without a country code (ISO 3166 alpha-2). */
+  DEFAULT_PHONE_REGION: z
+    .string()
+    .length(2)
+    .transform((s) => s.toUpperCase())
+    .default('UG'),
+  /** Run the proactive report scheduler in this process (one API instance only). */
+  REPORT_SCHEDULER_ENABLED: booleanString.default(true),
+  /** Background re-check of open PayPal links (runs on the report scheduler's tick). */
+  PAYMENT_RECONCILIATION_ENABLED: booleanString.default(true),
+  /** Unregistered WhatsApp numbers get the generic welcome at most once per this many hours. */
+  UNAUTHORIZED_REPLY_COOLDOWN_HOURS: z.coerce.number().min(0).max(8760).default(24),
 });
 
 export const apiSchema = baseSchema
@@ -138,6 +150,10 @@ export const whatsappSchema = baseSchema.extend({
   WHATSAPP_GATEWAY_PORT: port.default(4100),
   /** Bind address of the internal gateway. 127.0.0.1 locally; 0.0.0.0 inside Docker. */
   WHATSAPP_GATEWAY_HOST: z.string().default('127.0.0.1'),
+  /** Print the pairing QR in the logs. The dashboard's WhatsApp page shows it too; set false in production. */
+  WHATSAPP_PRINT_QR: booleanString.default(true),
+  /** Decline incoming WhatsApp calls (the bot can't take them) and suggest a voice note instead. */
+  WHATSAPP_REJECT_CALLS: booleanString.default(true),
   INTERNAL_SERVICE_TOKEN: z
     .string()
     .min(16, 'INTERNAL_SERVICE_TOKEN must be at least 16 characters'),

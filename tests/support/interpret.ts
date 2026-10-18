@@ -101,6 +101,57 @@ const FIND_ORDERS_UNPAID = {
   ],
 };
 Object.assign(CANNED, {
+  inventory_report: {
+    filter: 'all',
+    products: [
+      {
+        name: 'Handmade Basket',
+        stock: 18,
+        reorderLevel: 30,
+        status: 'LOW',
+        unitsSoldLastPeriod: 60,
+        periodDays: 30,
+        daysOfCover: 9,
+        suggestedReorder: 72,
+      },
+      {
+        name: 'Barkcloth Wallet',
+        stock: 80,
+        reorderLevel: 15,
+        status: 'OK',
+        unitsSoldLastPeriod: 4,
+        periodDays: 30,
+        daysOfCover: 600,
+        suggestedReorder: 0,
+      },
+      {
+        name: 'Coffee Gift Pack',
+        stock: 0,
+        reorderLevel: 20,
+        status: 'OUT_OF_STOCK',
+        unitsSoldLastPeriod: 12,
+        periodDays: 30,
+        daysOfCover: 0,
+        suggestedReorder: 32,
+      },
+    ],
+    note: 'days_of_cover and suggested_reorder are estimates from paid orders in the last 30 days.',
+  },
+  compare_sales: {
+    period: 'this week (since Monday)',
+    comparedWith: 'last week (same days)',
+    byCurrency: [
+      {
+        currency: 'USD',
+        revenue: '$420.00',
+        previousRevenue: '$300.00',
+        paidOrders: 4,
+        previousPaidOrders: 3,
+        changePercent: 40,
+        change: '$120.00',
+      },
+    ],
+  },
   get_shipping_status: {
     order_reference: 'ORD-ST10HB',
     customer: 'Sarah Thompson',
@@ -211,10 +262,15 @@ Object.assign(CANNED, {
   },
 });
 const TERMINAL = new Set([
+  'adjust_stock',
+  'add_product',
+  'update_product',
+  'send_chart',
   'create_draft_order',
   'calculate_order_total',
   'request_payment',
   'add_shipment_tracking',
+  'remind_customer',
   'prepare_dispute_response',
 ]);
 

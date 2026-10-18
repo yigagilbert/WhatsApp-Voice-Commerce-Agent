@@ -14,6 +14,7 @@ export const DEMO_PRODUCTS = [
     description: 'Woven raffia basket',
     unitPriceMinor: 1200,
     stockQuantity: 200,
+    reorderLevel: 30,
   },
   {
     sku: 'KC-WALLET',
@@ -21,6 +22,7 @@ export const DEMO_PRODUCTS = [
     description: 'Bi-fold wallet in barkcloth',
     unitPriceMinor: 1800,
     stockQuantity: 80,
+    reorderLevel: 15,
   },
   {
     sku: 'KC-COFFEE',
@@ -28,6 +30,7 @@ export const DEMO_PRODUCTS = [
     description: 'Arabica gift pack, 250 g',
     unitPriceMinor: 2500,
     stockQuantity: 120,
+    reorderLevel: 20,
   },
 ];
 
@@ -69,6 +72,8 @@ export async function upsertDemoData(db: Database): Promise<void> {
         description: p.description,
         unitPriceMinor: p.unitPriceMinor,
         stockQuantity: p.stockQuantity,
+        reorderLevel: p.reorderLevel,
+        lowStockAlertedAt: null,
         active: true,
       },
       create: { ...p, merchantId: DEMO_MERCHANT_ID, currency: 'USD' },

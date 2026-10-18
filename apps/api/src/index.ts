@@ -43,6 +43,13 @@ async function main() {
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
   await app.listen({ host: config.API_HOST, port: config.API_PORT });
+  // Proactive WhatsApp reports (one API instance; duplicate slots are prevented in the database).
+  if (config.REPORT_SCHEDULER_ENABLED) {
+    container.reportScheduler.start();
+    // Same single instance: watches the WhatsApp worker and reports outages once it's back.
+    container.whatsappMonitor.start();
+    logger.info('report scheduler started');
+  }
 }
 
 main().catch((error: unknown) => {

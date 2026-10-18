@@ -10,12 +10,27 @@ export const ACTIONS_REQUIRING_CONFIRMATION: ReadonlySet<ConfirmationAction> = n
   'CREATE_PAYMENT_REQUEST',
   'ADD_SHIPMENT_TRACKING',
   'SUBMIT_DISPUTE_RESPONSE',
+  'SEND_PAYMENT_REMINDER',
   'SEND_INVOICE',
   'REFUND_PAYMENT',
 ]);
 
 export const requiresConfirmation = (action: ConfirmationAction): boolean =>
   ACTIONS_REQUIRING_CONFIRMATION.has(action);
+
+/**
+ * Actions only an OWNER admin may propose or approve. STAFF admins can do everything else
+ * (orders, stock, tracking, reminders, reports) but can't request money or answer PayPal disputes.
+ */
+export const OWNER_ONLY_ACTIONS: ReadonlySet<ConfirmationAction> = new Set([
+  'CREATE_PAYMENT_REQUEST',
+  'SUBMIT_DISPUTE_RESPONSE',
+  'SEND_INVOICE',
+  'REFUND_PAYMENT',
+]);
+
+export const canApprove = (role: 'OWNER' | 'STAFF', action: ConfirmationAction): boolean =>
+  role === 'OWNER' || !OWNER_ONLY_ACTIONS.has(action);
 
 /**
  * Deterministic confirmation vocabulary. Non-English entries are a starting point and
@@ -63,9 +78,10 @@ const CANCEL_PHRASES = [
 
 /**
  * `verb` names the action a reply approves: CONFIRM (payment requests, and bare yes/ok),
- * SHIP (shipment tracking) or SUBMIT (dispute responses). SHIP and SUBMIT always need the code.
+ * SHIP (shipment tracking), SUBMIT (dispute responses) or REMIND (payment reminders to a
+ * customer). SHIP, SUBMIT and REMIND always need the code.
  */
-export type ConfirmationVerb = 'confirm' | 'ship' | 'submit';
+export type ConfirmationVerb = 'confirm' | 'ship' | 'submit' | 'remind';
 export type ConfirmationReply = {
   kind: 'confirm' | 'cancel';
   code?: string;
@@ -80,11 +96,12 @@ export const ACTION_VERBS: Record<
   CREATE_PAYMENT_REQUEST: { verb: 'confirm', codeRequired: false },
   ADD_SHIPMENT_TRACKING: { verb: 'ship', codeRequired: true },
   SUBMIT_DISPUTE_RESPONSE: { verb: 'submit', codeRequired: true },
+  SEND_PAYMENT_REMINDER: { verb: 'remind', codeRequired: true },
   SEND_INVOICE: { verb: 'confirm', codeRequired: true },
   REFUND_PAYMENT: { verb: 'confirm', codeRequired: true },
 };
 
-const VERB_PATTERN = /^(?<verb>ship|submit)\s+(?<code>\d{4})$/;
+const VERB_PATTERN = /^(?<verb>ship|submit|remind)\s+(?<code>\d{4})$/;
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const phraseGroup = (phrases: string[]) =>

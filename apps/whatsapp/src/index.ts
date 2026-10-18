@@ -37,6 +37,7 @@ async function main() {
     sessionDir: resolveFromRoot(config.WHATSAPP_SESSION_DIR),
     headless: config.WHATSAPP_HEADLESS,
     chromePath: config.WHATSAPP_CHROME_PATH,
+    printQr: config.WHATSAPP_PRINT_QR,
     logger,
   });
   const api = new CoreApiClient(config.WHATSAPP_API_BASE_URL, config.INTERNAL_SERVICE_TOKEN);
@@ -104,6 +105,11 @@ async function main() {
       message = mapped.message;
     }
 
+    // WhatsApp often identifies people by a linked ID (@lid); resolve the phone so the API can
+    // authorize admins registered by phone number.
+    const senderPhone = await transport.resolvePhone(message.senderId).catch(() => null);
+    if (senderPhone) message = { ...message, senderPhone };
+
     void msg.showTyping().catch(() => undefined);
     // Speech recognition takes a few seconds: acknowledge slow voice notes once, so the merchant
     // knows it arrived. Fast outcomes (errors, unknown sender) don't get the extra message.
@@ -121,7 +127,10 @@ async function main() {
     } finally {
       clearTimeout(ack);
     }
-    for (const reply of result.replies) await transport.sendText(reply.externalChatId, reply.text);
+    for (const reply of result.replies) {
+      if (reply.media) await transport.sendImage(reply.externalChatId, reply.media, reply.text);
+      else await transport.sendText(reply.externalChatId, reply.text);
+    }
     logger.info(
       { type: message.type, status: result.status, replies: result.replies.length },
       'message processed',
@@ -143,6 +152,28 @@ async function main() {
           .catch(() => undefined);
       }
     });
+  });
+
+  // whatsapp-web.js can only see and reject calls (no call audio). Decline them and point the
+  // caller to voice notes, at most once per caller every 10 minutes.
+  const callReplies = new Map<string, number>();
+  transport.onCall(async (call) => {
+    if (!config.WHATSAPP_REJECT_CALLS || call.fromMe || call.isGroup || !call.from) return;
+    await call
+      .reject()
+      .catch((error: unknown) => logger.warn({ err: error }, 'call reject failed'));
+    const last = callReplies.get(call.from) ?? 0;
+    if (Date.now() - last < 10 * 60_000) return;
+    callReplies.set(call.from, Date.now());
+    if (callReplies.size > 1000) callReplies.delete(callReplies.keys().next().value!);
+    logger.info({ video: call.isVideo }, 'incoming call declined');
+    await transport
+      .sendText(
+        call.from,
+        // Neutral on purpose: the worker doesn't know whether the caller is an admin.
+        "📞 Sorry, this number can't take calls. Please send a message or a voice note instead.",
+      )
+      .catch(() => undefined);
   });
 
   const gateway = createGatewayServer({

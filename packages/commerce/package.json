@@ -14,6 +14,7 @@
   "dependencies": {
     "@vca/database": "workspace:*",
     "@vca/shared": "workspace:*",
+    "libphonenumber-js": "^1.12.0",
     "zod": "^4.6.5"
   }
 }

@@ -41,6 +41,8 @@ async function main() {
         name: 'Demo Owner',
         channel: 'whatsapp',
         externalId: operatorId,
+        phone: operatorId.endsWith('@c.us') ? `+${operatorId.split('@')[0]}` : null,
+        whatsappLid: operatorId.endsWith('@lid') ? operatorId : null,
       },
     });
   }

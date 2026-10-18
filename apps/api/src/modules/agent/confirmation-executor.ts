@@ -20,6 +20,11 @@ import { z } from 'zod';
 import type { NotificationService } from '../notifications/notification.service';
 import { branded, copy } from './copy';
 import type { PaymentService } from '../payments/payment.service';
+import {
+  MAX_REMINDERS,
+  reminderPayloadSchema,
+  type PaymentReminderService,
+} from '../payments/reminder.service';
 import { ShipmentService, shipmentPayloadSchema } from '../shipments/shipment.service';
 import { disputeResponsePayloadSchema, type DisputeService } from '../disputes/dispute.service';
 
@@ -54,6 +59,7 @@ export class ConfirmationExecutor {
     private readonly deps: {
       orders: OrderService;
       payments: PaymentService;
+      reminders: PaymentReminderService;
       shipments: ShipmentService;
       disputes: DisputeService;
       confirmations: ConfirmationService;
@@ -67,6 +73,7 @@ export class ConfirmationExecutor {
       CREATE_PAYMENT_REQUEST: (c, m) => this.createPaymentRequest(c, m),
       ADD_SHIPMENT_TRACKING: (c, m) => this.addShipmentTracking(c, m),
       SUBMIT_DISPUTE_RESPONSE: (c, m) => this.submitDisputeResponse(c, m),
+      SEND_PAYMENT_REMINDER: (c, m) => this.sendPaymentReminder(c, m),
       // SEND_INVOICE and REFUND_PAYMENT: add handlers here when their tools are introduced.
     };
   }
@@ -161,6 +168,10 @@ export class ConfirmationExecutor {
       const p = shipmentPayloadSchema.parse(confirmation.payload);
       return `That tracking was already added: ${p.orderReference}, ${p.carrierLabel} ${p.trackingNumber}. Nothing new was sent to PayPal.`;
     }
+    if (confirmation.action === 'SEND_PAYMENT_REMINDER') {
+      const p = reminderPayloadSchema.parse(confirmation.payload);
+      return `That reminder was already sent to ${p.customerName} for ${p.orderReference}. Nothing new was sent.`;
+    }
     if (confirmation.action === 'SUBMIT_DISPUTE_RESPONSE') {
       const p = disputeResponsePayloadSchema.parse(confirmation.payload);
       return `That response was already submitted for dispute ${p.paypalDisputeId}. Nothing new was sent to PayPal.`;
@@ -249,6 +260,34 @@ export class ConfirmationExecutor {
         sentToCustomer
           ? `I've also sent the link to ${order.customer.name} on WhatsApp.`
           : `Share this link with ${order.customer.name}. I'll let you know as soon as the payment arrives.`,
+      ].join('\n'),
+    );
+  }
+
+  private async sendPaymentReminder(
+    confirmation: ActionConfirmation,
+    merchant: Merchant,
+  ): Promise<string> {
+    const payload = reminderPayloadSchema.parse(confirmation.payload);
+    const outcome = await this.deps.reminders.send(merchant, payload, 'whatsapp');
+    await this.deps.confirmations.markExecuted(confirmation.id, { outcome: outcome.status });
+    const amount = formatMoney(payload.amountMinor, payload.currency);
+    if (outcome.status === 'paid')
+      return branded(
+        `✅ No reminder needed: PayPal shows ${payload.customerName} has paid for ${payload.orderReference} (${amount}). It's now recorded as paid.`,
+      );
+    if (outcome.status === 'pending')
+      return branded(
+        `No reminder sent: ${payload.customerName} has approved the payment for ${payload.orderReference} and PayPal is completing it. I'll let you know when it arrives.`,
+      );
+    return branded(
+      [
+        `✅ *Reminder sent* to ${payload.customerName} for ${payload.orderReference} (${amount}).`,
+        ...(outcome.renewed
+          ? ['', 'The old PayPal link had expired, so I sent a new one for the same amount.']
+          : []),
+        '',
+        `Reminder ${outcome.reminderNumber} of ${MAX_REMINDERS}. I'll let you know as soon as the payment arrives.`,
       ].join('\n'),
     );
   }

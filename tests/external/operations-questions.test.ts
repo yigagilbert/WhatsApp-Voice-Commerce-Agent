@@ -23,6 +23,22 @@ describe.skipIf(!config.AI_API_KEY)(`Shipments and disputes (${config.AI_MODEL})
     });
   });
 
+  it.each([
+    ['Remind James Carter to pay for ORD-JC5BSK.', 'ORD-JC5BSK'],
+    ['Send a payment reminder for ORD-JC5BSK', 'ORD-JC5BSK'],
+    ['Can you chase James? He still hasn’t paid.', 'ORD-JC5BSK'],
+  ])('reminder: %s → remind_customer', async (message, reference) => {
+    const { calls } = await interpret(message);
+    expect(args(calls.find((c) => c.name === 'remind_customer'))).toMatchObject({
+      order_reference: reference,
+    });
+  });
+
+  it('does not propose a reminder for a paid order', async () => {
+    const { calls } = await interpret('Remind Sarah to pay for her order.');
+    expect(names(calls)).not.toContain('remind_customer');
+  });
+
   it('asks for the tracking number instead of inventing one', async () => {
     const { calls, text } = await interpret('ORD-1042 has shipped with DHL.');
     expect(names(calls)).not.toContain('add_shipment_tracking');

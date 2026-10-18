@@ -49,3 +49,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
 export const apiGet = <T>(path: string) => request<T>(path);
 export const apiPost = <T>(path: string, body: unknown) =>
   request<T>(path, { method: 'POST', body: JSON.stringify(body) });
+export const apiPatch = <T>(path: string, body: unknown) =>
+  request<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
+export const apiPut = <T>(path: string, body: unknown) =>
+  request<T>(path, { method: 'PUT', body: JSON.stringify(body) });
+// A JSON content-type needs a body for Fastify, so DELETE sends {}.
+export const apiDelete = (path: string) => request<unknown>(path, { method: 'DELETE', body: '{}' });

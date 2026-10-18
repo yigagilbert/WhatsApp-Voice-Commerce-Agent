@@ -6,7 +6,7 @@ import { requireUser } from '@/lib/auth';
 
 interface AgentResponse {
   status: string;
-  replies: { text: string }[];
+  replies: { text: string; media?: { mimeType: string; dataBase64: string } }[];
 }
 
 /**
@@ -15,7 +15,9 @@ interface AgentResponse {
  */
 export async function sendConsoleMessage(
   text: string,
-): Promise<{ ok: true; replies: string[] } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; replies: { text: string; image?: string }[] } | { ok: false; error: string }
+> {
   await requireUser(); // also enforced by proxy.ts and apiPost; checked here explicitly
   const trimmed = text.trim().slice(0, 4000);
   if (!trimmed) return { ok: false, error: 'Message is empty' };
@@ -35,5 +37,11 @@ export async function sendConsoleMessage(
       error: 'The API ignored this message — run `pnpm db:seed` to create the dashboard operator.',
     };
   }
-  return { ok: true, replies: result.data.replies.map((r) => r.text) };
+  return {
+    ok: true,
+    replies: result.data.replies.map((r) => ({
+      text: r.text,
+      ...(r.media ? { image: `data:${r.media.mimeType};base64,${r.media.dataBase64}` } : {}),
+    })),
+  };
 }

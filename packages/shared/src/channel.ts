@@ -40,6 +40,11 @@ export const inboundChannelMessageSchema = z
     externalChatId: z.string().min(1).max(255),
     /** Identity of the sender within the channel (e.g. WhatsApp ID). Used for authorization. */
     senderId: z.string().min(1).max(255),
+    /** Sender phone (E.164) when the channel adapter could resolve it (WhatsApp linked IDs). */
+    senderPhone: z
+      .string()
+      .regex(/^\+\d{6,15}$/)
+      .optional(),
     senderName: z.string().max(255).optional(),
     sentAt: z.coerce.date(),
     /**
@@ -58,10 +63,19 @@ export const inboundChannelMessageSchema = z
   );
 export type InboundChannelMessage = z.infer<typeof inboundChannelMessageSchema>;
 
+/** Images Katale sends (charts). Text becomes the image caption. ~1.5 MB of base64 at most. */
+export const outboundMediaSchema = z.object({
+  mimeType: z.enum(['image/png', 'image/jpeg']),
+  dataBase64: z.string().min(1).max(2_000_000),
+  filename: z.string().min(1).max(120).optional(),
+});
+export type OutboundMedia = z.infer<typeof outboundMediaSchema>;
+
 export const outboundChannelMessageSchema = z.object({
   channel: channelSchema,
   externalChatId: z.string().min(1).max(255),
   text: z.string().min(1).max(4096),
+  media: outboundMediaSchema.optional(),
 });
 export type OutboundChannelMessage = z.infer<typeof outboundChannelMessageSchema>;
 

@@ -19,22 +19,28 @@ the merchant a clarifying question. Unexpected errors propagate (they are bugs).
 
 Defined in `apps/api/src/modules/agent/tools.ts` with `defineTool({ name, kind, description, input, execute })`.
 
-| Tool                    | Kind    | Purpose                                                                                                                                                  |
-| ----------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `find_customer`         | read    | Search customers                                                                                                                                         |
-| `create_customer`       | write   | Add a customer                                                                                                                                           |
-| `list_products`         | read    | Catalog with prices and stock                                                                                                                            |
-| `find_product`          | read    | Fuzzy product lookup                                                                                                                                     |
-| `check_inventory`       | read    | Stock for a product                                                                                                                                      |
-| `calculate_order_total` | read    | Quote without creating anything                                                                                                                          |
-| `create_draft_order`    | propose | Draft order + propose a PayPal payment request                                                                                                           |
-| `request_payment`       | propose | Propose payment for an existing draft                                                                                                                    |
-| `get_order`             | read    | Order detail                                                                                                                                             |
-| `get_payment_status`    | read    | Payment status of an order                                                                                                                               |
-| `find_orders`           | read    | Orders by status / period / customer / voice-or-text, with a database count and total                                                                    |
-| `list_payments`         | read    | Newest PayPal payments, by status ("what was my last payment?")                                                                                          |
-| `get_customer_summary`  | read    | A customer's orders, total paid, outstanding, last order                                                                                                 |
-| `get_sales_summary`     | read    | Revenue, paid orders, average order value, top products (revenue share), top customers, revenue by source (WhatsApp voice / text / console), outstanding |
+| Tool                             | Kind    | Purpose                                                                                                                                                  |
+| -------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `find_customer`                  | read    | Search customers                                                                                                                                         |
+| `create_customer`                | write   | Add a customer                                                                                                                                           |
+| `list_products`                  | read    | Catalog with prices and stock                                                                                                                            |
+| `find_product`                   | read    | Fuzzy product lookup                                                                                                                                     |
+| `check_inventory`                | read    | Stock for a product                                                                                                                                      |
+| `calculate_order_total`          | read    | Quote without creating anything                                                                                                                          |
+| `create_draft_order`             | propose | Draft order + propose a PayPal payment request                                                                                                           |
+| `request_payment`                | propose | Propose payment for an existing draft                                                                                                                    |
+| `get_order`                      | read    | Order detail                                                                                                                                             |
+| `get_payment_status`             | read    | Payment status of an order                                                                                                                               |
+| `inventory_report`               | read    | Stock, reorder level, status, units sold (30 d), days of cover, suggested reorder                                                                        |
+| `stock_history`                  | read    | Stock ledger entries                                                                                                                                     |
+| `adjust_stock`                   | write   | Restock / count / damage / return (sales are automatic); never below zero                                                                                |
+| `add_product` / `update_product` | write   | Catalog changes, audited; prices refused from voice notes                                                                                                |
+| `compare_sales`                  | read    | Period vs same span before, % change computed in code                                                                                                    |
+| `send_chart`                     | read    | PNG chart (revenue trend, product revenue, stock levels) attached to the reply                                                                           |
+| `find_orders`                    | read    | Orders by status / period / customer / voice-or-text, with a database count and total                                                                    |
+| `list_payments`                  | read    | Newest PayPal payments, by status ("what was my last payment?")                                                                                          |
+| `get_customer_summary`           | read    | A customer's orders, total paid, outstanding, last order                                                                                                 |
+| `get_sales_summary`              | read    | Revenue, paid orders, average order value, top products (revenue share), top customers, revenue by source (WhatsApp voice / text / console), outstanding |
 
 The model may interpret, ask, choose tools and explain results. It may not calculate totals,
 invent customers, products or payment state, or approve anything: every figure it quotes comes

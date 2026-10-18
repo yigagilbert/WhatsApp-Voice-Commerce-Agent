@@ -18,7 +18,7 @@ interface ZonedParts {
 
 const WEEKDAYS: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 
-function zonedParts(
+export function zonedParts(
   date: Date,
   timeZone: string,
 ): ZonedParts & { hour: number; minute: number; second: number } {
@@ -82,9 +82,78 @@ export function resolvePeriod(period: SalesPeriod, now: Date, timeZone: string):
       return { start: midnight(-6), end: now, label: 'the last 7 days' };
     case 'this_month':
       return { start: midnight(1 - today.day), end: now, label: 'this month' };
+    case 'last_month': {
+      const first = new Date(Date.UTC(today.year, today.month - 2, 1));
+      const label = new Intl.DateTimeFormat('en-GB', {
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+      }).format(first);
+      return {
+        start: zonedMidnight(first.getUTCFullYear(), first.getUTCMonth() + 1, 1, timeZone),
+        end: midnight(1 - today.day),
+        label: `last month (${label})`,
+      };
+    }
     case 'last_30_days':
       return { start: midnight(-29), end: now, label: 'the last 30 days' };
     case 'all_time':
       return { start: null, end: now, label: 'all time' };
   }
+}
+
+/**
+ * The comparable earlier window for a period, with the same elapsed length: "this week so far"
+ * vs "last week up to the same point", "today so far" vs "yesterday up to the same time",
+ * "this month so far" vs "last month up to the same day". null for all_time.
+ */
+export function previousPeriod(period: SalesPeriod, now: Date, timeZone: string): DateRange | null {
+  if (period === 'all_time') return null;
+  const current = resolvePeriod(period, now, timeZone);
+  if (period === 'last_month') {
+    // Whole calendar months, whatever their length.
+    const p = zonedParts(current.start!, timeZone);
+    const prev = new Date(Date.UTC(p.year, p.month - 2, 1));
+    return {
+      start: zonedMidnight(prev.getUTCFullYear(), prev.getUTCMonth() + 1, 1, timeZone),
+      end: current.start!,
+      label: `the month before (${new Intl.DateTimeFormat('en-GB', { month: 'long', timeZone: 'UTC' }).format(prev)})`,
+    };
+  }
+  const start = current.start!;
+  const elapsed = current.end.getTime() - start.getTime();
+  const DAY = 86_400_000;
+  let prevStart: Date;
+  let label: string;
+  switch (period) {
+    case 'today':
+      prevStart = new Date(start.getTime() - DAY);
+      label = 'yesterday (same time of day)';
+      break;
+    case 'yesterday':
+      prevStart = new Date(start.getTime() - DAY);
+      label = 'the day before';
+      break;
+    case 'this_week':
+      prevStart = new Date(start.getTime() - 7 * DAY);
+      label = 'last week (same days)';
+      break;
+    case 'last_7_days':
+      prevStart = new Date(start.getTime() - 7 * DAY);
+      label = 'the 7 days before';
+      break;
+    case 'last_30_days':
+      prevStart = new Date(start.getTime() - 30 * DAY);
+      label = 'the 30 days before';
+      break;
+    case 'this_month': {
+      const p = zonedParts(start, timeZone);
+      const prev = new Date(Date.UTC(p.year, p.month - 2, 1));
+      prevStart = zonedMidnight(prev.getUTCFullYear(), prev.getUTCMonth() + 1, 1, timeZone);
+      label = 'last month (same days)';
+      break;
+    }
+  }
+  const prevEnd = new Date(Math.min(prevStart.getTime() + elapsed, start.getTime()));
+  return { start: prevStart, end: prevEnd, label };
 }

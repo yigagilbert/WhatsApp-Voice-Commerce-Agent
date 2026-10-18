@@ -76,6 +76,7 @@ export const SALES_PERIODS = [
   'this_week',
   'last_7_days',
   'this_month',
+  'last_month',
   'last_30_days',
   'all_time',
 ] as const;

@@ -1,7 +1,8 @@
 /**
  * pnpm operator:add <whatsappId> [name] [--merchant <merchantId>]
  *
- * Authorizes a WhatsApp identity to operate a merchant (default: the seeded Kampala Crafts merchant).
+ * Authorizes a WhatsApp identity to operate a merchant (the dashboard's Admins page does the same
+ * by phone number) (default: the seeded Kampala Crafts merchant).
  * A WhatsApp ID maps to exactly one merchant (unique constraint); re-running moves it explicitly
  * only if --merchant is given.
  *
@@ -60,6 +61,9 @@ async function main() {
         merchantId: merchant.id,
         channel: 'whatsapp',
         externalId,
+        // Phone-number IDs also store the E.164 number so the dashboard (Admins) can show it.
+        phone: externalId.endsWith('@c.us') ? `+${externalId.split('@')[0]}` : null,
+        whatsappLid: externalId.endsWith('@lid') ? externalId : null,
         name: nameParts.join(' ') || 'Merchant',
       },
     });

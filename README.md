@@ -75,8 +75,17 @@ More in [docs/hackathon/product-story.md](docs/hackathon/product-story.md).
 - 🎙️ English voice notes (Whisper) → the same agent as text; unclear speech is read back; approvals are always typed
 - 🤖 LLM agent with Zod-typed tools grouped as customers, catalog, orders, payments, shipments, disputes and analytics
 - 🧮 Deterministic money: integer minor units, backend-only totals, AI-stated totals compared and overridden
-- ✅ Approval-bound actions: `CONFIRM` (payment request), `SHIP` (tracking), `SUBMIT` (dispute response) — each bound to the exact payload, code, expiry, single use
+- ✅ Approval-bound actions: `CONFIRM` (payment request), `SHIP` (tracking), `SUBMIT` (dispute response), `REMIND` (payment reminder) — each bound to the exact payload, code, expiry, single use
 - 💳 PayPal Orders v2 checkout, capture, **tracking**; Disputes v1 **sync and evidence submission**; verified, idempotent webhooks
+- 🧺 Inventory by chat: sales reduce stock automatically (ledgered), "I just received 50 baskets", low-stock and out-of-stock alerts, reorder suggestions
+- 📈 Charts sent as WhatsApp images (revenue trend, revenue by product, stock levels) and period comparisons, all from database aggregates
+- 🔔 Payment reminders: "remind Sarah about ORD-123" → preview → `REMIND <code>` (or the dashboard button); PayPal is checked first, expired links are renewed; one per day, three per link
+- 🧾 Sales cross-checked with PayPal: open links re-checked in the background, missed payments recorded, mismatches flagged in the report
+- 🔒 Owner and staff admins: staff can't approve payment requests or dispute responses
+- 📡 WhatsApp outage notice to admins once the bot is back, and a dashboard banner while it's down
+- 👥 Admin WhatsApp numbers managed in the dashboard (add, edit, deactivate, remove; E.164); only active admins can operate the bot or receive business data
+- 🗓️ Proactive WhatsApp business reports (daily, weekly or monthly, your time zone): yesterday's sales, last 7 days, stock alerts, unpaid PayPal links, open disputes, a 7-day chart and recommended actions — tracked per admin, retried, never duplicated
+- 🔗 Dashboard WhatsApp page: connection status, pairing QR, reconnect and unlink — no terminal needed
 - 📦 Fulfillment as its own dimension (paid + not shipped = to ship); no invented delivery status
 - ⚖️ Disputes: webhook → canonical fetch → linked to order/payment/shipment → one notification → evidence (facts + missing) → code-drafted factual response → merchant SUBMIT
 - 📊 Dashboard: AG Grid (orders, payments, disputes, customers, products), AG Studio analytics with an AI assistant, plain-language activity trace
@@ -179,17 +188,17 @@ Full guide and troubleshooting: [docs/development/local-setup.md](docs/developme
 One root `.env` for every app, validated at startup (`packages/config`). Full annotated list in
 [`.env.example`](.env.example).
 
-| Group     | Variables                                                                                                                                                                                          | Required for      |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| Core      | `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`                                                                                                                                                            | everything        |
-| API       | `API_PORT`, `API_PUBLIC_URL`, `API_AUTH_TOKEN`, `INTERNAL_SERVICE_TOKEN`, `CORS_ORIGINS`, `RATE_LIMIT_MAX`                                                                                         | API               |
-| AI        | `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_MS`                                                                                                                            | agent replies     |
-| Speech    | `VOICE_NOTES_ENABLED`, `VOICE_MAX_DURATION_SECONDS`, `VOICE_MIN_CONFIDENCE`, `STT_*`, `SUNBIRD_API_URL`, `SUNBIRD_API_KEY`, `TRANSLATION_PROVIDER`, `VOICE_TRANSLATE_LANGUAGES`, `MEDIA_MAX_BYTES` | voice notes       |
-| PayPal    | `PAYPAL_ENV`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_BRAND_NAME`, `PAYPAL_WEBHOOK_SKIP_VERIFICATION`                                                             | payments          |
-| Policy    | `DEFAULT_CURRENCY`, `CONFIRMATION_TTL_SECONDS`, `MAX_PAYMENT_REQUEST_AMOUNT`                                                                                                                       | —                 |
-| WhatsApp  | `WHATSAPP_API_BASE_URL`, `WHATSAPP_SESSION_DIR`, `WHATSAPP_CLIENT_ID`, `WHATSAPP_HEADLESS`, `WHATSAPP_CHROME_PATH`, `WHATSAPP_GATEWAY_PORT/HOST/URL`                                               | worker            |
-| Seed      | `SEED_MERCHANT_WHATSAPP_ID`                                                                                                                                                                        | WhatsApp operator |
-| Dashboard | `API_BASE_URL` (+ `API_AUTH_TOKEN`, server-side only), `DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD`, `DASHBOARD_SESSION_HOURS`                                                                       | web               |
+| Group     | Variables                                                                                                                                                                                               | Required for      |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Core      | `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`                                                                                                                                                                 | everything        |
+| API       | `API_PORT`, `API_PUBLIC_URL`, `API_AUTH_TOKEN`, `INTERNAL_SERVICE_TOKEN`, `CORS_ORIGINS`, `RATE_LIMIT_MAX`                                                                                              | API               |
+| AI        | `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_MS`                                                                                                                                 | agent replies     |
+| Speech    | `VOICE_NOTES_ENABLED`, `VOICE_MAX_DURATION_SECONDS`, `VOICE_MIN_CONFIDENCE`, `STT_*`, `SUNBIRD_API_URL`, `SUNBIRD_API_KEY`, `TRANSLATION_PROVIDER`, `VOICE_TRANSLATE_LANGUAGES`, `MEDIA_MAX_BYTES`      | voice notes       |
+| PayPal    | `PAYPAL_ENV`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_BRAND_NAME`, `PAYPAL_WEBHOOK_SKIP_VERIFICATION`                                                                  | payments          |
+| Policy    | `DEFAULT_CURRENCY`, `CONFIRMATION_TTL_SECONDS`, `MAX_PAYMENT_REQUEST_AMOUNT`, `DEFAULT_PHONE_REGION`, `REPORT_SCHEDULER_ENABLED`, `UNAUTHORIZED_REPLY_COOLDOWN_HOURS`, `PAYMENT_RECONCILIATION_ENABLED` | —                 |
+| WhatsApp  | `WHATSAPP_API_BASE_URL`, `WHATSAPP_SESSION_DIR`, `WHATSAPP_CLIENT_ID`, `WHATSAPP_HEADLESS`, `WHATSAPP_CHROME_PATH`, `WHATSAPP_GATEWAY_PORT/HOST/URL`                                                    | worker            |
+| Seed      | `SEED_MERCHANT_WHATSAPP_ID`                                                                                                                                                                             | WhatsApp operator |
+| Dashboard | `API_BASE_URL` (+ `API_AUTH_TOKEN`, server-side only), `DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD`, `DASHBOARD_SESSION_HOURS`                                                                            | web               |
 
 Optional providers degrade gracefully — the API starts without AI, speech, PayPal or WhatsApp and
 `/api/health/ready` reports what is missing.
@@ -225,13 +234,16 @@ Full guide (env, migrations, NPM, webhook, backups, rollback): [docs/deployment/
 2. `pnpm dev:whatsapp` → scan the QR in the terminal from the bot phone: _Settings → Linked devices → Link a device_.
    If Chrome fails to launch, set `WHATSAPP_CHROME_PATH` to an installed Chrome.
 3. The session is saved in `.data/whatsapp-session` (git-ignored); restarts don't need a new QR. Delete it to re-link.
-4. Message the bot from the merchant's WhatsApp. Katale AI replies with **"Your WhatsApp ID: …"**
-   (often a linked ID like `201234567890123@lid`, sometimes `256700000000@c.us`). Register it:
-   `pnpm operator:add <whatsappId> "Owner name"`.
-5. Voice notes are processed when `VOICE_NOTES_ENABLED=true` (needs `STT_API_KEY`; `SUNBIRD_API_KEY` adds Luganda);
+4. Add the merchant's number in the dashboard → **Admins** (any format; stored as E.164, e.g.
+   `+256700000000`) and press **Send test**. Linked IDs (`…@lid`) are matched to the number
+   automatically on the first message. Unregistered numbers only ever get a generic welcome.
+   CLI alternative: `pnpm operator:add <whatsappId> "Owner name"` with the `senderId` from the API log.
+5. Optional: dashboard → **Reports** to schedule the weekly (or daily) WhatsApp business report.
+6. Voice notes are processed when `VOICE_NOTES_ENABLED=true` (needs `STT_API_KEY`; `SUNBIRD_API_KEY` adds Luganda);
    otherwise they get "coming soon". Other media get a polite reply.
 
 Demo script: [docs/hackathon/whatsapp-text-demo.md](docs/hackathon/whatsapp-text-demo.md).
+Customer-facing commerce on the same bot (plan, not built yet): [docs/architecture/customer-commerce-plan.md](docs/architecture/customer-commerce-plan.md).
 Setup details, recovery, limitations and the Cloud API migration path:
 [docs/architecture/whatsapp-integration.md](docs/architecture/whatsapp-integration.md).
 

@@ -219,10 +219,14 @@ export class DisputeService {
       where: { id: dispute.id },
       include: disputeInclude,
     });
+    const text = this.notificationText(full, key);
+    // Every admin who opted in to alerts; otherwise the chat the order came from (or the most
+    // recent admin chat).
+    if (dispute.merchantId && (await this.notifications.toAdmins(dispute.merchantId, text))) return;
     const conversationId =
       full.order?.conversationId ?? (await this.merchantConversationId(dispute.merchantId));
     if (!conversationId) return;
-    await this.notifications.toConversation(conversationId, this.notificationText(full, key));
+    await this.notifications.toConversation(conversationId, text);
   }
 
   private async merchantConversationId(merchantId: string | null) {

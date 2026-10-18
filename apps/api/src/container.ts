@@ -1,6 +1,8 @@
 import { OpenAICompatibleChatModel, type ChatModel } from '@vca/ai';
 import {
   AnalyticsService,
+  InventoryService,
+  AdminService,
   AuditService,
   ConfirmationService,
   CustomerService,
@@ -27,9 +29,15 @@ import { createCommerceTools } from './modules/agent/tools';
 import { ChannelRegistry, HttpWhatsAppSender } from './modules/notifications/channel-registry';
 import { NotificationService } from './modules/notifications/notification.service';
 import { PaymentService } from './modules/payments/payment.service';
+import { PaymentReminderService } from './modules/payments/reminder.service';
+import { PaymentReconciler } from './modules/payments/reconciliation.service';
+import { WhatsAppConnectionMonitor } from './modules/whatsapp/connection-monitor';
 import { PayPalWebhookService } from './modules/paypal/webhook.service';
 import { DisputeService } from './modules/disputes/dispute.service';
 import { ShipmentService } from './modules/shipments/shipment.service';
+import { ReportService } from './modules/reports/report.service';
+import { BusinessReportBuilder } from './modules/reports/business-report';
+import { ReportScheduler } from './modules/reports/report-scheduler';
 
 export interface ContainerOverrides {
   db?: Database;
@@ -131,14 +139,18 @@ export function createContainer(
 
   const audit = new AuditService(db);
   const customers = new CustomerService(db);
-  const products = new ProductService(db);
+  const products = new ProductService(db, audit);
   const orders = new OrderService(db, customers, audit);
   const confirmations = new ConfirmationService(db, audit);
   const analytics = new AnalyticsService(db);
+  const inventory = new InventoryService(db, audit);
+  const admins = new AdminService(db, audit, config.DEFAULT_PHONE_REGION);
+  const reports = new ReportService(analytics, inventory);
   const notifications = new NotificationService(
     db,
     channels,
     logger.child({ component: 'notifications' }),
+    admins,
   );
   const payments = new PaymentService(
     db,
@@ -152,6 +164,7 @@ export function createContainer(
       brandName: config.PAYPAL_BRAND_NAME,
       policy,
     },
+    inventory,
   );
   const shipments = new ShipmentService(
     db,
@@ -179,9 +192,20 @@ export function createContainer(
         config.PAYPAL_WEBHOOK_SKIP_VERIFICATION && config.NODE_ENV === 'development',
     },
   );
+  const reminders = new PaymentReminderService(
+    db,
+    paypal,
+    orders,
+    payments,
+    notifications,
+    audit,
+    logger.child({ component: 'reminders' }),
+    config.DEFAULT_PHONE_REGION,
+  );
   const executor = new ConfirmationExecutor({
     orders,
     payments,
+    reminders,
     shipments,
     disputes,
     confirmations,
@@ -197,11 +221,37 @@ export function createContainer(
     confirmations,
     analytics,
     payments,
+    reminders,
     shipments,
     disputes,
+    inventory,
+    reports,
     policy,
     confirmationTtlSeconds: config.CONFIRMATION_TTL_SECONDS,
   });
+  const reconciler = new PaymentReconciler(
+    db,
+    paypal,
+    payments,
+    audit,
+    logger.child({ component: 'reconciliation' }),
+  );
+  const reportScheduler = new ReportScheduler(
+    db,
+    new BusinessReportBuilder(db, analytics, inventory, disputes, reports, reconciler),
+    admins,
+    notifications,
+    audit,
+    logger.child({ component: 'reports' }),
+    config.PAYMENT_RECONCILIATION_ENABLED ? reconciler : undefined,
+  );
+  const whatsappMonitor = new WhatsAppConnectionMonitor(
+    db,
+    notifications,
+    config.WHATSAPP_GATEWAY_URL,
+    config.INTERNAL_SERVICE_TOKEN,
+    logger.child({ component: 'whatsapp-monitor' }),
+  );
   const inbound = new InboundMessageService({
     db,
     audit,
@@ -215,6 +265,8 @@ export function createContainer(
     voiceMinConfidence: config.VOICE_MIN_CONFIDENCE,
     voiceLanguages:
       config.VOICE_EXPERIMENTAL_LUGANDA && config.SUNBIRD_API_KEY ? ['en', 'lg'] : ['en'],
+    admins,
+    welcomeCooldownMs: config.UNAUTHORIZED_REPLY_COOLDOWN_HOURS * 60 * 60 * 1000,
     logger: logger.child({ component: 'inbound' }),
   });
 
@@ -232,14 +284,24 @@ export function createContainer(
     orders,
     confirmations,
     analytics,
+    admins,
+    inventory,
     notifications,
     payments,
+    reminders,
+    reconciler,
     shipments,
     disputes,
     webhooks,
     tools,
     inbound,
-    close: () => db.$disconnect(),
+    reportScheduler,
+    whatsappMonitor,
+    close: async () => {
+      reportScheduler.stop();
+      whatsappMonitor.stop();
+      await db.$disconnect();
+    },
   };
 }
 

@@ -34,6 +34,46 @@ _Last updated: 2026-10-07 — production runs `v0.1.0-202610071145` at https://k
 - **Docs:** README, architecture docs, 7 ADRs, local setup, real-services guide, API reference,
   hackathon demo flow and product story.
 
+## Reminders, payment checks, roles, monthly reports (2026-10-18, production `v0.1.0-202610181457`)
+
+| Capability                                                                                                         | Status                                                                            |
+| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Unregistered numbers: one generic welcome per 24 h (configurable), no IDs, no data, no AI; neutral call decline    | ✅ integration tests                                                              |
+| Payment reminders (agent + `REMIND <code>`, dashboard button); PayPal checked first; expired links renewed; limits | ✅ integration + real-LLM tests                                                   |
+| Background PayPal re-check of open links; recovered payments; expired links and mismatches in the report           | ✅ integration tests (simulated PayPal)                                           |
+| Owner / staff roles: staff can't approve payment requests or dispute responses; last owner protected               | ✅ integration tests                                                              |
+| Monthly reports (1st of the month, last calendar month); `last_month` sales period                                 | ✅ unit + integration + real-LLM tests                                            |
+| WhatsApp outage notice after reconnect; dashboard banner while down                                                | ✅ unit tests                                                                     |
+| Customer-facing commerce (browse, cart, checkout)                                                                  | Planned: [customer-commerce-plan.md](docs/architecture/customer-commerce-plan.md) |
+| Off-VM database backups                                                                                            | Not built: needs a storage destination                                            |
+
+## Admins and proactive reports (2026-10-17, production `v0.1.0-202610171213`)
+
+| Capability                                                                                                  | Status                                                    |
+| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Dashboard → Admins: add / edit / activate / deactivate / remove / send test; E.164 (`libphonenumber-js`)    | ✅ integration tests (scoping, duplicates, audit masking) |
+| Only active admins reach the agent; inactive admins, customers, strangers refused before the model/tools    | ✅ integration tests                                      |
+| Linked IDs (`@lid`) matched by the worker-resolved phone, then remembered                                   | ✅ integration test; worker resolution not tried live     |
+| Dashboard → Reports: daily/weekly schedule, time zone, sections, next run, send now, run + delivery history | ✅ API integration tests; pages typecheck/build           |
+| Report: yesterday, 7 days, stock, unpaid links, open disputes, 7-day PNG chart, rule-based actions          | ✅ figures checked against seeded records                 |
+| One run per slot; 6 h catch-up; per-admin text/chart tracking; retry 2/5/15 min; partial/failed states      | ✅ integration tests                                      |
+| Stock and dispute alerts to every opted-in admin                                                            | ✅ integration test                                       |
+| Production                                                                                                  | Deployed `v0.1.0-202610171213`                            |
+
+## WhatsApp business assistant (2026-10-17, production `v0.1.0-202610170605`)
+
+Review, capability research and roadmap: [whatsapp-assistant-review.md](docs/hackathon/whatsapp-assistant-review.md).
+
+| Capability                                                                                      | Status                                                           |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Stock ledger; paid orders reduce stock once per order line; restock/count/damage/return by chat | ✅ integration + real-LLM tests                                  |
+| Low-stock / out-of-stock alerts once per crossing; inventory report with reorder suggestions    | ✅ integration tests                                             |
+| Add / reprice / deactivate products by chat (prices typed only), audited                        | ✅ integration tests                                             |
+| Charts as WhatsApp images; period comparisons                                                   | ✅ unit + integration + real LLM; checked in the Agent console   |
+| Dashboard WhatsApp page (status, QR, reconnect, unlink)                                         | ✅ gateway/API tests; page checked locally against a stub worker |
+| Incoming calls declined with a voice-note hint                                                  | ✅ code; not tested with a real call                             |
+| Production                                                                                      | Deployed `v0.1.0-202610170605` (migration `inventory_movements`) |
+
 ## Post-payment operations (2026-10-07)
 
 Katale now runs the lifecycle after payment: **fulfillment/tracking** and **PayPal disputes**, under
@@ -164,7 +204,7 @@ Dedicated bot number linked via QR; a separate merchant WhatsApp account (identi
 | Check                                                                                                  | Result      |
 | ------------------------------------------------------------------------------------------------------ | ----------- |
 | QR authentication / session persistence across restarts                                                | PASS / PASS |
-| Unknown sender → onboarding reply with ID; nothing stored                                              | PASS        |
+| Unknown sender → generic welcome (since 2026-10-17, no ID); nothing stored                             | PASS        |
 | Merchant mapping (`pnpm operator:add`)                                                                 | PASS        |
 | Inbound text → real LLM → branded backend draft (ORD-4PCK8Z, $140.00)                                  | PASS        |
 | Wrong / expired / reused confirmation codes                                                            | PASS        |

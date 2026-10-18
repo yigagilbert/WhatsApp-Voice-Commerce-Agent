@@ -1,5 +1,6 @@
 import type { Database, Product } from '@vca/database';
-import { NotFoundError } from '@vca/shared';
+import type { AuditService } from './audit.service';
+import { ConflictError, NotFoundError } from '@vca/shared';
 
 /** Lowercase, strip punctuation, crude singularisation ("baskets" -> "basket"). */
 export function normalizeProductTokens(text: string): string[] {
@@ -44,7 +45,10 @@ export function matchProduct<P extends Pick<Product, 'name' | 'sku'>>(
 }
 
 export class ProductService {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly audit?: AuditService,
+  ) {}
 
   list(merchantId: string, options: { activeOnly?: boolean } = {}) {
     return this.db.product.findMany({
@@ -59,7 +63,7 @@ export class ProductService {
     return product;
   }
 
-  create(
+  async create(
     merchantId: string,
     input: {
       name: string;
@@ -70,10 +74,15 @@ export class ProductService {
       stockQuantity?: number | null;
     },
   ) {
-    return this.db.product.create({
+    const name = input.name.trim();
+    const existing = await this.db.product.findFirst({
+      where: { merchantId, name: { equals: name, mode: 'insensitive' } },
+    });
+    if (existing) throw new ConflictError(`'${existing.name}' is already in the catalog.`);
+    const product = await this.db.product.create({
       data: {
         merchantId,
-        name: input.name.trim(),
+        name,
         unitPriceMinor: input.unitPriceMinor,
         currency: input.currency,
         sku: input.sku ?? null,
@@ -81,6 +90,44 @@ export class ProductService {
         stockQuantity: input.stockQuantity ?? null,
       },
     });
+    await this.audit?.record({
+      merchantId,
+      actor: 'MERCHANT',
+      type: 'product.created',
+      entityType: 'product',
+      entityId: product.id,
+      data: {
+        product: product.name,
+        priceMinor: product.unitPriceMinor,
+        currency: product.currency,
+      },
+    });
+    return product;
+  }
+
+  /** Updates catalog fields (a price change applies to new orders only); audited. */
+  async update(
+    merchantId: string,
+    id: string,
+    data: { unitPriceMinor?: number; active?: boolean; name?: string },
+  ): Promise<Product> {
+    const product = await this.get(merchantId, id);
+    const updated = await this.db.product.update({ where: { id: product.id }, data });
+    await this.audit?.record({
+      merchantId,
+      actor: 'MERCHANT',
+      type: 'product.updated',
+      entityType: 'product',
+      entityId: product.id,
+      data: {
+        product: product.name,
+        ...(data.unitPriceMinor !== undefined
+          ? { priceBeforeMinor: product.unitPriceMinor, priceAfterMinor: data.unitPriceMinor }
+          : {}),
+        ...(data.active !== undefined ? { active: data.active } : {}),
+      },
+    });
+    return updated;
   }
 
   async search(merchantId: string, query: string): Promise<Product[]> {

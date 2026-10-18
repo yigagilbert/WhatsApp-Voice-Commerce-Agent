@@ -7,16 +7,37 @@ import type { WhatsAppTransport } from './whatsapp-adapter';
 const TOKEN = 'internal-token-1234567890';
 
 describe('WhatsApp outbound gateway', () => {
-  const sent: { chatId: string; text: string }[] = [];
+  const sent: { chatId: string; text: string; image?: string }[] = [];
   let ready = true;
+  let reconnects = 0;
+  let logouts = 0;
   const transport: WhatsAppTransport = {
     start: async () => undefined,
     stop: async () => undefined,
     onMessage: () => undefined,
+    onCall: () => undefined,
     isReady: () => ready,
     sendText: async (chatId, text) => {
       sent.push({ chatId, text });
     },
+    sendImage: async (chatId, image, caption) => {
+      sent.push({ chatId, text: caption, image: image.mimeType });
+    },
+    connection: () => ({
+      state: 'qr',
+      qr: '2@pairing-code',
+      qrUpdatedAt: '2026-10-17T10:00:00.000Z',
+      stateChangedAt: '2026-10-17T10:00:00.000Z',
+      account: null,
+      lastDisconnectReason: null,
+    }),
+    reconnect: async () => {
+      reconnects++;
+    },
+    logout: async () => {
+      logouts++;
+    },
+    resolvePhone: async () => null,
   };
   const server = createGatewayServer({
     transport,
@@ -66,6 +87,41 @@ describe('WhatsApp outbound gateway', () => {
     ready = false;
     expect((await post(message, TOKEN)).status).toBe(503);
     ready = true;
+  });
+
+  it('sends images (charts) with the text as caption', async () => {
+    const image = { mimeType: 'image/png', dataBase64: 'iVBORw0KGgo=', filename: 'chart.png' };
+    expect((await post({ ...message, text: 'Revenue', media: image }, TOKEN)).status).toBe(202);
+    expect(sent.at(-1)).toEqual({
+      chatId: '256700000000@c.us',
+      text: 'Revenue',
+      image: 'image/png',
+    });
+    expect(
+      (await post({ ...message, media: { ...image, mimeType: 'text/html' } }, TOKEN)).status,
+    ).toBe(400);
+  });
+
+  it('exposes the connection (with QR) only with the internal token', async () => {
+    const anonymous = await fetch(`${base}/internal/session`);
+    expect(anonymous.status).toBe(401);
+    const res = await fetch(`${base}/internal/session`, { headers: { 'x-internal-token': TOKEN } });
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toMatchObject({ state: 'qr', qr: '2@pairing-code' });
+  });
+
+  it('reconnects and logs out only with the internal token', async () => {
+    const call = (path: string, token?: string) =>
+      fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: token ? { 'x-internal-token': token } : {},
+      });
+    expect((await call('/internal/session/logout')).status).toBe(401);
+    expect(logouts).toBe(0);
+    expect((await call('/internal/session/reconnect', TOKEN)).status).toBe(202);
+    expect((await call('/internal/session/logout', TOKEN)).status).toBe(202);
+    expect(reconnects).toBe(1);
+    expect(logouts).toBe(1);
   });
 
   it('exposes health with WhatsApp readiness', async () => {

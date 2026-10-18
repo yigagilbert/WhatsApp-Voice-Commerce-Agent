@@ -4,7 +4,9 @@ import {
   formatMoney,
   toMajorString,
   type AuditService,
+  type InventoryService,
   type OrderService,
+  type StockAlert,
   type PaymentPolicyConfig,
 } from '@vca/commerce';
 import type { Database, Payment, PaymentStatus } from '@vca/database';
@@ -53,6 +55,7 @@ export class PaymentService {
     private readonly notifications: NotificationService,
     private readonly logger: Logger,
     private readonly options: PaymentServiceOptions,
+    private readonly inventory?: InventoryService,
   ) {}
 
   list(merchantId: string, options: { status?: PaymentStatus | undefined; limit?: number } = {}) {
@@ -79,6 +82,34 @@ export class PaymentService {
         `Order ${order.reference} is ${order.status}; only draft orders can be sent for payment`,
       );
     }
+    return this.openCheckout(order, idempotencyKey, existing, null);
+  }
+
+  /**
+   * Replaces an expired PayPal checkout for an order still awaiting payment (used by payment
+   * reminders). Same amount and items from the database; the old payment is cancelled first so
+   * only one link is ever open. Idempotent per `idempotencyKey`.
+   */
+  async renewCheckout(
+    order: OrderWithDetails,
+    previous: Payment,
+    idempotencyKey: string,
+  ): Promise<Payment> {
+    const existing = await this.db.payment.findUnique({ where: { idempotencyKey } });
+    if (existing?.checkoutUrl) return existing;
+    if (order.status !== 'AWAITING_PAYMENT') {
+      throw new ConflictError(`Order ${order.reference} is ${order.status}; nothing to renew`);
+    }
+    await this.applyStatus(previous, 'CANCELLED');
+    return this.openCheckout(order, idempotencyKey, existing, previous.id);
+  }
+
+  private async openCheckout(
+    order: OrderWithDetails,
+    idempotencyKey: string,
+    existing: Payment | null,
+    renewedFrom: string | null,
+  ): Promise<Payment> {
     const decision = evaluatePaymentRequest(order, this.options.policy);
     if (!decision.allowed) throw new PolicyViolationError(decision.reason);
 
@@ -130,15 +161,16 @@ export class PaymentService {
             providerStatus: paypalOrder.status,
           },
         });
-        await this.orders.transition(order.id, 'DRAFT', 'AWAITING_PAYMENT', tx);
+        if (!renewedFrom) await this.orders.transition(order.id, 'DRAFT', 'AWAITING_PAYMENT', tx);
         await this.audit.record(
           {
             merchantId: order.merchantId,
             actor: 'SYSTEM',
-            type: 'payment.requested',
+            type: renewedFrom ? 'payment.link_renewed' : 'payment.requested',
             entityType: 'payment',
             entityId: payment.id,
             data: {
+              ...(renewedFrom ? { renewedFrom } : {}),
               orderReference: order.reference,
               paypalOrderId: paypalOrder.id,
               paypalStatus: paypalOrder.status,
@@ -241,6 +273,7 @@ export class PaymentService {
    * Safe to call repeatedly (webhook redelivery, return URL + webhook racing).
    */
   async markCompleted(paymentId: string, captureId: string | undefined): Promise<boolean> {
+    let stockAlerts: StockAlert[] = [];
     const firstTime = await this.db.$transaction(async (tx) => {
       const { count } = await tx.payment.updateMany({
         where: { id: paymentId, status: { in: ['CREATED', 'APPROVED'] } },
@@ -259,6 +292,8 @@ export class PaymentService {
       if (payment.order.status === 'AWAITING_PAYMENT') {
         await this.orders.transition(payment.orderId, 'AWAITING_PAYMENT', 'PAID', tx);
       }
+      // A paid order reduces stock once (ledgered); alerts are sent after the commit.
+      if (this.inventory) stockAlerts = await this.inventory.recordSale(payment.orderId, tx);
       await this.audit.record(
         {
           merchantId: payment.merchantId,
@@ -273,7 +308,10 @@ export class PaymentService {
       return true;
     });
 
-    if (firstTime) await this.notifyPaymentReceived(paymentId);
+    if (firstTime) {
+      await this.notifyPaymentReceived(paymentId);
+      if (stockAlerts.length) await this.notifyStockAlerts(paymentId, stockAlerts);
+    }
     return firstTime;
   }
 
@@ -342,6 +380,21 @@ export class PaymentService {
     return Promise.resolve(null);
   }
 
+  /**
+   * Low-stock / out-of-stock alerts after a sale: to every admin who opted in to alerts, or the
+   * chat the order came from if no admin is set up for alerts.
+   */
+  private async notifyStockAlerts(paymentId: string, alerts: StockAlert[]): Promise<void> {
+    const payment = await this.db.payment.findUniqueOrThrow({
+      where: { id: paymentId },
+      include: { order: { select: { conversationId: true } } },
+    });
+    const text = branded(alerts.map(formatStockAlert).join('\n\n'));
+    const delivered = await this.notifications.toAdmins(payment.merchantId, text);
+    if (!delivered && payment.order.conversationId)
+      await this.notifications.toConversation(payment.order.conversationId, text);
+  }
+
   private async notifyPaymentReceived(paymentId: string): Promise<void> {
     const payment = await this.db.payment.findUniqueOrThrow({
       where: { id: paymentId },
@@ -363,4 +416,11 @@ export class PaymentService {
       await this.notifications.toConversation(payment.order.conversationId, text);
     }
   }
+}
+
+/** "⚠️ Low stock: Handmade Basket — 18 left (reorder level 30). Reply "restock …" when it arrives." */
+export function formatStockAlert(a: StockAlert): string {
+  return a.status === 'OUT_OF_STOCK'
+    ? `⛔ *Out of stock:* ${a.name} (${a.stock} left).\nNew orders will warn that stock is short. Tell me when you restock, e.g. "add 50 ${a.name}".`
+    : `⚠️ *Low stock:* ${a.name} — ${a.stock} left (reorder level ${a.reorderLevel}).\nTell me when you restock, e.g. "add 50 ${a.name}".`;
 }

@@ -7,13 +7,18 @@ import type { UnsupportedKind } from '@vca/shared';
  */
 export const BRAND = 'Katale AI';
 
-/** The word that approves each action: CONFIRM (payments), SHIP (tracking), SUBMIT (disputes). */
+/**
+ * The word that approves each action: CONFIRM (payments), SHIP (tracking), SUBMIT (disputes),
+ * REMIND (payment reminders).
+ */
 export const approvalWord = (action: ConfirmationAction | undefined) =>
   action === 'ADD_SHIPMENT_TRACKING'
     ? 'SHIP'
     : action === 'SUBMIT_DISPUTE_RESPONSE'
       ? 'SUBMIT'
-      : 'CONFIRM';
+      : action === 'SEND_PAYMENT_REMINDER'
+        ? 'REMIND'
+        : 'CONFIRM';
 
 /** Prefixes a system message with the Katale AI header. */
 export const branded = (body: string): string => `*${BRAND}*\n\n${body}`;
@@ -29,15 +34,15 @@ const UNSUPPORTED_LABEL: Record<Exclude<UnsupportedKind, 'voice'>, string> = {
 };
 
 export const copy = {
-  notRegistered: (senderId: string) =>
-    branded(
-      [
-        "This WhatsApp number isn't linked to a Katale AI merchant account yet.",
-        '',
-        `Your WhatsApp ID: ${senderId}`,
-        'Share it with your Katale AI administrator to get access.',
-      ].join('\n'),
-    ),
+  /**
+   * The only reply a number that isn't an active admin ever gets: no business details, no IDs,
+   * and no hint about whether the number is a customer, a former admin or a stranger.
+   */
+  welcome:
+    "Hello! 👋 Welcome to Katale AI. Our team will get back to you as soon as they're available.",
+  ownerOnly: branded(
+    '🔒 Only an owner can approve payment requests and dispute responses. Nothing was sent. Ask an owner to do it from their WhatsApp.',
+  ),
   voiceComingSoon: branded(
     'Voice messages are coming soon. Please send your request as text for now.',
   ),

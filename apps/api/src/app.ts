@@ -14,6 +14,8 @@ import { healthRoutes } from './modules/health/health.routes';
 import { ordersRoutes } from './modules/orders/orders.routes';
 import { paypalRoutes } from './modules/paypal/paypal.routes';
 import { disputesRoutes } from './modules/disputes/disputes.routes';
+import { whatsappSessionRoutes } from './modules/whatsapp/session.routes';
+import { adminRoutes } from './modules/admin/admin.routes';
 
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 
@@ -71,6 +73,8 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
     await scope.register(ordersRoutes, { container });
     await scope.register(dashboardRoutes, { container });
     await scope.register(disputesRoutes, { container });
+    await scope.register(whatsappSessionRoutes, { container });
+    await scope.register(adminRoutes, { container });
   });
 
   return app;

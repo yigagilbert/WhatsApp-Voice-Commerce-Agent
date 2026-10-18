@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { Nav } from '@/components/nav';
+import { WhatsAppBanner } from '@/components/whatsapp-banner';
 import { loadWebConfig } from '@vca/config';
 import { currentUser } from '@/lib/auth';
 import { logout } from './login/actions';
@@ -47,7 +48,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 </button>
               </form>
             </aside>
-            <main className="min-w-0 flex-1 p-4 md:p-8">{children}</main>
+            <main className="min-w-0 flex-1 p-4 md:p-8">
+              <WhatsAppBanner />
+              {children}
+            </main>
           </div>
         ) : (
           <main className="p-4">{children}</main>

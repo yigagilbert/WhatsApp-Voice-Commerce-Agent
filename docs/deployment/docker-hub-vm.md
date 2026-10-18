@@ -44,21 +44,22 @@ flowchart LR
 
 | Image                         | Tag                   | Digest (linux/amd64)                                                      |
 | ----------------------------- | --------------------- | ------------------------------------------------------------------------- |
-| `yigagilbert/katale-api`      | `v0.1.0-202610071145` | `sha256:690227d53e44aaa2ea215065f41e8fdd859d0a0d064704e55ebe257e9b3042eb` |
-| `yigagilbert/katale-web`      | `v0.1.0-202610071145` | `sha256:119a6a920d4f74ac7cbba7c7b0bd5758cbd34b7119a940e07f3dcc686c79dbb6` |
-| `yigagilbert/katale-whatsapp` | `v0.1.0-202610071145` | `sha256:75c64527ba204949c99de85c440c7ac17139e62fe3eea27ede5f49796278b9e5` |
+| `yigagilbert/katale-api`      | `v0.1.0-202610170605` | `sha256:f8ba79123545a74cfcdb107cc9381e2da1071af6432110ff94606c1c0864d26c` |
+| `yigagilbert/katale-web`      | `v0.1.0-202610170605` | `sha256:51c17267c1a47f2e467e055674e83375c09d9558201fefc169dbf4fe6999744e` |
+| `yigagilbert/katale-whatsapp` | `v0.1.0-202610170605` | `sha256:e6f60fd0033678e122cc461cc8da33d6da741689d38b801ab325e08c3bcf110e` |
 
 Release history (rollback = set `KATALE_TAG` to an earlier tag and re-run `vm-deploy.sh`; rolling back is safe: the migrations since
 `v0.1.0-202610051458` only add columns, tables and enum values):
 
-| Tag                   | Contents                                                                                                                                                          |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `v0.1.0-202610071145` | Shipment tracking (Orders v2) and PayPal disputes (Disputes v1), Disputes page, operations analytics; migration `shipments_and_disputes` (additive) (**current**) |
-| `v0.1.0-202610071011` | AG Grid + AG Studio dashboard, merchant analytics tools, buyer pages, English-only voice default, demo reset; migration `order_input_mode`                        |
-| `v0.1.0-202610061859` | Luganda number normaliser, voice customer guard, non-catalog warnings                                                                                             |
-| `v0.1.0-202610060937` | Patched `whatsapp-web.js` voice download, `@newsletter` skip                                                                                                      |
-| `v0.1.0-202610060910` | Dashboard login, voice notes (Whisper + Sunbird cascade)                                                                                                          |
-| `v0.1.0-202610051458` | First production release (text, PayPal, webhooks)                                                                                                                 |
+| Tag                   | Contents                                                                                                                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `v0.1.0-202610170605` | Inventory ledger + alerts, catalog/stock tools, WhatsApp charts, period comparisons, dashboard WhatsApp page (QR/reconnect/unlink), call handling; migration `inventory_movements` (additive) (**current**) |
+| `v0.1.0-202610071145` | Shipment tracking (Orders v2) and PayPal disputes (Disputes v1), Disputes page, operations analytics; migration `shipments_and_disputes` (additive)                                                         |
+| `v0.1.0-202610071011` | AG Grid + AG Studio dashboard, merchant analytics tools, buyer pages, English-only voice default, demo reset; migration `order_input_mode`                                                                  |
+| `v0.1.0-202610061859` | Luganda number normaliser, voice customer guard, non-catalog warnings                                                                                                                                       |
+| `v0.1.0-202610060937` | Patched `whatsapp-web.js` voice download, `@newsletter` skip                                                                                                                                                |
+| `v0.1.0-202610060910` | Dashboard login, voice notes (Whisper + Sunbird cascade)                                                                                                                                                    |
+| `v0.1.0-202610051458` | First production release (text, PayPal, webhooks)                                                                                                                                                           |
 
 First deployed 2026-10-06 to `217.65.145.220` → **https://kataleai.space** (NPM proxy host #26, Let's Encrypt
 certificate #36, expires 2027-01-04, auto-renewed by NPM). PayPal Sandbox webhook registered for
@@ -149,20 +150,25 @@ The seed is idempotent upserts, never a reset.
 
 See [`deploy/.env.production.example`](../../deploy/.env.production.example). Key production values:
 
-| Variable                                              | Value                                                                                       |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `KATALE_IMAGE_NAMESPACE` / `KATALE_TAG`               | `yigagilbert` / immutable tag                                                               |
-| `API_PUBLIC_URL`, `CORS_ORIGINS`                      | `https://kataleai.space`; PayPal return/cancel URLs derive from it                          |
-| `DATABASE_URL`                                        | `postgresql://katale:<pw>@postgres:5432/katale` (internal host `postgres`)                  |
-| `PAYPAL_ENV` / `PAYPAL_WEBHOOK_ID`                    | `sandbox` / ID from `pnpm paypal:webhook register …` (events: `pnpm paypal:webhook sync …`) |
-| `PAYPAL_CAPTURE_ON_RETURN`                            | `true`; set `false` to force webhook-only capture (testing)                                 |
-| `VOICE_NOTES_ENABLED`                                 | `true` (since v0.1.0-202610060910); worker and API share it                                 |
-| `STT_API_KEY` / `STT_MODEL`                           | OpenAI key / `whisper-1` (English)                                                          |
-| `SUNBIRD_API_KEY`                                     | Sunbird AI token: enables the Luganda speech-to-text cascade                                |
-| `VOICE_MAX_DURATION_SECONDS` / `VOICE_MIN_CONFIDENCE` | `60` / `0.5`                                                                                |
-| `TRANSLATION_PROVIDER` / `VOICE_TRANSLATE_LANGUAGES`  | `sunbird` / `""` (LLM reads Luganda directly; `lg` = translate first)                       |
-| `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`           | Dashboard login. No password = every login refused. Use a long random password              |
-| `WHATSAPP_CLIENT_ID`                                  | `katale-prod`; changing it starts a new session (QR)                                        |
+| Variable                                              | Value                                                                                                                                  |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `KATALE_IMAGE_NAMESPACE` / `KATALE_TAG`               | `yigagilbert` / immutable tag                                                                                                          |
+| `API_PUBLIC_URL`, `CORS_ORIGINS`                      | `https://kataleai.space`; PayPal return/cancel URLs derive from it                                                                     |
+| `DATABASE_URL`                                        | `postgresql://katale:<pw>@postgres:5432/katale` (internal host `postgres`)                                                             |
+| `PAYPAL_ENV` / `PAYPAL_WEBHOOK_ID`                    | `sandbox` / ID from `pnpm paypal:webhook register …` (events: `pnpm paypal:webhook sync …`)                                            |
+| `PAYPAL_CAPTURE_ON_RETURN`                            | `true`; set `false` to force webhook-only capture (testing)                                                                            |
+| `VOICE_NOTES_ENABLED`                                 | `true` (since v0.1.0-202610060910); worker and API share it                                                                            |
+| `STT_API_KEY` / `STT_MODEL`                           | OpenAI key / `whisper-1` (English)                                                                                                     |
+| `SUNBIRD_API_KEY`                                     | Sunbird AI token: enables the Luganda speech-to-text cascade                                                                           |
+| `VOICE_MAX_DURATION_SECONDS` / `VOICE_MIN_CONFIDENCE` | `60` / `0.5`                                                                                                                           |
+| `TRANSLATION_PROVIDER` / `VOICE_TRANSLATE_LANGUAGES`  | `sunbird` / `""` (LLM reads Luganda directly; `lg` = translate first)                                                                  |
+| `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`           | Dashboard login. No password = every login refused. Use a long random password                                                         |
+| `WHATSAPP_CLIENT_ID`                                  | `katale-prod`; changing it starts a new session (QR)                                                                                   |
+| `WHATSAPP_PRINT_QR` / `WHATSAPP_REJECT_CALLS`         | `false` recommended (pair from the dashboard) / `true` (decline calls, suggest voice notes)                                            |
+| `DEFAULT_PHONE_REGION`                                | `UG`: country for local admin numbers (`0772…` → `+256772…`)                                                                           |
+| `REPORT_SCHEDULER_ENABLED`                            | `true` (default) on the single API container; `false` on any extra replica. Also runs the PayPal sweep and the WhatsApp outage monitor |
+| `UNAUTHORIZED_REPLY_COOLDOWN_HOURS`                   | `24`: one generic welcome per unregistered number per period                                                                           |
+| `PAYMENT_RECONCILIATION_ENABLED`                      | `true`: re-check open PayPal links every 6 h in the background                                                                         |
 
 Compose sets the in-container values (`TRUST_PROXY=true`, internal URLs, session path).
 
@@ -222,7 +228,8 @@ VM `.env`, then `docker compose up -d api`. List with `pnpm paypal:webhook list`
 docker compose logs -f whatsapp
 ```
 
-On first start (or after a new `WHATSAPP_CLIENT_ID`) a QR code is printed. Scan it from the bot
+On first start (or after a new `WHATSAPP_CLIENT_ID`) the dashboard's **WhatsApp** page shows the QR
+(and, unless `WHATSAPP_PRINT_QR=false`, it is also printed in the logs). Scan it from the bot
 phone: _Linked devices → Link a device_. The log then shows `authenticated (session saved)` and `client ready`.
 
 Register the merchant: send the bot a message, then run the command below with the ID from the reply:
@@ -281,18 +288,19 @@ Recorded deliberately and **not** addressed yet:
 
 ## Troubleshooting
 
-| Symptom                                                             | Fix                                                                                                                                                                       |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pull access denied`                                                | Wrong `KATALE_IMAGE_NAMESPACE`/`KATALE_TAG`, or the repo is private and the VM isn't logged in                                                                            |
-| API unhealthy at start                                              | `docker compose logs api`; often `DATABASE_URL`/`POSTGRES_PASSWORD` mismatch                                                                                              |
-| NPM shows 502                                                       | Katale containers not running, or not on `nginxproxymanager_network` (`docker network inspect …`)                                                                         |
-| Dashboard actions fail: "Invalid Server Actions request"            | The proxy must pass the original `Host`; Origin and Host must match (NPM default does)                                                                                    |
-| WhatsApp: "profile appears to be in use"                            | Handled automatically (stale locks removed); if it persists, stop the worker and delete `data/whatsapp/session-*/Singleton*`                                              |
-| WhatsApp: QR again after redeploy                                   | `WHATSAPP_CLIENT_ID` changed or `data/whatsapp` not mounted/owned by uid 1000                                                                                             |
-| Payment stays `APPROVED`                                            | Check webhook delivery in the PayPal dashboard and `docker compose logs api                                                                                               | grep webhook` |
-| Disk full during build (local)                                      | Prune build cache: `docker builder prune` (multi-arch builds need ~15 GB free)                                                                                            |
-| Voice note → "I couldn't access that voice note…"                   | `whatsapp-web.js` patch not applied: check `patches/` is in the image (`pnpm.patchedDependencies`)                                                                        |
-| `push access denied … insufficient_scope`                           | Docker Desktop is logged in as another account: `docker login -u yigagilbert` (use an access token)                                                                       |
-| Domain still shows the registrar parking page                       | The record must be type **A** (not TXT/CNAME): `dig +short @dns1.registrar-servers.com kataleai.space A`                                                                  |
-| First PayPal webhooks after registering never arrive                | Seen in Sandbox for events ~3 min after registration; later deliveries were automatic. Redeliver with PayPal's resend API or the dashboard; the return URL still captures |
-| Brief 502/"could not be resolved" right after `docker compose down` | Expected while containers restart; NPM re-resolves `katale-web`/`katale-api` automatically                                                                                |
+| Symptom                                                                     | Fix                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pull access denied`                                                        | Wrong `KATALE_IMAGE_NAMESPACE`/`KATALE_TAG`, or the repo is private and the VM isn't logged in                                                                                                                                                                                                |
+| API unhealthy at start                                                      | `docker compose logs api`; often `DATABASE_URL`/`POSTGRES_PASSWORD` mismatch                                                                                                                                                                                                                  |
+| NPM shows 502                                                               | Katale containers not running, or not on `nginxproxymanager_network` (`docker network inspect …`)                                                                                                                                                                                             |
+| Dashboard actions fail: "Invalid Server Actions request"                    | The proxy must pass the original `Host`; Origin and Host must match (NPM default does)                                                                                                                                                                                                        |
+| WhatsApp: "profile appears to be in use"                                    | Handled automatically (stale locks removed); if it persists, stop the worker and delete `data/whatsapp/session-*/Singleton*`                                                                                                                                                                  |
+| WhatsApp: QR again after redeploy                                           | `WHATSAPP_CLIENT_ID` changed or `data/whatsapp` not mounted/owned by uid 1000                                                                                                                                                                                                                 |
+| Payment stays `APPROVED`                                                    | Check webhook delivery in the PayPal dashboard and `docker compose logs api                                                                                                                                                                                                                   | grep webhook` |
+| Disk full during build (local)                                              | Prune build cache: `docker builder prune` (multi-arch builds need ~15 GB free)                                                                                                                                                                                                                |
+| Voice note → "I couldn't access that voice note…"                           | `whatsapp-web.js` patch not applied: check `patches/` is in the image (`pnpm.patchedDependencies`)                                                                                                                                                                                            |
+| `/api/paypal/*` or `/api/health` → 502 right after a deploy, dashboard fine | NPM still points at the old `katale-api` IP. `vm-deploy.sh` now reloads NPM (`docker exec nginx-proxy-manager-app-1 nginx -s reload`); the durable fix is the variable `proxy_pass` in [`deploy/npm-advanced.conf`](../../deploy/npm-advanced.conf) pasted into the proxy host's Advanced tab |
+| `push access denied … insufficient_scope`                                   | Docker Desktop is logged in as another account: `docker login -u yigagilbert` (use an access token)                                                                                                                                                                                           |
+| Domain still shows the registrar parking page                               | The record must be type **A** (not TXT/CNAME): `dig +short @dns1.registrar-servers.com kataleai.space A`                                                                                                                                                                                      |
+| First PayPal webhooks after registering never arrive                        | Seen in Sandbox for events ~3 min after registration; later deliveries were automatic. Redeliver with PayPal's resend API or the dashboard; the return URL still captures                                                                                                                     |
+| Brief 502/"could not be resolved" right after `docker compose down`         | Expected while containers restart; NPM re-resolves `katale-web`/`katale-api` automatically                                                                                                                                                                                                    |

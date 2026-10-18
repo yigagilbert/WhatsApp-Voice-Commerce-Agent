@@ -58,27 +58,42 @@ WHATSAPP_CHROME_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrom
 pnpm dev:whatsapp
 ```
 
-1. A QR code is printed in the terminal. It refreshes every ~20 s.
+1. Open the dashboard → **WhatsApp** (status, live QR, Reconnect, Unlink device), or read the QR
+   printed in the terminal (`WHATSAPP_PRINT_QR=true`, the default; set `false` in production so the
+   pairing code never reaches the logs). It refreshes every ~20 s.
 2. On the **bot phone**: WhatsApp → Settings → **Linked devices → Link a device** → scan.
 3. The log shows `WhatsApp authenticated (session saved)` then `WhatsApp client ready`.
 4. The session is stored in `WHATSAPP_SESSION_DIR/session-<WHATSAPP_CLIENT_ID>`
    (default `.data/whatsapp-session/session-katale-dev`), which is **git-ignored** (`.data/`, `.wwebjs_*`).
    Restarts reuse it, with no QR (verified: ready about 4 s after restart).
 
-### 4. Register the merchant's WhatsApp ID
+### 4. Register admin numbers
 
-Only registered operator IDs can use Katale AI; each ID maps to **exactly one** merchant (unique constraint).
+Only **active admins** can use Katale AI or receive business information. Each number belongs to
+**exactly one** merchant. Manage them in the dashboard → **Admins**:
 
-1. Send the bot any message from the merchant's WhatsApp.
-2. Katale AI replies that the number isn't linked and shows **"Your WhatsApp ID: …"**. The API also logs
-   `message from unknown sender ignored` with the `senderId`.
-3. Register it:
+- **Add** a name and WhatsApp number in any format (`+256 772 123456`, `0772 123456`). It is
+  validated and stored in E.164 (`+256772123456`); local numbers use `DEFAULT_PHONE_REGION` (`UG`).
+- **Send test** checks the number is on WhatsApp and delivers a short message.
+- **Edit** the name, number, and whether the admin gets **business reports** and **stock/dispute alerts**.
+- **Deactivate** keeps the record but blocks commands and notifications; **Remove** deletes it.
+  Every change is audited (numbers are masked in the audit trail).
 
-   ```bash
-   pnpm operator:add <whatsappId> "Owner name"
-   ```
+Matching: a message is accepted when its sender is the admin's `…@c.us` chat ID, a linked ID
+(`…@lid`) already learned for that admin, or — newer WhatsApp accounts — a linked ID whose phone the
+worker resolves with `getContactLidAndPhone`. The linked ID is then remembered on the admin.
 
-   Or set `SEED_MERCHANT_WHATSAPP_ID` and run `pnpm db:seed`.
+Everyone else — customers, deactivated admins, strangers — gets the same generic welcome and
+nothing else (no agent, no tools, no data, no database lookups):
+
+> Hello! 👋 Welcome to Katale AI. Our team will get back to you as soon as they're available.
+
+It contains no business details or IDs and doesn't reveal whether the number is known. Each sender
+gets it at most once per `UNAUTHORIZED_REPLY_COOLDOWN_HOURS` (default 24; in-memory, so a restart
+resets it). Approval codes and voice notes from these numbers are ignored. Incoming calls are
+declined with a neutral "this number can't take calls" message.
+
+CLI alternative: `pnpm operator:add <whatsappId> "Owner name"` (or `SEED_MERCHANT_WHATSAPP_ID` + `pnpm db:seed`).
 
 **ID formats.** WhatsApp identifies senders either by phone number or by a privacy-preserving linked ID:
 
@@ -87,8 +102,54 @@ Only registered operator IDs can use Katale AI; each ID maps to **exactly one** 
 | `<countrycode><number>@c.us` | `256700000000@c.us`   | No `+`, spaces or leading zeros                                                               |
 | `<digits>@lid`               | `201234567890123@lid` | **What we observed** for a real merchant account in 2026; not derivable from the phone number |
 
-Use exactly what the onboarding reply or log shows. Unknown senders never create merchants,
-conversations, messages or orders. They get the onboarding reply at most once per hour (in-memory throttle).
+For `operator:add`, use the ID from the API log line `message from unauthorized sender ignored`
+(`senderId`); it is never sent back to the sender. Unknown senders never create merchants,
+conversations, messages or orders.
+
+### 4b. Proactive business reports
+
+Dashboard → **Reports** sets the schedule (off by default): **weekly** (day + time) or **daily**, a
+time zone (defaults to the merchant's), and the sections to include. Each report contains
+yesterday's sales (vs the day before), the last 7 days with the best seller, low and out-of-stock
+products, unpaid PayPal links (with age), open PayPal disputes (and response deadlines), a 7-day
+revenue chart (PNG) and rule-based recommended actions. All figures come from Katale's records.
+
+Reliability:
+
+- The API runs a one-minute scheduler (`REPORT_SCHEDULER_ENABLED`). A run is unique per merchant and
+  slot (`WEEKLY:2026-10-19`), so restarts, overlapping ticks or a second instance never send twice.
+- A slot missed while the API was down is still sent within 6 hours, then skipped (no stale reports).
+- One delivery per active admin who opted in; the text and the chart are tracked separately, so a
+  retry only sends what didn't arrive. Failures (e.g. WhatsApp disconnected) retry after 2, 5 and
+  15 minutes, then stay **Failed**. The run ends **Sent**, **Partial** or **Failed**.
+- An admin deactivated or opted out after the run was created is skipped.
+- **Send report now** sends the same report immediately. Recent runs and per-admin delivery
+  status are listed on the page; events appear on Activity.
+
+Stock and dispute alerts go to every active admin with alerts on (falling back to the order's
+chat if none is set).
+
+### 4c. Roles, reminders, payment checks and outages
+
+- **Owner / Staff.** Staff admins can do everything except request payments (`CONFIRM`) and submit
+  PayPal dispute responses (`SUBMIT`): they see the order or draft with "only an owner can approve
+  this". A pending approval is also refused if the admin was made staff meanwhile. There is always
+  at least one active owner (the dashboard refuses to demote, deactivate or remove the last one).
+  Existing admins were made owners when roles were introduced.
+- **Payment reminders.** "Remind Sarah about ORD-123" (or **Remind** on the Payments page) shows the
+  exact message; WhatsApp needs `REMIND <code>`. Before sending, PayPal is asked about the link:
+  if the buyer already paid/approved, the payment is captured and recorded instead; if the link
+  expired, a new one for the same amount replaces it (the old payment is cancelled). One reminder
+  per 24 h and three per link; a failed delivery doesn't count. Customers reached by WhatsApp ID or
+  their phone number.
+- **Payment check.** Open PayPal links older than 30 minutes are re-checked every 6 hours in the
+  background (`PAYMENT_RECONCILIATION_ENABLED`), and all of them just before each business report.
+  Payments that completed without a webhook are recorded (and the merchant notified as usual);
+  expired links and order/payment mismatches appear in the report's _Payment check_ section.
+- **Monthly reports** go out on the 1st and cover the previous calendar month vs the month before,
+  with a 30-day chart. Agents also answer "how much did I sell last month?".
+- **Outages.** The API checks the worker every minute. While WhatsApp is down the dashboard shows
+  a banner; when it's back after 5+ minutes, admins with alerts on are told how long it was down.
 
 ### 5. Recovery
 
@@ -144,6 +205,30 @@ double delivery harmless.
   go API → `HttpWhatsAppSender` → worker `POST /internal/send` (token-authenticated) → WhatsApp.
 - "Payment received" is built only from trusted payment state and sent exactly once:
   `markCompleted` is a conditional update, so repeated PayPal callbacks don't re-notify (verified live).
+- **Images:** a reply or notification may carry `media` (PNG/JPEG, ≤ ~1.5 MB base64) — the worker sends
+  it with `MessageMedia` and the text as caption. Used for charts (`send_chart`).
+- **Alerts:** low-stock / out-of-stock alerts after a sale (once per crossing) go to the merchant chat
+  the order came from.
+
+## Connection management
+
+The worker tracks `starting → qr → authenticated → ready` (or `disconnected` / `auth_failure`) and keeps
+the latest QR **in memory only**. Token-protected gateway routes, proxied by the API behind the
+dashboard login (`/api/whatsapp/session*`, `cache-control: no-store`):
+
+| Gateway route                      | Use                                                                          |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `GET /internal/session`            | State, QR (only while pairing), masked linked number, last disconnect reason |
+| `POST /internal/session/reconnect` | Restart the WhatsApp Web session (keeps the linked device)                   |
+| `POST /internal/session/logout`    | Unlink the device; a new QR appears (audited as `whatsapp.logout_requested`) |
+
+After a disconnect the worker retries once automatically after 10 s.
+
+## Calls
+
+whatsapp-web.js reports incoming calls (`call` event) and can only **reject** them — there is no call
+audio, so live "talk to your business" calls are not possible. With `WHATSAPP_REJECT_CALLS=true`
+(default) the worker declines 1:1 calls and suggests a voice note (at most once per caller per 10 min).
 
 ## Traceability
 
@@ -151,7 +236,7 @@ The worker creates one correlation ID per WhatsApp message and sends it as `x-co
 uses it as the transaction trace: order, confirmation, PayPal request, capture and the outbound
 gateway call (`outbound message delivered` in the worker log) all carry the same ID. See
 `/activity?trace=<id>` in the dashboard. Phone numbers and IDs are not logged by the worker,
-except the unknown-sender ID in the API log (needed for onboarding).
+except the unknown-sender ID in the API log (needed to troubleshoot admin matching).
 
 ## Verified behaviour (2026-10-05)
 
@@ -162,7 +247,7 @@ real PayPal Sandbox:
 | --------------------------------------------------------------- | ------------------ |
 | QR authentication                                               | PASS               |
 | Session persistence across restarts (no QR)                     | PASS               |
-| Unknown sender → onboarding reply with ID, nothing stored       | PASS               |
+| Unknown sender → generic welcome (no ID), nothing stored        | PASS               |
 | Merchant mapping (`operator:add`, one ID → one merchant)        | PASS               |
 | Text order → branded backend summary ($140.00)                  | PASS               |
 | Wrong code / expired code / reused code                         | PASS / PASS / PASS |

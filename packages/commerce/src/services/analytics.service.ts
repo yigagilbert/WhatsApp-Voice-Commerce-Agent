@@ -3,7 +3,7 @@ import type { SalesPeriod } from '../commands';
 import { aggregatePaidOrders, sourceLabel, type PaidOrderFact } from '../insights';
 import { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '../state';
 import { formatMoney } from '../money';
-import { resolvePeriod } from '../periods';
+import { previousPeriod, resolvePeriod } from '../periods';
 
 export interface CurrencyAmount {
   currency: string;
@@ -116,6 +116,88 @@ export class AnalyticsService {
       ...breakdown,
       notes:
         'Revenue = completed PayPal payments. Product revenue excludes shipping and tax. Outstanding = orders awaiting payment now.',
+    };
+  }
+
+  /** Completed-payment revenue and paid-order count in [start, end). */
+  private async revenueBetween(merchantId: string, start: Date | null, end: Date) {
+    const rows = await this.db.payment.groupBy({
+      by: ['currency'],
+      where: {
+        merchantId,
+        status: 'COMPLETED',
+        completedAt: { ...(start ? { gte: start } : {}), lt: end },
+      },
+      _sum: { amountMinor: true },
+      _count: { _all: true },
+    });
+    return toCurrencyAmounts(rows);
+  }
+
+  /**
+   * This period vs the comparable earlier window (same elapsed length), from completed payments.
+   * The percentage change is computed here, never by the model.
+   */
+  async compareSales(
+    merchant: Pick<Merchant, 'id' | 'timezone'>,
+    period: SalesPeriod,
+    now = new Date(),
+  ) {
+    const current = resolvePeriod(period, now, merchant.timezone);
+    const previous = previousPeriod(period, now, merchant.timezone);
+    const [cur, prev] = await Promise.all([
+      this.revenueBetween(merchant.id, current.start, current.end),
+      previous
+        ? this.revenueBetween(merchant.id, previous.start, previous.end)
+        : Promise.resolve([]),
+    ]);
+    const currencies = [...new Set([...cur, ...prev].map((r) => r.currency))].sort();
+    return {
+      period: current.label,
+      comparedWith: previous?.label ?? null,
+      byCurrency: currencies.map((currency) => {
+        const c = cur.find((r) => r.currency === currency);
+        const p = prev.find((r) => r.currency === currency);
+        const now = c?.amountMinor ?? 0;
+        const before = p?.amountMinor ?? 0;
+        return {
+          currency,
+          revenue: formatMoney(now, currency),
+          previousRevenue: formatMoney(before, currency),
+          paidOrders: c?.count ?? 0,
+          previousPaidOrders: p?.count ?? 0,
+          changePercent: before > 0 ? Math.round(((now - before) / before) * 1000) / 10 : null,
+          change: formatMoney(now - before, currency),
+        };
+      }),
+    };
+  }
+
+  /** Completed-payment revenue per local day for the last `days` days (oldest first), for charts. */
+  async dailyRevenue(merchant: Pick<Merchant, 'id' | 'timezone'>, days: number, now = new Date()) {
+    // A little more than `days` days back; only the last `days` local dates are kept below.
+    const start = new Date(now.getTime() - days * 86_400_000);
+    const payments = await this.db.payment.findMany({
+      where: { merchantId: merchant.id, status: 'COMPLETED', completedAt: { gte: start, lt: now } },
+      select: { amountMinor: true, currency: true, completedAt: true },
+      take: MAX_FACTS,
+    });
+    const dayKey = (d: Date) =>
+      new Intl.DateTimeFormat('en-CA', { timeZone: merchant.timezone }).format(d); // YYYY-MM-DD
+    const keys: string[] = [];
+    for (let t = now.getTime() - (days - 1) * 86_400_000; t <= now.getTime(); t += 86_400_000)
+      keys.push(dayKey(new Date(t)));
+    const currency = payments[0]?.currency ?? null;
+    const totals = new Map(keys.map((k) => [k, 0]));
+    for (const p of payments) {
+      if (p.currency !== currency) continue; // single-currency chart; others reported separately
+      const key = dayKey(p.completedAt!);
+      if (totals.has(key)) totals.set(key, (totals.get(key) ?? 0) + p.amountMinor);
+    }
+    return {
+      currency,
+      otherCurrencies: [...new Set(payments.map((p) => p.currency))].filter((c) => c !== currency),
+      days: keys.map((date) => ({ date, amountMinor: totals.get(date) ?? 0 })),
     };
   }
 

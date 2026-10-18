@@ -33,6 +33,8 @@ export class FakePayPal implements PayPalApi {
       this.ordersByRequestId.get(params.requestId) ??
       `${this.idPrefix}-${this.ordersByRequestId.size + 1}`;
     this.ordersByRequestId.set(params.requestId, id);
+    // Like PayPal: a new order waits for the buyer until they approve it.
+    if (!this.orderStatus.has(id)) this.orderStatus.set(id, 'PAYER_ACTION_REQUIRED');
     return {
       order: { id, status: 'PAYER_ACTION_REQUIRED' } as PayPalOrder,
       approveUrl: `https://www.sandbox.paypal.com/checkoutnow?token=${id}`,
@@ -48,10 +50,19 @@ export class FakePayPal implements PayPalApi {
       purchase_units: [{ payments: { captures: [{ id: `CAP-${orderId}`, status: 'COMPLETED' }] } }],
     };
   }
+  /** Status overrides for getOrder (e.g. PAYER_ACTION_REQUIRED, VOIDED). */
+  readonly orderStatus = new Map<string, string>();
+  /** Orders PayPal no longer knows (expired links): getOrder answers 404. */
+  readonly expired = new Set<string>();
   async getOrder(orderId: string): Promise<PayPalOrder> {
-    return this.capturedElsewhere.has(orderId) || this.captures.includes(orderId)
-      ? this.completed(orderId)
-      : { id: orderId, status: 'APPROVED' };
+    if (this.expired.has(orderId)) {
+      throw new ProviderError('paypal', 'RESOURCE_NOT_FOUND: order not found', {
+        details: { status: 404, name: 'RESOURCE_NOT_FOUND', issues: ['INVALID_RESOURCE_ID'] },
+      });
+    }
+    if (this.capturedElsewhere.has(orderId) || this.captures.includes(orderId))
+      return this.completed(orderId);
+    return { id: orderId, status: this.orderStatus.get(orderId) ?? 'APPROVED' } as PayPalOrder;
   }
   async captureOrder(orderId: string): Promise<PayPalOrder> {
     if (this.capturedElsewhere.has(orderId)) {
@@ -164,5 +175,7 @@ export const testEnv = (overrides: Record<string, string> = {}) => ({
   API_AUTH_TOKEN: 'test-dashboard-token-123456',
   INTERNAL_SERVICE_TOKEN: 'test-internal-token-123456',
   PAYPAL_WEBHOOK_ID: 'WH-TEST',
+  // The background sweep spans all merchants; tests call it per merchant instead.
+  PAYMENT_RECONCILIATION_ENABLED: 'false',
   ...overrides,
 });

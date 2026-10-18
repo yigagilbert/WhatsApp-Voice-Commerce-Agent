@@ -8,12 +8,15 @@ interface Line {
   id: number;
   from: 'you' | 'agent' | 'error';
   text: string;
+  /** Chart image (data URL) sent with the reply. */
+  image?: string;
 }
 
 const EXAMPLES = [
   'Create an order for Sarah for 10 handmade baskets at $12 each and $20 shipping.',
   'How much have I sold this week?',
-  'Do we have coffee gift packs in stock?',
+  'Which products are running low?',
+  'Send me a chart of revenue for the last 7 days.',
 ];
 
 /** Text console for the same agent pipeline WhatsApp uses (channel "web"). */
@@ -38,7 +41,8 @@ export function Console() {
           ? result.replies.map((r, i) => ({
               id: Date.now() + i + 1,
               from: 'agent' as const,
-              text: r,
+              text: r.text,
+              ...(r.image ? { image: r.image } : {}),
             }))
           : [{ id: Date.now() + 1, from: 'error' as const, text: result.error }]),
       ]);
@@ -67,6 +71,14 @@ export function Console() {
                     : 'bg-slate-100 text-slate-900'
               }`}
             >
+              {line.image && (
+                // eslint-disable-next-line @next/next/no-img-element -- inline data URL chart, not optimisable
+                <img
+                  src={line.image}
+                  alt={line.text}
+                  className="mb-2 w-full max-w-md rounded border border-slate-200"
+                />
+              )}
               {line.from === 'agent' ? <MessageText text={line.text} /> : line.text}
             </p>
           </div>

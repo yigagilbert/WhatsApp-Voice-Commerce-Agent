@@ -153,13 +153,14 @@ describe('demo flow (integration)', () => {
       externalChatId: 'stranger@c.us',
     });
     expect(result.status).toBe('ignored');
-    // A clear onboarding reply that echoes the sender's own ID — and nothing else happens.
-    expect(result.replies[0]!.text).toContain("isn't linked to a Katale AI merchant account");
-    expect(result.replies[0]!.text).toContain('stranger@c.us');
+    // One generic welcome — no IDs or business details — and nothing else happens.
+    expect(result.replies[0]!.text).toBe(
+      "Hello! 👋 Welcome to Katale AI. Our team will get back to you as soon as they're available.",
+    );
     expect(
       await container.db.conversation.count({ where: { externalChatId: 'stranger@c.us' } }),
     ).toBe(0);
-    // Throttled: a second message within the window gets no reply (no reply loops/spam).
+    // Once per cooldown: a second message gets no reply (no reply loops/spam).
     const again = await container.inbound.handle({
       ...textMessage('hello?'),
       senderId: 'stranger@c.us',

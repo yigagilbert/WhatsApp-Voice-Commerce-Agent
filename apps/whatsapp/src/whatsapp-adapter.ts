@@ -19,6 +19,8 @@ export interface ConnectionStatus {
   stateChangedAt: string;
   /** Linked number, masked (e.g. "•••• 4821"). */
   account: string | null;
+  /** Full bot ID for the API (internal gateway only; the dashboard proxy strips it). */
+  botId?: string | null;
   lastDisconnectReason: string | null;
 }
 
@@ -69,6 +71,8 @@ export interface WhatsAppTransport {
   onCall(handler: (call: IncomingCall) => Promise<void>): void;
   /** The E.164 phone behind a sender (resolves WhatsApp linked IDs), or null if unknown. */
   resolvePhone(chatId: string): Promise<string | null>;
+  /** This bot's own WhatsApp ID ("256700000000@c.us") once ready, else null. */
+  botId(): string | null;
 }
 
 export interface WhatsAppWebOptions {
@@ -189,8 +193,15 @@ export class WhatsAppWebTransport implements WhatsAppTransport {
     return this.ready;
   }
 
+  botId(): string | null {
+    if (!this.ready) return null;
+    return (
+      (this.client.info as { wid?: { _serialized?: string } } | undefined)?.wid?._serialized ?? null
+    );
+  }
+
   connection(): ConnectionStatus {
-    return { ...this.status };
+    return { ...this.status, botId: this.botId() };
   }
 
   reconnect(): Promise<void> {

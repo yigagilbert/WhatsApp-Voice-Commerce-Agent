@@ -36,33 +36,64 @@ model Merchant {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  operators     MerchantOperator[]
-  customers     Customer[]
-  products      Product[]
-  orders        Order[]
-  payments      Payment[]
-  conversations Conversation[]
-  confirmations ActionConfirmation[]
-  auditEvents   AuditEvent[]
-  shipments     Shipment[]
-  disputes      Dispute[]
-  stockMovements StockMovement[]
-  reportSchedule ReportSchedule?
-  reportRuns     ReportRun[]
+  operators        MerchantOperator[]
+  customers        Customer[]
+  products         Product[]
+  orders           Order[]
+  payments         Payment[]
+  conversations    Conversation[]
+  confirmations    ActionConfirmation[]
+  auditEvents      AuditEvent[]
+  shipments        Shipment[]
+  disputes         Dispute[]
+  stockMovements   StockMovement[]
+  reportSchedule   ReportSchedule?
+  reportRuns       ReportRun[]
+  whatsappAccounts WhatsAppAccount[]
 
   @@map("merchants")
+}
+
+enum PaymentLinkMode {
+  /// Customer confirms → PayPal link sent at once (prices from the catalog only).
+  AUTO
+  /// Customer confirms → an admin approves → link sent.
+  APPROVAL
+}
+
+/// A WhatsApp bot number and the ONE merchant it serves. Customers who message this number are
+/// that merchant's customers; admins of other merchants are treated as customers here.
+model WhatsAppAccount {
+  id                      String          @id @default(cuid())
+  merchantId              String
+  /// The bot's own WhatsApp ID, e.g. "256700000000@c.us".
+  wid                     String          @unique
+  /// Customer commerce on this number (also needs CUSTOMER_COMMERCE_ENABLED).
+  customerCommerceEnabled Boolean         @default(false)
+  paymentLinkMode         PaymentLinkMode @default(AUTO)
+  /// Automated replies pause this long after a customer asks for a person.
+  handoffHours            Int             @default(12)
+  /// Merchant-written answers for customers: hours, delivery, returns, contact.
+  shopInfo                String?
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId])
+  @@map("whatsapp_accounts")
 }
 
 /// A channel identity (e.g. a WhatsApp ID) that is allowed to operate a merchant.
 /// Messages from unknown identities are never turned into commerce actions.
 model MerchantOperator {
-  id         String       @id @default(cuid())
-  merchantId String
-  name       String
-  channel    String
+  id             String       @id @default(cuid())
+  merchantId     String
+  name           String
+  channel        String
   /// The chat ID messages arrive from / are sent to (e.g. 256700000000@c.us, …@lid, "dashboard").
-  externalId String
-  role       OperatorRole @default(OWNER)
+  externalId     String
+  role           OperatorRole @default(OWNER)
   /// WhatsApp admins: phone in E.164 (+256700000000). Senders are matched by ID, linked ID or phone.
   phone          String?
   /// WhatsApp linked ID (…@lid) learned when this admin first messages the bot.
@@ -71,8 +102,8 @@ model MerchantOperator {
   active         Boolean      @default(true)
   receiveReports Boolean      @default(true)
   receiveAlerts  Boolean      @default(true)
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @default(now()) @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @default(now()) @updatedAt
 
   merchant   Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   deliveries ReportDelivery[]
@@ -94,50 +125,66 @@ enum OperatorRole {
 // ---------------------------------------------------------------------------
 
 model Customer {
-  id                String   @id @default(cuid())
+  id                String         @id @default(cuid())
   merchantId        String
   name              String
   phone             String?
-  /// Channel identity used to message the customer (e.g. "15550001111@c.us").
+  /// Channel identity used to message the customer (e.g. "15550001111@c.us" or "…@lid").
   whatsappId        String?
+  /// Linked ID (@lid) when WhatsApp hides the phone number.
+  whatsappLid       String?
+  /// E.164 phone as resolved by WhatsApp itself (trusted for linking, unlike typed numbers).
+  whatsappPhone     String?
+  source            CustomerSource @default(MERCHANT)
   email             String?
   /// ISO-3166 alpha-2 country code.
   country           String?
   preferredCurrency String?
   metadata          Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   merchant      Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   orders        Order[]
   conversations Conversation[]
 
   @@unique([merchantId, whatsappId])
+  @@unique([merchantId, whatsappLid])
   @@index([merchantId, name])
   @@map("customers")
 }
 
+enum CustomerSource {
+  /// Created by the merchant (dashboard, chat with the agent).
+  MERCHANT
+  /// Created when the customer first messaged the shop's WhatsApp bot.
+  WHATSAPP
+}
+
 model Product {
-  id             String   @id @default(cuid())
-  merchantId     String
-  name           String
-  description    String?
-  sku            String?
-  unitPriceMinor Int
-  currency       String
+  id                 String    @id @default(cuid())
+  merchantId         String
+  name               String
+  description        String?
+  sku                String?
+  unitPriceMinor     Int
+  currency           String
   /// null = inventory not tracked for this product.
-  stockQuantity  Int?
+  stockQuantity      Int?
   /// Alert when stock falls to or below this level (null = no low-stock alerts).
-  reorderLevel   Int?
+  reorderLevel       Int?
   /// Set when a low-stock alert was sent; cleared when stock is back above the reorder level.
-  lowStockAlertedAt DateTime?
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  lowStockAlertedAt  DateTime?
+  active             Boolean   @default(true)
+  /// Shown to customers on WhatsApp (when customer commerce is on).
+  visibleToCustomers Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   merchant       Merchant        @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   orderItems     OrderItem[]
   stockMovements StockMovement[]
+  image          ProductImage?
 
   @@unique([merchantId, sku])
   @@index([merchantId, name])
@@ -167,28 +214,28 @@ enum OrderInputMode {
 }
 
 model Order {
-  id             String      @id @default(cuid())
+  id                String            @id @default(cuid())
   /// Short human-friendly reference shown in chat, e.g. "ORD-7K2M9Q".
-  reference      String      @unique
-  merchantId     String
-  customerId     String
-  conversationId String?
-  status         OrderStatus @default(DRAFT)
-  currency       String
-  subtotalMinor  Int
-  shippingMinor  Int         @default(0)
-  taxMinor       Int         @default(0)
-  totalMinor     Int
-  notes          String?
+  reference         String            @unique
+  merchantId        String
+  customerId        String
+  conversationId    String?
+  status            OrderStatus       @default(DRAFT)
+  currency          String
+  subtotalMinor     Int
+  shippingMinor     Int               @default(0)
+  taxMinor          Int               @default(0)
+  totalMinor        Int
+  notes             String?
   /// Channel the order originated from ("whatsapp", "web", "api").
   /// Channel the order came from: "whatsapp" or "web" (Agent Console).
-  source         String
+  source            String
   /// How the merchant asked: typed text or a transcribed voice note.
-  inputMode      OrderInputMode @default(TEXT)
+  inputMode         OrderInputMode    @default(TEXT)
   /// Fulfillment is a separate dimension from payment: PAID + NOT_SHIPPED = waiting to ship.
   fulfillmentStatus FulfillmentStatus @default(NOT_SHIPPED)
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   merchant     Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   customer     Customer      @relation(fields: [customerId], references: [id])
@@ -243,31 +290,31 @@ enum PaymentStatus {
 }
 
 model Payment {
-  id             String          @id @default(cuid())
-  merchantId     String
-  orderId        String
-  provider       PaymentProvider
-  kind           PaymentKind
+  id                String          @id @default(cuid())
+  merchantId        String
+  orderId           String
+  provider          PaymentProvider
+  kind              PaymentKind
   /// Provider-side ID (PayPal order ID or invoice ID).
-  externalId     String?
+  externalId        String?
   /// Provider capture/transaction ID once money moved.
-  captureId      String?
-  status         PaymentStatus   @default(CREATED)
+  captureId         String?
+  status            PaymentStatus   @default(CREATED)
   /// Last status reported by the provider (e.g. PayPal "PAYER_ACTION_REQUIRED", "COMPLETED").
-  providerStatus String?
-  amountMinor    Int
-  currency       String
-  checkoutUrl    String?
+  providerStatus    String?
+  amountMinor       Int
+  currency          String
+  checkoutUrl       String?
   /// Sent as PayPal-Request-Id so retries never create duplicate requests.
-  idempotencyKey String          @unique
+  idempotencyKey    String          @unique
   /// Trace ID of the transaction (correlation ID of the request that drafted the order).
-  correlationId  String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  completedAt    DateTime?
+  correlationId     String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  completedAt       DateTime?
   /// Payment reminders sent to the customer for this link (merchant-approved, rate limited).
-  reminderCount  Int             @default(0)
-  lastReminderAt DateTime?
+  reminderCount     Int             @default(0)
+  lastReminderAt    DateTime?
   /// Last time the reconciler asked PayPal about this payment (throttles background checks).
   providerCheckedAt DateTime?
 
@@ -287,15 +334,19 @@ model Payment {
 // ---------------------------------------------------------------------------
 
 model Conversation {
-  id             String   @id @default(cuid())
+  id             String               @id @default(cuid())
   merchantId     String
   customerId     String?
   channel        String
   externalChatId String
   /// Session metadata (e.g. last referenced order) — never financial truth.
   context        Json?
-  lastMessageAt  DateTime @default(now())
-  createdAt      DateTime @default(now())
+  /// Who the bot talks to in this chat: a merchant admin or a customer.
+  audience       ConversationAudience @default(ADMIN)
+  /// Customer asked for a person: automated replies paused until then (or an admin resumes).
+  handoffUntil   DateTime?
+  lastMessageAt  DateTime             @default(now())
+  createdAt      DateTime             @default(now())
 
   merchant      Merchant             @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   customer      Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -305,6 +356,11 @@ model Conversation {
 
   @@unique([merchantId, channel, externalChatId])
   @@map("conversations")
+}
+
+enum ConversationAudience {
+  ADMIN
+  CUSTOMER
 }
 
 enum MessageDirection {
@@ -451,7 +507,6 @@ model WebhookEvent {
   @@map("webhook_events")
 }
 
-
 // ─── Fulfillment ────────────────────────────────────────────────────────────
 
 /// Mirrors PayPal's tracker status (Orders v2 trackers are SHIPPED or CANCELLED; PayPal has no
@@ -535,24 +590,23 @@ model Dispute {
 
 /// A merchant-approved response submitted to PayPal (one per SUBMIT confirmation).
 model DisputeResponse {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   disputeId      String
   merchantId     String
-  confirmationId String   @unique
+  confirmationId String    @unique
   responseText   String
   /// Evidence sent: [{ type, label, detail }]
   evidence       Json
   status         String
   error          String?
   submittedAt    DateTime?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   dispute Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
 
   @@index([disputeId])
   @@map("dispute_responses")
 }
-
 
 // ─── Inventory ──────────────────────────────────────────────────────────────
 
@@ -588,7 +642,6 @@ model StockMovement {
   @@index([productId, createdAt])
   @@map("stock_movements")
 }
-
 
 // ─── Proactive reports ──────────────────────────────────────────────────────
 
@@ -684,4 +737,19 @@ model ReportDelivery {
   @@unique([runId, operatorId])
   @@index([status, nextAttemptAt])
   @@map("report_deliveries")
+}
+
+/// One photo per product, uploaded in the dashboard and sent in WhatsApp product browsing.
+/// Stored in Postgres (small JPEG/PNG, ≤ 1 MB) so no extra storage service is needed.
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String   @unique
+  mimeType  String
+  data      Bytes
+  sizeBytes Int
+  updatedAt DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_images")
 }

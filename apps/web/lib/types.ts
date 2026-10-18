@@ -25,6 +25,7 @@ export interface Product {
   currency: string;
   stockQuantity: number | null;
   active: boolean;
+  visibleToCustomers?: boolean;
 }
 
 export interface Order {

@@ -105,6 +105,11 @@ export const commerceSchema = z.object({
   REPORT_SCHEDULER_ENABLED: booleanString.default(true),
   /** Background re-check of open PayPal links (runs on the report scheduler's tick). */
   PAYMENT_RECONCILIATION_ENABLED: booleanString.default(true),
+  /**
+   * Server-wide switch for customer shopping on WhatsApp (off by default). Each bot number must
+   * also turn it on in the dashboard; while off, customers get the generic welcome.
+   */
+  CUSTOMER_COMMERCE_ENABLED: booleanString.default(false),
   /** Unregistered WhatsApp numbers get the generic welcome at most once per this many hours. */
   UNAUTHORIZED_REPLY_COOLDOWN_HOURS: z.coerce.number().min(0).max(8760).default(24),
 });

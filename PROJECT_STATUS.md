@@ -34,6 +34,18 @@ _Last updated: 2026-10-07 — production runs `v0.1.0-202610071145` at https://k
 - **Docs:** README, architecture docs, 7 ADRs, local setup, real-services guide, API reference,
   hackathon demo flow and product story.
 
+## Customer commerce — Phase 0 + 1 (2026-10-18, branch `feat/customer-commerce-phase-0-1`, off in production)
+
+| Capability                                                                                        | Status                                                         |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Bot number → merchant; admin/customer routing; admins of other shops are customers on this number | ✅ integration tests                                           |
+| Customer identity by WhatsApp ID and `@lid`; linking only via WhatsApp-verified phone             | ✅ integration tests                                           |
+| Numbered menu, product lists with paging, details with photos, availability labels only           | ✅ integration tests                                           |
+| Customer agent with 4 customer-only tools; injection and admin-tool attempts refused              | ✅ integration + real-LLM tests                                |
+| Hand-off (configurable pause), forwarding, admin reply/resume (WhatsApp + dashboard)              | ✅ integration tests                                           |
+| Dashboard: shop number + settings, customer chats, product photos/description/visibility          | ✅ checked locally                                             |
+| Production                                                                                        | Not deployed; `CUSTOMER_COMMERCE_ENABLED=false` until approved |
+
 ## Reminders, payment checks, roles, monthly reports (2026-10-18, production `v0.1.0-202610181457`)
 
 | Capability                                                                                                         | Status                                                                            |

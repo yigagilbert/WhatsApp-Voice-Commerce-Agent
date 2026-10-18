@@ -34,7 +34,21 @@ _Last updated: 2026-10-07 — production runs `v0.1.0-202610071145` at https://k
 - **Docs:** README, architecture docs, 7 ADRs, local setup, real-services guide, API reference,
   hackathon demo flow and product story.
 
-## Customer commerce — Phase 0 + 1 (2026-10-18, branch `feat/customer-commerce-phase-0-1`, off in production)
+## Customer commerce — Phase 2: cart, checkout, PayPal (2026-10-18, branch `feat/customer-checkout-phase-2`)
+
+| Capability                                                                             | Status                                                                               |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Cart by numbers and natural English; 48 h expiry; line/quantity/unpaid-order limits    | ✅ integration tests                                                                 |
+| Stock checks with reservations for unpaid orders (no overselling)                      | ✅ integration tests                                                                 |
+| Checkout: name, delivery/pickup with configured fee, address, summary, ORDER           | ✅ integration tests                                                                 |
+| Changed prices, expired carts, duplicate and concurrent ORDERs, PayPal failure + retry | ✅ integration tests                                                                 |
+| Automatic PayPal link (existing checkout) and optional owner approval                  | ✅ integration tests                                                                 |
+| Verified payment only; stock deducted once; customer + admin notifications             | ✅ integration tests                                                                 |
+| "My orders" for the customer's own orders only; cross-merchant isolation               | ✅ integration tests                                                                 |
+| Real-LLM: cart tools chosen, no invented links or quantities                           | ✅ real-LLM tests                                                                    |
+| End-to-end with a real phone + PayPal Sandbox buyer                                    | Runbook ready: [customer-shopping-test.md](docs/hackathon/customer-shopping-test.md) |
+
+## Customer commerce — Phase 0 + 1 (2026-10-18, branch `feat/customer-commerce-phase-0-1`, merged and deployed `v0.1.0-202610181605`, off in production)
 
 | Capability                                                                                        | Status                                                         |
 | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |

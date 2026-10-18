@@ -16,6 +16,11 @@ export interface ShopAccount {
   paymentLinkMode: 'AUTO' | 'APPROVAL';
   handoffHours: number;
   shopInfo: string | null;
+  deliveryEnabled: boolean;
+  deliveryFee: string;
+  currency: string;
+  pickupEnabled: boolean;
+  pickupInfo: string | null;
 }
 
 export interface ShopView {
@@ -100,16 +105,14 @@ export function ShopSettingsForm({
           <span className="font-medium">Let customers shop on this number</span>
           <span className="block text-xs text-slate-500">
             {available
-              ? 'Customers can browse products, see photos and prices, ask questions and ask for a person. Admin numbers keep the admin assistant.'
+              ? 'Customers can browse products, add them to a cart, order and pay with PayPal, check their orders and ask for a person. Admin numbers keep the admin assistant.'
               : 'Not available on this server yet (CUSTOMER_COMMERCE_ENABLED is off). Customers get the generic welcome.'}
           </span>
         </span>
       </label>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm">
-          <span className="mb-1 block font-medium text-slate-700">
-            Payment links (ordering, coming next)
-          </span>
+          <span className="mb-1 block font-medium text-slate-700">Payment links</span>
           <select name="paymentLinkMode" defaultValue={account.paymentLinkMode} className={field}>
             <option value="AUTO">Send automatically when the customer confirms</option>
             <option value="APPROVAL">Ask an admin to approve first</option>
@@ -132,6 +135,36 @@ export function ShopSettingsForm({
           </span>
         </label>
       </div>
+      <fieldset className="grid gap-3 rounded-md border border-slate-200 p-3 sm:grid-cols-2">
+        <legend className="px-1 text-sm font-medium text-slate-700">
+          How customers get orders
+        </legend>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" name="deliveryEnabled" defaultChecked={account.deliveryEnabled} />
+          Delivery
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          Fee
+          <input
+            name="deliveryFee"
+            inputMode="decimal"
+            defaultValue={account.deliveryFee}
+            className={`${field} w-24`}
+          />
+          <span className="text-slate-500">{account.currency}</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" name="pickupEnabled" defaultChecked={account.pickupEnabled} />
+          Pick up (free)
+        </label>
+        <input
+          name="pickupInfo"
+          maxLength={300}
+          defaultValue={account.pickupInfo ?? ''}
+          placeholder="Where and when to collect"
+          className={field}
+        />
+      </fieldset>
       <label className="block text-sm">
         <span className="mb-1 block font-medium text-slate-700">
           Shop information for customers

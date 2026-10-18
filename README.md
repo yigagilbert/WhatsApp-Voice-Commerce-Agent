@@ -79,7 +79,7 @@ More in [docs/hackathon/product-story.md](docs/hackathon/product-story.md).
 - 💳 PayPal Orders v2 checkout, capture, **tracking**; Disputes v1 **sync and evidence submission**; verified, idempotent webhooks
 - 🧺 Inventory by chat: sales reduce stock automatically (ledgered), "I just received 50 baskets", low-stock and out-of-stock alerts, reorder suggestions
 - 📈 Charts sent as WhatsApp images (revenue trend, revenue by product, stock levels) and period comparisons, all from database aggregates
-- 🛍️ Customer shopping on the shop's own WhatsApp number (off by default): numbered menu, product search, photos, availability labels, questions answered from your shop info, hand-off to a person — separate customer assistant, never the admin tools
+- 🛍️ Customer shopping on the shop's own WhatsApp number (off by default): browse with photos, cart, checkout with delivery or pickup, PayPal link (automatic or owner-approved), order status, hand-off to a person — separate customer assistant, never the admin tools
 - 🔔 Payment reminders: "remind Sarah about ORD-123" → preview → `REMIND <code>` (or the dashboard button); PayPal is checked first, expired links are renewed; one per day, three per link
 - 🧾 Sales cross-checked with PayPal: open links re-checked in the background, missed payments recorded, mismatches flagged in the report
 - 🔒 Owner and staff admins: staff can't approve payment requests or dispute responses

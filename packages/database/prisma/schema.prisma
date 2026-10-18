@@ -54,6 +54,16 @@ model Merchant {
   @@map("merchants")
 }
 
+enum OrderPlacer {
+  MERCHANT
+  CUSTOMER
+}
+
+enum DeliveryMethod {
+  DELIVERY
+  PICKUP
+}
+
 enum PaymentLinkMode {
   /// Customer confirms → PayPal link sent at once (prices from the catalog only).
   AUTO
@@ -75,6 +85,12 @@ model WhatsAppAccount {
   handoffHours            Int             @default(12)
   /// Merchant-written answers for customers: hours, delivery, returns, contact.
   shopInfo                String?
+  /// Customer checkout: delivery (with a flat fee in the merchant's currency) and/or pickup.
+  deliveryEnabled         Boolean         @default(true)
+  deliveryFeeMinor        Int             @default(0)
+  pickupEnabled           Boolean         @default(false)
+  /// Where and when to collect (shown to customers who choose pickup).
+  pickupInfo              String?
   createdAt               DateTime        @default(now())
   updatedAt               DateTime        @updatedAt
 
@@ -214,28 +230,38 @@ enum OrderInputMode {
 }
 
 model Order {
-  id                String            @id @default(cuid())
+  id                  String            @id @default(cuid())
   /// Short human-friendly reference shown in chat, e.g. "ORD-7K2M9Q".
-  reference         String            @unique
-  merchantId        String
-  customerId        String
-  conversationId    String?
-  status            OrderStatus       @default(DRAFT)
-  currency          String
-  subtotalMinor     Int
-  shippingMinor     Int               @default(0)
-  taxMinor          Int               @default(0)
-  totalMinor        Int
-  notes             String?
+  reference           String            @unique
+  merchantId          String
+  customerId          String
+  conversationId      String?
+  status              OrderStatus       @default(DRAFT)
+  currency            String
+  subtotalMinor       Int
+  shippingMinor       Int               @default(0)
+  taxMinor            Int               @default(0)
+  totalMinor          Int
+  notes               String?
   /// Channel the order originated from ("whatsapp", "web", "api").
   /// Channel the order came from: "whatsapp" or "web" (Agent Console).
-  source            String
+  source              String
   /// How the merchant asked: typed text or a transcribed voice note.
-  inputMode         OrderInputMode    @default(TEXT)
+  inputMode           OrderInputMode    @default(TEXT)
   /// Fulfillment is a separate dimension from payment: PAID + NOT_SHIPPED = waiting to ship.
-  fulfillmentStatus FulfillmentStatus @default(NOT_SHIPPED)
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  fulfillmentStatus   FulfillmentStatus @default(NOT_SHIPPED)
+  /// Who created the order: the merchant (dashboard/agent) or a customer shopping on WhatsApp.
+  placedBy            OrderPlacer       @default(MERCHANT)
+  /// Customer orders: set when the customer replied ORDER (null = still a cart).
+  customerConfirmedAt DateTime?
+  /// Customer carts expire (48 h after the last change) if not ordered.
+  expiresAt           DateTime?
+  deliveryMethod      DeliveryMethod?
+  deliveryAddress     String?
+  /// Name for the order as given by the customer at checkout.
+  contactName         String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   merchant     Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   customer     Customer      @relation(fields: [customerId], references: [id])
@@ -247,6 +273,7 @@ model Order {
 
   @@index([merchantId, createdAt])
   @@index([merchantId, status])
+  @@index([merchantId, customerId, status])
   @@map("orders")
 }
 

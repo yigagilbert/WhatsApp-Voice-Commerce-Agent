@@ -115,6 +115,8 @@ export const commerceSchema = z.object({
    * connected shop number while it is off for everyone else: controlled end-to-end testing.
    * Admin numbers of that shop always get the admin assistant instead.
    */
+  /** Messages per customer per minute before the shop bot asks them to slow down. */
+  CUSTOMER_MESSAGES_PER_MINUTE: z.coerce.number().int().min(5).max(1000).default(15),
   CUSTOMER_COMMERCE_PILOT_NUMBERS: z
     .string()
     .default('')

@@ -332,7 +332,9 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
     it('shows a numbered menu', async () => {
       const reply = texts(await send(shopper, 'Hi'));
       expect(reply).toContain('Welcome to *Kampala Baskets*');
-      expect(reply).toMatch(/\*1\* Browse products\n\*2\* Ask a question\n\*3\* Talk to a person/);
+      expect(reply).toMatch(
+        /\*1\* Browse products\n\*2\* My cart\n\*3\* My orders\n\*4\* Talk to a person/,
+      );
     });
 
     it('lists only visible, active products of this shop with availability labels', async () => {
@@ -373,10 +375,15 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
         (req) => {
           const names = req.tools?.map((t) => t.name).sort();
           expect(names).toEqual([
+            'add_to_cart',
             'browse_products',
+            'my_orders',
             'product_details',
             'request_human',
             'shop_info',
+            'start_checkout',
+            'update_cart',
+            'view_cart',
           ]);
           expect(req.messages[0]!.content).toContain('shopping assistant of Kampala Baskets');
           return {
@@ -420,7 +427,7 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
 
     it('pauses automated replies, alerts admins and forwards messages', async () => {
       await send(shopper, 'hi', { senderName: 'Peter' });
-      const reply = texts(await send(shopper, '3'));
+      const reply = texts(await send(shopper, '4'));
       expect(reply).toContain("I've let the team know");
       const alert = sender.to(adminA).at(-1)!;
       expect(alert).toContain('A customer needs help');

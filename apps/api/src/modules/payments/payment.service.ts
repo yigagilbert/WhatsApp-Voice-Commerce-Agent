@@ -387,11 +387,13 @@ export class PaymentService {
   private async notifyStockAlerts(paymentId: string, alerts: StockAlert[]): Promise<void> {
     const payment = await this.db.payment.findUniqueOrThrow({
       where: { id: paymentId },
-      include: { order: { select: { conversationId: true } } },
+      include: { order: { select: { conversationId: true, placedBy: true } } },
     });
     const text = branded(alerts.map(formatStockAlert).join('\n\n'));
     const delivered = await this.notifications.toAdmins(payment.merchantId, text);
-    if (!delivered && payment.order.conversationId)
+    // Fallback to the order's chat only for merchant orders: a customer order's chat is the
+    // customer's, and stock levels are business information.
+    if (!delivered && payment.order.conversationId && payment.order.placedBy === 'MERCHANT')
       await this.notifications.toConversation(payment.order.conversationId, text);
   }
 
@@ -412,6 +414,23 @@ export class PaymentService {
         'The order is now marked as paid.',
       ].join('\n'),
     );
+    if (payment.order.placedBy === 'CUSTOMER') {
+      // The order's chat is the customer's: thank them there, and tell the shop's admins.
+      if (payment.order.conversationId)
+        await this.notifications.toConversation(
+          payment.order.conversationId,
+          [
+            `✅ *Payment received — thank you!*`,
+            '',
+            `Order ${payment.order.reference} · ${formatMoney(payment.amountMinor, payment.currency)} is paid.`,
+            payment.order.deliveryMethod === 'PICKUP'
+              ? "We'll let you know when it's ready to pick up."
+              : "We're preparing it now. Reply *orders* any time to check its status.",
+          ].join('\n'),
+        );
+      await this.notifications.toAdmins(payment.merchantId, text);
+      return;
+    }
     if (payment.order.conversationId) {
       await this.notifications.toConversation(payment.order.conversationId, text);
     }

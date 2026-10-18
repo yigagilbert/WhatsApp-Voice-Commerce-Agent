@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { toMajorString, toMinorUnits } from '@vca/commerce';
 import { HEADERS, NotFoundError, ValidationError } from '@vca/shared';
 import { z } from 'zod';
 import type { Container } from '../../container';
@@ -23,6 +24,11 @@ const accountPatch = z.object({
   paymentLinkMode: z.enum(['AUTO', 'APPROVAL']).optional(),
   handoffHours: z.number().int().min(1).max(168).optional(),
   shopInfo: z.string().max(2000).nullable().optional(),
+  deliveryEnabled: z.boolean().optional(),
+  /** Major units, e.g. 5 or "5.00", in the merchant's currency. */
+  deliveryFee: z.union([z.number().nonnegative(), z.string()]).optional(),
+  pickupEnabled: z.boolean().optional(),
+  pickupInfo: z.string().max(300).nullable().optional(),
 });
 
 /** Real JPEG/PNG only, whatever the declared type says. */
@@ -81,6 +87,11 @@ export async function customerCommerceRoutes(
         paymentLinkMode: a.paymentLinkMode,
         handoffHours: a.handoffHours,
         shopInfo: a.shopInfo,
+        deliveryEnabled: a.deliveryEnabled,
+        deliveryFee: toMajorString(a.deliveryFeeMinor, request.merchant.preferredCurrency),
+        currency: request.merchant.preferredCurrency,
+        pickupEnabled: a.pickupEnabled,
+        pickupInfo: a.pickupInfo,
       })),
     };
   });
@@ -95,8 +106,14 @@ export async function customerCommerceRoutes(
 
   app.put('/api/whatsapp/account/:id', async (request) => {
     const { id } = parse(idParams, request.params);
-    const body = parse(accountPatch, request.body);
-    const account = await container.whatsappAccounts.update(request.merchant.id, id, body, {
+    const { deliveryFee, ...body } = parse(accountPatch, request.body);
+    const settings = {
+      ...body,
+      ...(deliveryFee !== undefined
+        ? { deliveryFeeMinor: toMinorUnits(deliveryFee, request.merchant.preferredCurrency) }
+        : {}),
+    };
+    const account = await container.whatsappAccounts.update(request.merchant.id, id, settings, {
       customerCommerceAvailable: config.CUSTOMER_COMMERCE_ENABLED,
     });
     return { id: account.id, customerCommerceEnabled: account.customerCommerceEnabled };

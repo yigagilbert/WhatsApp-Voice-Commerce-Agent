@@ -303,6 +303,45 @@ export function describeEvent(event: Pick<AuditEvent, 'type' | 'data'>): Describ
         title: `Expired PayPal link replaced for ${str(d.orderReference) ?? 'an order'}`,
         detail: usd(d.amountMinor, d.currency),
       };
+    case 'order.placed_by_customer':
+      return {
+        stage: 'Merchant approves',
+        title: `Customer placed order ${str(d.reference) ?? ''} on WhatsApp`,
+        detail: join(
+          usd(d.totalMinor, d.currency),
+          d.mode === 'APPROVAL' ? 'waiting for your approval' : 'PayPal link sent automatically',
+        ),
+      };
+    case 'customer.created_from_whatsapp':
+      return { stage: 'Input', title: `New WhatsApp customer: ${str(d.name) ?? ''}` };
+    case 'customer.whatsapp_linked':
+      return { stage: 'Input', title: `WhatsApp linked to customer ${str(d.name) ?? ''}` };
+    case 'customer.handoff':
+      return {
+        stage: 'Notified',
+        title: `${str(d.name) ?? 'A customer'} asked for a person`,
+        detail: join(str(d.reason), `bot paused ${num(d.hours) ?? 12} h`),
+      };
+    case 'customer.resumed':
+      return { stage: 'Input', title: 'Automated replies resumed for a customer' };
+    case 'customer.team_reply':
+      return {
+        stage: 'Notified',
+        title: `Team replied to ${str(d.name) ?? 'a customer'}`,
+        detail: str(d.preview),
+      };
+    case 'whatsapp.account_connected':
+      return {
+        stage: 'Input',
+        title: `WhatsApp number ${str(d.number) ?? ''} connected as the shop number`,
+      };
+    case 'whatsapp.account_updated':
+      return {
+        stage: 'Input',
+        title: `Shop number settings updated${d.customerCommerceEnabled ? ' (customer shopping on)' : ''}`,
+      };
+    case 'product.photo_updated':
+      return { stage: 'Backend verifies', title: `Photo updated: ${str(d.product) ?? ''}` };
     case 'notification.sent':
       return { stage: 'Notified', title: 'WhatsApp message sent', detail: str(d.preview) };
     case 'payment.failed':

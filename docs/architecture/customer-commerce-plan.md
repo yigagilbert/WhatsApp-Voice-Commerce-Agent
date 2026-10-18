@@ -1,8 +1,8 @@
 # Customer commerce over WhatsApp — feasibility and plan
 
-_Status (2026-10-18): **Phase 0 and Phase 1 implemented**, behind `CUSTOMER_COMMERCE_ENABLED=false`
-(production) and a per-number dashboard switch. Phase 2 (cart, order confirmation, PayPal checkout)
-is next. Decisions confirmed: one bot number per merchant, automatic payment links (admin approval
+_Status (2026-10-18): **Phases 0, 1 and 2 implemented**, behind `CUSTOMER_COMMERCE_ENABLED=false`
+(production) and a per-number dashboard switch. Phase 3 (dashboard customer inbox and operations) is
+next. Decisions confirmed: one bot number per merchant, automatic payment links (admin approval
 optional), availability labels only, 12 h configurable hand-off, product photos uploaded in the
 dashboard._
 
@@ -236,3 +236,27 @@ this number_ → add shop information. Admin numbers keep the admin assistant.
 offers a person); customer voice notes get "please type"; rate limits and the welcome cooldown are in
 memory (reset on restart); one WhatsApp worker session per server (several shops need several
 workers — the data model already supports it).
+
+## 14. What was built (Phase 2: cart, checkout, payment)
+
+| Piece         | How                                                                                                                                                                                                                                      |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cart          | An `Order` in DRAFT with `placedBy = CUSTOMER` (no new tables); expires 48 h after the last change; ≤ 15 lines, ≤ 20 per product; one open cart per customer                                                                             |
+| Adding        | `add 2` (product just viewed), `add 2 of 3` (list number), natural language via `add_to_cart`; `remove 1`, `remove this`, `update_cart`                                                                                                  |
+| Stock         | Checked on every change and at ORDER against **stock minus units held by unpaid orders** (no overselling); customers only ever see labels                                                                                                |
+| Limits        | ≤ 3 unpaid customer orders per customer; per-customer message rate limit (configurable)                                                                                                                                                  |
+| Checkout      | Name (if WhatsApp didn't give one) → delivery (flat fee) or pickup (free) → address → summary with the backend total → the customer replies **ORDER** (the AI can't place orders)                                                        |
+| Changes       | At ORDER the cart is re-priced from the catalog under a per-merchant lock; if anything differs from the summary the customer saw, they get the new summary to confirm again                                                              |
+| Duplicates    | Inbound messages are de-duplicated; ORDER is serialised per merchant; the PayPal attempt is claimed inside the lock, so a repeated or concurrent ORDER never creates a second order or link                                              |
+| Payment       | `AUTO`: the existing PayPal Orders v2 checkout (idempotent per attempt); `APPROVAL`: owners approve with the existing `request payment for ORD-…` → `CONFIRM <code>`; PayPal failures keep the order and the customer retries with ORDER |
+| Paid          | Only via the existing verified return URL / webhooks / reconciliation; stock deducted once (ledger); the customer gets a thank-you, admins get "Payment received"; stock alerts never go to customers                                    |
+| Status        | `orders` / "where is my order?" / `my_orders`: only this customer's orders with this shop — waiting for confirmation, waiting for payment (with the link), paid, shipped with tracking                                                   |
+| Merchant view | Open carts are hidden from merchant order lists until placed; admins are notified of new orders; Activity shows the customer-placed order trace                                                                                          |
+
+Settings (dashboard → WhatsApp): delivery on/off and fee, pickup on/off and details, payment-link
+mode, hand-off hours, shop information. Controlled end-to-end test:
+[customer-shopping-test.md](../hackathon/customer-shopping-test.md).
+
+**Remaining limits:** no cancellation of a placed order by the customer (they ask for a person);
+one flat delivery fee; customer voice notes still get "please type"; rate limits are in memory;
+customer replies to the payment-received message go back to the customer flow.

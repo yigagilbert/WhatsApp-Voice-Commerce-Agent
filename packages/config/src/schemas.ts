@@ -110,6 +110,20 @@ export const commerceSchema = z.object({
    * also turn it on in the dashboard; while off, customers get the generic welcome.
    */
   CUSTOMER_COMMERCE_ENABLED: booleanString.default(false),
+  /**
+   * Comma-separated E.164 numbers (e.g. "+256700000000") that may use customer shopping on a
+   * connected shop number while it is off for everyone else: controlled end-to-end testing.
+   * Admin numbers of that shop always get the admin assistant instead.
+   */
+  CUSTOMER_COMMERCE_PILOT_NUMBERS: z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((n) => n.trim())
+        .filter((n) => /^\+\d{6,15}$/.test(n)),
+    ),
   /** Unregistered WhatsApp numbers get the generic welcome at most once per this many hours. */
   UNAUTHORIZED_REPLY_COOLDOWN_HOURS: z.coerce.number().min(0).max(8760).default(24),
 });

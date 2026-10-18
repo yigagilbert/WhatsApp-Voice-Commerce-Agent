@@ -224,6 +224,10 @@ untouched.
 | Abuse limits: 15 messages/min, 300/day per customer                                                                                                              | `customer-conversation.service.ts`                                        |
 | Dashboard: connect the shop number, customer settings, shop info, customer chats + resume (WhatsApp page); product photo, description, visibility (product page) | `apps/web/app/whatsapp`, `apps/web/app/products/[id]`                     |
 
+**Controlled testing first:** connect the shop number in the dashboard, then set
+`CUSTOMER_COMMERCE_PILOT_NUMBERS=+2567…` (a phone that is **not** an admin of the shop) and restart
+the API. Only that number gets the customer experience; everyone else keeps the generic welcome.
+
 **Turning it on (when approved):** set `CUSTOMER_COMMERCE_ENABLED=true` on the API and redeploy, then
 in the dashboard → WhatsApp: _Use this number as this shop's number_ → tick _Let customers shop on
 this number_ → add shop information. Admin numbers keep the admin assistant.

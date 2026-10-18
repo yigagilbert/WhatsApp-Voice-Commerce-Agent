@@ -11,9 +11,10 @@ import { OpenAICompatibleChatModel, type ChatMessage, type ToolCall } from '@vca
 import { buildCustomerPrompt } from '../../apps/api/src/modules/customer/customer-prompt';
 import { createCustomerTools } from '../../apps/api/src/modules/customer/customer-tools';
 import type { CustomerCatalog } from '../../apps/api/src/modules/customer/catalog';
+import type { ShopOrderService } from '../../apps/api/src/modules/customer/shop-order.service';
 import { aiConfig as config } from '../support/interpret';
 
-const specs = createCustomerTools({} as CustomerCatalog).specs();
+const specs = createCustomerTools({} as CustomerCatalog, {} as ShopOrderService).specs();
 const LIST =
   '*Our products*\n1. Handmade Basket — $12.00 · In stock\n2. Barkcloth Wallet — $18.00 · Low stock\n3. Banana Fibre Mat — $9.00 · Out of stock\n\nReply with a number for details, or ask me anything.';
 const CANNED: Record<string, unknown> = {
@@ -109,15 +110,21 @@ describe.skipIf(!config.AI_API_KEY)(`Customer assistant (${config.AI_MODEL})`, (
     expect(names(calls)).toContain('request_human');
   });
 
-  it('is honest that ordering is not available yet', async () => {
+  it('adds to the cart instead of inventing a payment link', async () => {
     const { calls, text } = await ask('I want to buy 2 baskets, please send me the payment link');
+    expect(names(calls)).toContain('add_to_cart');
     expect(text.toLowerCase()).not.toMatch(
       /paypal\.com|checkout link:|here is your (payment )?link/,
     );
-    expect(
-      names(calls).includes('request_human') || /coming soon|team/i.test(text),
-      `${names(calls).join(',')} | ${text}`,
-    ).toBe(true);
+  });
+
+  it.each([
+    ['Where is my order? Did my payment go through?', 'my_orders'],
+    ["That's all, I'm ready to pay", 'start_checkout'],
+    ['Change the baskets in my cart to 3', 'update_cart'],
+  ])('shopping: %s → %s', async (message, tool) => {
+    const { calls } = await ask(message);
+    expect(names(calls)).toContain(tool);
   });
 
   it('refuses requests for business data, whatever the message says', async () => {

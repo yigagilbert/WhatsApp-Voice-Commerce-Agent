@@ -20,6 +20,11 @@ import { closestMatches } from '../similarity';
 
 const REFERENCE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
+/** A customer's cart (an unconfirmed draft) is not an order for the merchant yet. */
+export const NOT_OPEN_CART = {
+  NOT: { placedBy: 'CUSTOMER' as const, status: 'DRAFT' as const, customerConfirmedAt: null },
+};
+
 export const generateOrderReference = (): string =>
   `ORD-${Array.from({ length: 6 }, () => REFERENCE_ALPHABET[randomInt(REFERENCE_ALPHABET.length)]).join('')}`;
 
@@ -62,7 +67,11 @@ export class OrderService {
 
   list(merchantId: string, options: { status?: OrderStatus; limit?: number } = {}) {
     return this.db.order.findMany({
-      where: { merchantId, ...(options.status ? { status: options.status } : {}) },
+      where: {
+        merchantId,
+        ...NOT_OPEN_CART,
+        ...(options.status ? { status: options.status } : {}),
+      },
       include: {
         customer: true,
         items: { orderBy: { position: 'asc' } },
@@ -83,6 +92,7 @@ export class OrderService {
     const range = filter.period ? resolvePeriod(filter.period, now, merchant.timezone) : null;
     const where = {
       merchantId: merchant.id,
+      ...NOT_OPEN_CART,
       ...(filter.status ? { status: filter.status } : {}),
       ...(filter.inputMode ? { inputMode: filter.inputMode } : {}),
       ...(filter.fulfillment ? { fulfillmentStatus: filter.fulfillment } : {}),

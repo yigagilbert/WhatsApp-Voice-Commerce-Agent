@@ -41,6 +41,10 @@ export async function saveShopSettings(
     paymentLinkMode: form.get('paymentLinkMode') === 'APPROVAL' ? 'APPROVAL' : 'AUTO',
     handoffHours: Number(form.get('handoffHours') ?? 12),
     shopInfo: String(form.get('shopInfo') ?? '').trim() || null,
+    deliveryEnabled: form.get('deliveryEnabled') === 'on',
+    deliveryFee: String(form.get('deliveryFee') ?? '0').trim() || '0',
+    pickupEnabled: form.get('pickupEnabled') === 'on',
+    pickupInfo: String(form.get('pickupInfo') ?? '').trim() || null,
   });
   revalidatePath('/whatsapp');
   return result.ok ? { ok: true, message: 'Saved.' } : { ok: false, message: result.error };

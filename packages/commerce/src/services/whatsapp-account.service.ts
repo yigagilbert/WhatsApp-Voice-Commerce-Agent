@@ -7,6 +7,11 @@ export interface WhatsAppAccountSettings {
   paymentLinkMode?: PaymentLinkMode;
   handoffHours?: number;
   shopInfo?: string | null;
+  deliveryEnabled?: boolean;
+  /** Flat delivery fee in minor units of the merchant's currency. */
+  deliveryFeeMinor?: number;
+  pickupEnabled?: boolean;
+  pickupInfo?: string | null;
 }
 
 const BOT_ID = /^\d{6,15}@c\.us$/;
@@ -73,6 +78,18 @@ export class WhatsAppAccountService {
     ) {
       throw new ValidationError('Hand-off pause must be between 1 and 168 hours.');
     }
+    if (
+      settings.deliveryFeeMinor !== undefined &&
+      (!Number.isInteger(settings.deliveryFeeMinor) ||
+        settings.deliveryFeeMinor < 0 ||
+        settings.deliveryFeeMinor > 1_000_000)
+    ) {
+      throw new ValidationError('Delivery fee must be a positive amount.');
+    }
+    const delivery = settings.deliveryEnabled ?? account.deliveryEnabled;
+    const pickup = settings.pickupEnabled ?? account.pickupEnabled;
+    if (!delivery && !pickup)
+      throw new ValidationError('Offer delivery, pickup or both so customers can receive orders.');
     const updated = await this.db.whatsAppAccount.update({
       where: { id: account.id },
       data: {
@@ -83,6 +100,16 @@ export class WhatsAppAccountService {
         ...(settings.handoffHours !== undefined ? { handoffHours: settings.handoffHours } : {}),
         ...(settings.shopInfo !== undefined
           ? { shopInfo: settings.shopInfo?.trim().slice(0, 2000) || null }
+          : {}),
+        ...(settings.deliveryEnabled !== undefined
+          ? { deliveryEnabled: settings.deliveryEnabled }
+          : {}),
+        ...(settings.deliveryFeeMinor !== undefined
+          ? { deliveryFeeMinor: settings.deliveryFeeMinor }
+          : {}),
+        ...(settings.pickupEnabled !== undefined ? { pickupEnabled: settings.pickupEnabled } : {}),
+        ...(settings.pickupInfo !== undefined
+          ? { pickupInfo: settings.pickupInfo?.trim().slice(0, 300) || null }
           : {}),
       },
     });

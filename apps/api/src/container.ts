@@ -37,6 +37,7 @@ import { WhatsAppConnectionMonitor } from './modules/whatsapp/connection-monitor
 import { CustomerCatalog } from './modules/customer/catalog';
 import { CustomerConversationService } from './modules/customer/customer-conversation.service';
 import { createCustomerTools } from './modules/customer/customer-tools';
+import { ShopOrderService } from './modules/customer/shop-order.service';
 import { PayPalWebhookService } from './modules/paypal/webhook.service';
 import { DisputeService } from './modules/disputes/dispute.service';
 import { ShipmentService } from './modules/shipments/shipment.service';
@@ -223,11 +224,21 @@ export function createContainer(
   const whatsappAccounts = new WhatsAppAccountService(db, audit);
   const customerIdentity = new CustomerIdentityService(db, audit, config.DEFAULT_PHONE_REGION);
   const customerCatalog = new CustomerCatalog(db);
+  const shopOrders = new ShopOrderService(
+    db,
+    orders,
+    payments,
+    notifications,
+    audit,
+    logger.child({ component: 'shop-orders' }),
+  );
   const customerChats = new CustomerConversationService({
     db,
     audit,
     catalog: customerCatalog,
-    tools: createCustomerTools(customerCatalog),
+    shop: shopOrders,
+    perMinute: config.CUSTOMER_MESSAGES_PER_MINUTE,
+    tools: createCustomerTools(customerCatalog, shopOrders),
     chatModel,
     notifications,
     logger: logger.child({ component: 'customer-chat' }),
@@ -319,6 +330,7 @@ export function createContainer(
     whatsappAccounts,
     customerCatalog,
     customerChats,
+    shopOrders,
     shipments,
     disputes,
     webhooks,

@@ -13,6 +13,7 @@ import {
 } from '@vca/shared';
 import type { NotificationService } from '../notifications/notification.service';
 import { CustomerCatalog } from './catalog';
+import { ShopOrderService, type CheckoutStep, type ShopActor } from './shop-order.service';
 import { buildCustomerPrompt } from './customer-prompt';
 import type { CustomerAgentContext } from './customer-tools';
 
@@ -26,13 +27,27 @@ const GREETING =
 const HUMAN =
   /\b(human|real person|a person|someone|agent|staff|owner|manager|talk to (the )?(team|shop|seller))\b/i;
 const MORE = /^(more|next|more please|next page)[\s!.?]*$/i;
+const ORDER_WORD = /^order[\s!.]*$/i;
+const CANCEL = /^(cancel|stop|back|no)[\s!.]*$/i;
+const CART = /^(cart|my cart|basket|my basket|view cart|show (me )?(my )?cart)[\s!.?]*$/i;
+const ORDERS =
+  /^((my )?orders?( status)?|show (me )?my orders|where('?s| is) my order|track( my)? order|order status)[\s!.?]*$/i;
+const CHECKOUT = /^(check ?out|place (my |an )?order|buy now|pay now)[\s!.]*$/i;
+/** "add", "add 2", "add 2 of 3", "add 2 x product 3". */
+const ADD =
+  /^add(?:\s+(\d{1,2}))?(?:\s*(?:x|×|of|pcs?|pieces?)?\s*(?:product|item|number|no\.?|#)?\s*(\d{1,3}))?(?:\s+to (?:my )?cart)?[\s!.]*$/i;
+/** "remove 2" (cart line) or "remove this item". */
+const REMOVE = /^(?:remove|delete)\s+(?:(\d{1,2})|this(?: item| one)?|it)[\s!.]*$/i;
 
-/** Where the customer is in the numbered navigation (Conversation.context.shop). */
+/** Where the customer is (Conversation.context.shop): navigation and checkout progress. */
 interface ShopState {
   mode: 'menu' | 'list';
   list?: string[];
   query?: string | null;
   page?: number;
+  /** The product whose details were shown last ("add 2" adds it). */
+  lastProductId?: string;
+  checkout?: { orderId: string; step: CheckoutStep; quote: string | null } | undefined;
 }
 
 type Account = WhatsAppAccount & { merchant: Merchant };
@@ -44,7 +59,10 @@ export interface CustomerConversationDeps {
   tools: ToolRegistry<CustomerAgentContext>;
   chatModel: ChatModel | null;
   notifications: NotificationService;
+  shop: ShopOrderService;
   logger: Logger;
+  /** Messages per customer per minute before the bot slows them down (default 15). */
+  perMinute?: number;
 }
 
 /**
@@ -147,6 +165,7 @@ export class CustomerConversationService {
 
     const state = ((conversation.context as { shop?: ShopState } | null)?.shop ??
       null) as ShopState | null;
+    const actor: ShopActor = { merchant, customer, conversationId: conversation.id };
 
     if (HUMAN.test(text))
       return this.handoff(account, conversation, customer, 'Asked for a person', text);
@@ -159,35 +178,215 @@ export class CustomerConversationService {
       );
     }
 
-    const number = /^\s*(\d{1,3})\s*[.)]?\s*$/.exec(text)?.[1];
-    if (number && (!state || state.mode === 'menu')) {
-      if (number === '1') return this.showList(conversation, merchant.id, null, 1);
-      if (number === '2')
+    try {
+      // ── Checkout: ORDER places it; answers fill in name / delivery / address ──
+      if (ORDER_WORD.test(text)) {
+        if (state?.checkout?.step === 'confirm')
+          return await this.placeOrder(account, conversation, actor, state);
+        return await this.startCheckout(account, conversation, actor, state);
+      }
+      if (state?.checkout && CANCEL.test(text)) {
+        await this.saveState(conversation, { ...state, checkout: undefined });
         return this.reply(
           conversation,
-          'Of course! What would you like to know? You can ask about our products, prices, delivery or anything else.',
+          `No problem, nothing was ordered.\n\n${ShopOrderService.formatCart(await this.deps.shop.cart(merchant.id, customer.id))}`,
         );
-      if (number === '3')
-        return this.handoff(account, conversation, customer, 'Asked for a person', text);
-      return this.reply(
-        conversation,
-        'Please reply *1*, *2* or *3*, or just tell me what you need.',
-      );
-    }
-    if (number && state?.mode === 'list' && state.list?.length) {
-      const index = Number(number) - 1;
-      const id = state.list[index];
-      if (!id)
-        return this.reply(
-          conversation,
-          `Please reply with a number between 1 and ${state.list.length}.`,
+      }
+      const command = CART.test(text) || ORDERS.test(text) || CHECKOUT.test(text);
+      if (state?.checkout && state.checkout.step !== 'confirm' && !command) {
+        const error = await this.deps.shop.answer(
+          actor,
+          state.checkout.orderId,
+          state.checkout.step,
+          text,
         );
-      return this.showDetails(conversation, merchant.id, id);
-    }
-    if (MORE.test(text) && state?.mode === 'list')
-      return this.showList(conversation, merchant.id, state.query ?? null, (state.page ?? 1) + 1);
+        if (error) return this.reply(conversation, error);
+        return await this.startCheckout(account, conversation, actor, state);
+      }
 
-    return this.runAgent(account, conversation, customer, text);
+      const number = /^\s*(\d{1,3})\s*[.)]?\s*$/.exec(text)?.[1];
+      if (number && (!state || state.mode === 'menu')) {
+        if (number === '1') return await this.showList(conversation, merchant.id, null, 1, state);
+        if (number === '2') return await this.showCart(conversation, actor, state);
+        if (number === '3') return await this.showOrders(conversation, actor);
+        if (number === '4')
+          return this.handoff(account, conversation, customer, 'Asked for a person', text);
+        return this.reply(
+          conversation,
+          'Please reply *1*, *2*, *3* or *4*, or just tell me what you need.',
+        );
+      }
+      if (CART.test(text)) return await this.showCart(conversation, actor, state);
+      if (ORDERS.test(text)) return await this.showOrders(conversation, actor);
+      if (CHECKOUT.test(text)) return await this.startCheckout(account, conversation, actor, state);
+
+      const add = ADD.exec(text);
+      if (add) {
+        const quantity = Number(add[1] ?? 1);
+        const item = add[2] ? Number(add[2]) : null;
+        const productId =
+          item !== null ? state?.list?.[item - 1] : (state?.lastProductId ?? undefined);
+        if (!productId)
+          return this.reply(
+            conversation,
+            item !== null
+              ? `Please choose a number from the list (1–${state?.list?.length ?? 0}). Reply *1* to see products.`
+              : 'Which product? Reply with its number to see it first, or say e.g. *add 2 of 3*.',
+          );
+        const added = await this.deps.shop.add(actor, productId, quantity);
+        await this.saveState(conversation, {
+          ...(state ?? { mode: 'menu' }),
+          lastProductId: productId,
+          checkout: undefined,
+        });
+        return this.reply(
+          conversation,
+          `✅ Added: ${added.product} (now ${added.quantity} in your cart).\n\n${ShopOrderService.formatCart(added.cart)}`,
+        );
+      }
+      const remove = REMOVE.exec(text);
+      if (remove) {
+        const line = remove[1] ? Number(remove[1]) : undefined;
+        if (line === undefined && !state?.lastProductId)
+          return this.reply(conversation, 'Which item? Reply *cart* and then e.g. *remove 1*.');
+        const result = await this.deps.shop.setQuantity(
+          actor,
+          line !== undefined ? { line } : { productId: state!.lastProductId! },
+          0,
+        );
+        await this.saveState(conversation, { ...(state ?? { mode: 'menu' }), checkout: undefined });
+        return this.reply(
+          conversation,
+          `Removed ${result.product}.\n\n${ShopOrderService.formatCart(result.cart)}`,
+        );
+      }
+
+      if (number && state?.mode === 'list' && state.list?.length) {
+        const id = state.list[Number(number) - 1];
+        if (!id)
+          return this.reply(
+            conversation,
+            `Please reply with a number between 1 and ${state.list.length}.`,
+          );
+        return await this.showDetails(conversation, merchant.id, id, state);
+      }
+      if (MORE.test(text) && state?.mode === 'list')
+        return await this.showList(
+          conversation,
+          merchant.id,
+          state.query ?? null,
+          (state.page ?? 1) + 1,
+          state,
+        );
+    } catch (error) {
+      // Cart/checkout rules (stock, limits, quantities) explain themselves to the customer.
+      if (error instanceof NotFoundError)
+        return this.reply(
+          conversation,
+          "That product isn't available. Reply *1* to see what we have.",
+        );
+      if (isAppError(error) && error.httpStatus < 500)
+        return this.reply(conversation, error.message);
+      throw error;
+    }
+
+    return this.runAgent(account, conversation, customer, text, state);
+  }
+
+  private async showCart(conversation: Conversation, actor: ShopActor, state: ShopState | null) {
+    if (state?.checkout) await this.saveState(conversation, { ...state, checkout: undefined });
+    return this.reply(
+      conversation,
+      ShopOrderService.formatCart(await this.deps.shop.cart(actor.merchant.id, actor.customer.id)),
+    );
+  }
+
+  private async showOrders(conversation: Conversation, actor: ShopActor) {
+    const orders = await this.deps.shop.myOrders(actor.merchant.id, actor.customer.id);
+    return this.reply(conversation, ShopOrderService.formatOrders(orders));
+  }
+
+  /** Checkout: ask for what's missing, or show the summary to confirm with ORDER. */
+  private async startCheckout(
+    account: Account,
+    conversation: Conversation,
+    actor: ShopActor,
+    state: ShopState | null,
+  ) {
+    const next = await this.deps.shop.nextStep(actor, account);
+    await this.saveState(conversation, {
+      ...(state ?? { mode: 'menu' }),
+      checkout:
+        next.step && next.orderId
+          ? { orderId: next.orderId, step: next.step, quote: next.quote ?? null }
+          : undefined,
+    });
+    return this.reply(conversation, next.text);
+  }
+
+  private async placeOrder(
+    account: Account,
+    conversation: Conversation,
+    actor: ShopActor,
+    state: ShopState,
+  ) {
+    const checkout = state.checkout!;
+    const result = await this.deps.shop.place(
+      actor,
+      account,
+      checkout.orderId,
+      checkout.quote ?? null,
+    );
+    const done = { ...state, checkout: undefined };
+    switch (result.status) {
+      case 'link':
+        await this.saveState(conversation, done);
+        return this.reply(
+          conversation,
+          `🎉 *Order ${result.reference} placed!* Total: *${result.total}*.\n\nPay securely with PayPal:\n${result.link}\n\nWe'll confirm here as soon as your payment arrives. Reply *orders* to check its status.`,
+        );
+      case 'awaiting_approval':
+        await this.saveState(conversation, done);
+        return this.reply(
+          conversation,
+          `🎉 *Order ${result.reference} received!* Total: *${result.total}*.\n\nThe shop will confirm it and send your secure PayPal payment link here shortly.`,
+        );
+      case 'already':
+        await this.saveState(conversation, done);
+        return this.reply(
+          conversation,
+          `Order ${result.reference} is already placed.${result.link ? `\n\nPay securely with PayPal:\n${result.link}` : ''}`,
+        );
+      case 'paid':
+        await this.saveState(conversation, done);
+        return this.reply(
+          conversation,
+          `Order ${result.reference} is already paid. Thank you! Reply *orders* for its status.`,
+        );
+      case 'changed':
+        await this.saveState(conversation, {
+          ...state,
+          checkout: { ...checkout, quote: result.quote },
+        });
+        return this.reply(
+          conversation,
+          `Something changed since you last saw your order. Please check it again:\n\n${result.summary}`,
+        );
+      case 'expired':
+        await this.saveState(conversation, done);
+        return this.reply(
+          conversation,
+          'That cart has expired. Reply *1* to browse products and start again.',
+        );
+      case 'paypal_failed':
+        return this.reply(
+          conversation,
+          `Your order ${result.reference} is saved, but PayPal didn't respond. Please reply *ORDER* again in a minute to get your payment link.`,
+        );
+      case 'refused':
+        await this.saveState(conversation, done);
+        return this.reply(conversation, result.reason);
+    }
   }
 
   /** "1" or "browse": a numbered page of products. */
@@ -196,6 +395,7 @@ export class CustomerConversationService {
     merchantId: string,
     query: string | null,
     page: number,
+    state: ShopState | null = null,
   ) {
     const result = await this.deps.catalog.search(merchantId, query, page);
     await this.saveState(conversation, {
@@ -203,17 +403,28 @@ export class CustomerConversationService {
       list: result.ids,
       query,
       page: result.page,
+      ...(state?.lastProductId ? { lastProductId: state.lastProductId } : {}),
     });
     return this.reply(conversation, CustomerCatalog.formatList(result));
   }
 
-  private async showDetails(conversation: Conversation, merchantId: string, productId: string) {
+  private async showDetails(
+    conversation: Conversation,
+    merchantId: string,
+    productId: string,
+    state: ShopState | null = null,
+  ) {
     const product = await this.deps.catalog.find(merchantId, productId);
     if (!product)
       return this.reply(
         conversation,
         'That product is no longer available. Reply *1* to see what we have.',
       );
+    await this.saveState(conversation, {
+      ...(state ?? { mode: 'menu' }),
+      lastProductId: product.id,
+      checkout: undefined,
+    });
     const photo = product.hasPhoto ? await this.deps.catalog.photo(merchantId, product.id) : null;
     return this.reply(
       conversation,
@@ -231,8 +442,9 @@ export class CustomerConversationService {
       `${firstTime ? 'Hello' : 'Welcome back'}${name}! 👋 Welcome to *${merchant.businessName}*.`,
       '',
       '*1* Browse products',
-      '*2* Ask a question',
-      '*3* Talk to a person',
+      '*2* My cart',
+      '*3* My orders',
+      '*4* Talk to a person',
       '',
       "Reply with a number, or just tell me what you're looking for.",
     ].join('\n');
@@ -243,9 +455,10 @@ export class CustomerConversationService {
     conversation: Conversation,
     customer: Customer,
     text: string,
+    state: ShopState | null,
   ) {
     const merchant = account.merchant;
-    if (!this.deps.chatModel) return this.showList(conversation, merchant.id, text, 1);
+    if (!this.deps.chatModel) return this.showList(conversation, merchant.id, text, 1, state);
     const recent = await this.deps.db.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: 'desc' },
@@ -260,7 +473,6 @@ export class CustomerConversationService {
           ? { role: 'user', content: m.content }
           : { role: 'assistant', content: m.content },
       );
-    const state = (conversation.context as { shop?: ShopState } | null)?.shop;
     const context: CustomerAgentContext = {
       merchant,
       account,
@@ -268,7 +480,10 @@ export class CustomerConversationService {
       conversation,
       attachments: [],
       shownList: state?.list ?? null,
+      lastProductId: state?.lastProductId ?? null,
       handoffReason: null,
+      verbatim: null,
+      checkout: null,
     };
     let result;
     try {
@@ -286,18 +501,25 @@ export class CustomerConversationService {
       // AI unavailable: still useful, deterministically — search the catalog for their words.
       if (!isAppError(error) || !error.code.startsWith('PROVIDER')) throw error;
       this.deps.logger.warn({ err: error }, 'customer agent provider failure');
-      return this.showList(conversation, merchant.id, text, 1);
+      return this.showList(conversation, merchant.id, text, 1, state);
     }
     if (context.handoffReason)
       return this.handoff(account, conversation, customer, context.handoffReason, text);
-    if (context.shownList && context.shownList !== state?.list)
-      await this.saveState(conversation, {
-        mode: 'list',
-        list: context.shownList,
-        query: null,
-        page: 1,
-      });
-    return this.reply(conversation, result.reply, context.attachments.slice(0, 3));
+    const listChanged = !!context.shownList && context.shownList !== state?.list;
+    await this.saveState(conversation, {
+      ...(state ?? { mode: 'menu' }),
+      ...(listChanged
+        ? { mode: 'list' as const, list: context.shownList!, query: null, page: 1 }
+        : {}),
+      ...(context.lastProductId ? { lastProductId: context.lastProductId } : {}),
+      // Checkout started by the assistant: its backend-built prompt is the reply, verbatim.
+      checkout: context.checkout ?? (context.verbatim ? undefined : state?.checkout),
+    });
+    return this.reply(
+      conversation,
+      context.verbatim ?? result.reply,
+      context.attachments.slice(0, 3),
+    );
   }
 
   /** Pause automated replies and tell the team. */
@@ -410,6 +632,7 @@ export class CustomerConversationService {
   }
 
   private limit(customerId: string): 'ok' | 'warn' | 'silent' {
+    const perMinute = this.deps.perMinute ?? PER_MINUTE;
     const now = Date.now();
     const recent = (this.rate.get(customerId) ?? []).filter((t) => now - t < 60_000);
     recent.push(now);
@@ -421,8 +644,8 @@ export class CustomerConversationService {
     today.count++;
     this.daily.set(customerId, today);
     if (this.daily.size > 10_000) this.daily.delete(this.daily.keys().next().value!);
-    if (recent.length > PER_MINUTE || today.count > PER_DAY) {
-      if (recent.length === PER_MINUTE + 1 || (today.count === PER_DAY + 1 && !today.warned)) {
+    if (recent.length > perMinute || today.count > PER_DAY) {
+      if (recent.length === perMinute + 1 || (today.count === PER_DAY + 1 && !today.warned)) {
         today.warned = true;
         return 'warn';
       }

@@ -169,6 +169,7 @@ See [`deploy/.env.production.example`](../../deploy/.env.production.example). Ke
 | `REPORT_SCHEDULER_ENABLED`                            | `true` (default) on the single API container; `false` on any extra replica. Also runs the PayPal sweep and the WhatsApp outage monitor |
 | `UNAUTHORIZED_REPLY_COOLDOWN_HOURS`                   | `24`: one generic welcome per unregistered number per period                                                                           |
 | `PAYMENT_RECONCILIATION_ENABLED`                      | `true`: re-check open PayPal links every 6 h in the background                                                                         |
+| `CUSTOMER_COMMERCE_ENABLED`                           | `false` until customer shopping is approved; then also enable it per number in the dashboard                                           |
 
 Compose sets the in-container values (`TRUST_PROXY=true`, internal URLs, session path).
 

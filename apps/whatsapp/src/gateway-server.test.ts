@@ -38,6 +38,7 @@ describe('WhatsApp outbound gateway', () => {
       logouts++;
     },
     resolvePhone: async () => null,
+    botId: () => null,
   };
   const server = createGatewayServer({
     transport,

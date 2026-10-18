@@ -11,7 +11,7 @@ export default async function ProductsPage() {
     <>
       <PageHeader
         title="Products"
-        description="The catalog Katale AI prices orders from. Units sold and revenue count paid orders only (excluding shipping)."
+        description="The catalog Katale AI prices orders from. Units sold and revenue count paid orders only (excluding shipping). Click a product to add a photo and description for customers."
       />
       {result.ok ? <ProductsGrid products={result.data} /> : <ErrorNotice message={result.error} />}
     </>

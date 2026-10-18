@@ -109,6 +109,9 @@ async function main() {
     // authorize admins registered by phone number.
     const senderPhone = await transport.resolvePhone(message.senderId).catch(() => null);
     if (senderPhone) message = { ...message, senderPhone };
+    // Which bot number received it: decides the merchant for customer conversations.
+    const recipientId = transport.botId();
+    if (recipientId) message = { ...message, recipientId };
 
     void msg.showTyping().catch(() => undefined);
     // Speech recognition takes a few seconds: acknowledge slow voice notes once, so the merchant

@@ -187,11 +187,17 @@ export class AdminService {
     channel: string,
     senderId: string,
     senderPhone?: string | null,
+    /**
+     * The merchant of the bot that received the message, when known. Admins of other shops are
+     * not admins on this number: their shop's data must never flow through it.
+     */
+    merchantId?: string,
   ): Promise<AuthorizeResult> {
     const phone = senderPhone ?? (channel === 'whatsapp' ? chatIdToPhone(senderId) : null);
     const operator = await this.db.merchantOperator.findFirst({
       where: {
         channel,
+        ...(merchantId ? { merchantId } : {}),
         OR: [{ externalId: senderId }, { whatsappLid: senderId }, ...(phone ? [{ phone }] : [])],
       },
       include: { merchant: true },

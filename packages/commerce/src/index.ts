@@ -15,5 +15,7 @@ export * from './services/confirmation.service';
 export * from './services/analytics.service';
 export * from './services/inventory.service';
 export * from './services/admin.service';
+export * from './services/customer-identity.service';
+export * from './services/whatsapp-account.service';
 export * from './similarity';
 export * from './insights';

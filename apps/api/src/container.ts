@@ -287,6 +287,7 @@ export function createContainer(
     admins,
     customers: {
       enabled: config.CUSTOMER_COMMERCE_ENABLED,
+      pilotNumbers: config.CUSTOMER_COMMERCE_PILOT_NUMBERS,
       accounts: whatsappAccounts,
       identity: customerIdentity,
       conversations: customerChats,

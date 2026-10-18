@@ -249,6 +249,40 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
       expect(await customer(chat)).toBeNull();
       await off.close();
     });
+
+    it('pilot numbers can shop while customer commerce is off for everyone else', async () => {
+      const pilotPhone = `+25677${digits}5`;
+      const pilot = createContainer(
+        parseConfig(
+          apiSchema,
+          testEnv({
+            CUSTOMER_COMMERCE_ENABLED: 'false',
+            CUSTOMER_COMMERCE_PILOT_NUMBERS: `${pilotPhone}, not-a-number`,
+          }),
+        ),
+        createLogger({ name: 'it-cc-pilot', level: 'silent' }),
+        { paypal: new FakePayPal(`CC-PILOT-${run}`), chatModel: model, speech: null },
+      );
+      const message = (senderId: string, senderPhone?: string) => ({
+        channel: 'whatsapp' as const,
+        externalMessageId: randomUUID(),
+        externalChatId: senderId,
+        senderId,
+        ...(senderPhone ? { senderPhone } : {}),
+        sentAt: new Date(),
+        type: 'text' as const,
+        text: 'hi',
+        recipientId: botA,
+      });
+      // A linked ID whose phone WhatsApp resolved to the pilot number.
+      const viaLid = await pilot.inbound.handle(message(`7${digits}777@lid`, pilotPhone));
+      expect(viaLid.replies.map((r) => r.text).join('\n')).toContain(
+        'Welcome to *Kampala Baskets*',
+      );
+      const other = await pilot.inbound.handle(message(`25677${digits}4@c.us`));
+      expect(other.replies.map((r) => r.text)).toEqual([WELCOME]);
+      await pilot.close();
+    });
   });
 
   describe('customer identification', () => {

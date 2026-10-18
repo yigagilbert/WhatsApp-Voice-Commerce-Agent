@@ -62,10 +62,7 @@ async function ask(text: string) {
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: buildCustomerPrompt({
-        merchant: { businessName: 'Kampala Crafts' },
-        customerName: 'Sam',
-      }),
+      content: buildCustomerPrompt({ merchant: { businessName: 'Kampala Crafts' } }),
     },
     { role: 'user', content: text },
   ];

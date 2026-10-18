@@ -5,14 +5,12 @@ import type { Merchant } from '@vca/database';
  * shop, not to the merchant's back office, and the tools available here are read-only catalog
  * tools plus "talk to a person".
  */
-export function buildCustomerPrompt(params: {
-  merchant: Pick<Merchant, 'businessName'>;
-  customerName: string;
-}) {
+export function buildCustomerPrompt(params: { merchant: Pick<Merchant, 'businessName'> }) {
   const { merchant } = params;
   return [
     `You are the WhatsApp shopping assistant of ${merchant.businessName}, powered by Katale AI.`,
-    `You are talking to a customer (profile name: "${params.customerName}" — a display name only).`,
+    // The customer's WhatsApp profile name is user-controlled, so it is never put in these rules.
+    'You are talking to a customer of the shop.',
     '',
     'What you can do:',
     '- Help customers find products: browse_products (list/search), product_details (one product + its photo).',

@@ -120,6 +120,15 @@ export class CustomerConversationService {
 
     const text = message.type === 'text' ? (message.text ?? '').trim() : '';
 
+    // Rate limit first, so a flooding customer can't flood the admins during a hand-off either.
+    const limited = this.limit(customer.id);
+    if (limited === 'silent') return { status: 'processed', replies: [] };
+    if (limited === 'warn')
+      return this.reply(
+        conversation,
+        "You're sending messages very quickly. Please wait a moment and try again. 🙏",
+      );
+
     // Paused for a person: forward to the team, say nothing.
     if (conversation.handoffUntil && conversation.handoffUntil > new Date()) {
       await this.deps.notifications.toAdmins(
@@ -128,14 +137,6 @@ export class CustomerConversationService {
       );
       return { status: 'processed', replies: [] };
     }
-
-    const limited = this.limit(customer.id);
-    if (limited === 'silent') return { status: 'processed', replies: [] };
-    if (limited === 'warn')
-      return this.reply(
-        conversation,
-        "You're sending messages very quickly. Please wait a moment and try again. 🙏",
-      );
 
     if (message.type !== 'text' || !text) {
       return this.reply(
@@ -274,7 +275,7 @@ export class CustomerConversationService {
       result = await runAgent({
         model: this.deps.chatModel,
         tools: this.deps.tools,
-        systemPrompt: buildCustomerPrompt({ merchant, customerName: customer.name }),
+        systemPrompt: buildCustomerPrompt({ merchant }),
         history,
         userMessage: text,
         context,

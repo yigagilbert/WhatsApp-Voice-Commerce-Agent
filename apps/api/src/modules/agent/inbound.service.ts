@@ -1,6 +1,7 @@
 import { runAgent, type ChatMessage, type ChatModel, type ToolRegistry } from '@vca/ai';
 import {
   canApprove,
+  chatIdToPhone,
   type CustomerIdentityService,
   type WhatsAppAccountService,
   parseConfirmationReply,
@@ -74,6 +75,8 @@ export interface InboundServiceDeps {
    */
   customers?: {
     enabled: boolean;
+    /** E.164 numbers allowed to shop while customer commerce is off (controlled testing). */
+    pilotNumbers?: string[];
     accounts: WhatsAppAccountService;
     identity: CustomerIdentityService;
     conversations: CustomerConversationService;
@@ -126,18 +129,23 @@ export class InboundMessageService {
       message.senderPhone,
       account?.merchantId,
     );
+    const customers = this.deps.customers;
+    const senderPhone = message.senderPhone ?? chatIdToPhone(message.senderId);
+    // Pilot numbers (controlled testing) get the customer experience on a connected shop number
+    // even while customer shopping is switched off for everyone else.
+    const pilot = !!senderPhone && !!customers?.pilotNumbers?.includes(senderPhone);
     if (
       !auth.ok &&
       auth.reason === 'unknown' &&
       account &&
-      this.deps.customers?.enabled &&
-      account.customerCommerceEnabled
+      customers &&
+      (pilot || (customers.enabled && account.customerCommerceEnabled))
     ) {
       // A customer of this shop: the customer experience, never the admin agent or its tools.
       const ctx = getContext();
       if (ctx) ctx.merchantId = account.merchantId;
-      const identified = await this.deps.customers.identity.identify(account.merchantId, message);
-      return this.deps.customers.conversations.handle(message, account, identified);
+      const identified = await customers.identity.identify(account.merchantId, message);
+      return customers.conversations.handle(message, account, identified);
     }
     if (!auth.ok) {
       // Logged (server-side only) so the owner can troubleshoot admin matching; never sent back.

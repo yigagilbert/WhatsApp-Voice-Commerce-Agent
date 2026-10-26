@@ -165,20 +165,23 @@ export const apiSchema = baseSchema
       ),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
     /**
-     * Which X-Forwarded-For hops to trust for the client IP (rate limiting, logs). A number is a
-     * hop count: 1 behind one Nginx (production) — the client can't spoof it. "true" trusts every
-     * hop, so the left-most (client-supplied) value wins: avoid it. "false" = no proxy.
+     * Which proxies to trust for X-Forwarded-For (client IP for rate limits and logs): "false" (no
+     * proxy), or the proxy's addresses/CIDRs/ranges, e.g. "loopback,uniquelocal" for Nginx on a
+     * private Docker network (production). The client IP is then the right-most address added by
+     * that proxy, which clients can't spoof. "true" trusts the whole client-supplied chain: avoid.
+     * (Hop counts aren't accepted: Fastify 5 treats them as "trust nothing".)
      */
     TRUST_PROXY: z
       .string()
       .default('false')
       .refine(
-        (v) => /^(true|false|0|[1-9]\d?)$/.test(v),
-        'TRUST_PROXY must be a hop count, true or false',
+        (v) =>
+          v === 'true' ||
+          v === 'false' ||
+          (/^[A-Za-z0-9.:/,\s]+$/.test(v) && !/^\d+$/.test(v.trim())),
+        'TRUST_PROXY must be true, false or a list of proxy addresses/CIDRs (e.g. loopback,uniquelocal)',
       )
-      .transform((v): boolean | number =>
-        v === 'true' ? true : v === 'false' || v === '0' ? false : Number(v),
-      ),
+      .transform((v): boolean | string => (v === 'true' ? true : v === 'false' ? false : v)),
     WHATSAPP_GATEWAY_URL: optionalString.pipe(z.string().url().optional()),
     /**
      * Operator alerts (failed webhooks, payment links, reports, background jobs; WhatsApp offline

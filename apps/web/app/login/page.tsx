@@ -12,9 +12,8 @@ export default async function LoginPage({
 }) {
   const params = await searchParams;
   const next = safeNextPath(params.next);
-  // After a session ended at the API the cookie may still look valid: show the form, don't loop.
   const expired = params.expired === '1';
-  if (!expired && (await currentUser())) redirect(next);
+  if (await currentUser()) redirect(next);
   return (
     <div className="flex min-h-[70vh] items-center justify-center">
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm">

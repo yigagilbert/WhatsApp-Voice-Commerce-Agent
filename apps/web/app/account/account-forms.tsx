@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState, useTransition } from 'react';
+import { useActionState, useId, useState, useTransition } from 'react';
 import { changePassword, createAccount, updateAccount, type AccountState } from './actions';
 
 export interface AccountView {
@@ -40,10 +40,15 @@ function Field({
   autoComplete?: string;
   hint?: string;
 }) {
+  const id = useId();
   return (
-    <label className="block text-sm">
-      <span className="mb-1 block font-medium text-slate-700">{label}</span>
+    <div className="block text-sm">
+      <label htmlFor={id} className="mb-1 block font-medium text-slate-700">
+        {label}
+      </label>
       <input
+        id={id}
+        aria-describedby={hint ? `${id}-hint` : undefined}
         name={name}
         type={type}
         required
@@ -51,8 +56,12 @@ function Field({
         minLength={type === 'password' && autoComplete === 'new-password' ? 12 : undefined}
         className={input}
       />
-      {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
-    </label>
+      {hint && (
+        <span id={`${id}-hint`} className="mt-1 block text-xs text-slate-500">
+          {hint}
+        </span>
+      )}
+    </div>
   );
 }
 

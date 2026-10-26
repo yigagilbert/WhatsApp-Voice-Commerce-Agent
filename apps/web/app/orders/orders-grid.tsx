@@ -178,15 +178,29 @@ export function OrdersGrid({ orders }: { orders: Order[] }) {
         searchPlaceholder="Search orders, customers, items…"
         emptyMessage="No orders yet. Send Katale AI an order on WhatsApp or in the Agent console."
       />
-      {selected && <OrderDetail order={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <OrderDetail
+          key={selected.id}
+          // Follow the refreshed data (e.g. after cancelling) while the drawer stays open.
+          order={orders.find((o) => o.id === selected.id) ?? selected}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </>
   );
 }
 
-function CancelOrderButton({ order, onDone }: { order: Order; onDone: () => void }) {
+type Outcome = { ok: boolean; text: string } | null;
+
+function CancelOrderButton({
+  order,
+  onResult,
+}: {
+  order: Order;
+  onResult: (outcome: Outcome) => void;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   return (
     <div className="mt-6 rounded-lg border border-slate-200 p-3">
       <p className="text-sm text-slate-600">
@@ -200,23 +214,15 @@ function CancelOrderButton({ order, onDone }: { order: Order; onDone: () => void
           if (!window.confirm(`Cancel order ${order.reference}? This can't be undone.`)) return;
           start(async () => {
             const result = await cancelOrder(order.reference);
-            setMessage({ ok: result.ok, text: result.message });
+            onResult({ ok: result.ok, text: result.message });
+            // The grid behind the drawer updates; the drawer stays open to show the outcome.
             router.refresh();
-            if (result.ok) onDone();
           });
         }}
         className="mt-2 rounded-md border border-rose-200 px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
       >
         {pending ? 'Cancelling…' : 'Cancel order'}
       </button>
-      {message && (
-        <p
-          role="status"
-          className={`mt-2 text-sm ${message.ok ? 'text-emerald-700' : 'text-rose-700'}`}
-        >
-          {message.text}
-        </p>
-      )}
     </div>
   );
 }
@@ -225,6 +231,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
   const m = (minor: number) => formatMinor(minor, order.currency);
   const payment = order.payments?.[0];
   const refunded = order.refundedMinor ?? 0;
+  const [outcome, setOutcome] = useState<Outcome>(null);
   return (
     <div
       className="fixed inset-0 z-40 flex justify-end"
@@ -439,7 +446,15 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
           </Link>
         )}
 
-        {cancellable(order) && <CancelOrderButton order={order} onDone={onClose} />}
+        {cancellable(order) && <CancelOrderButton order={order} onResult={setOutcome} />}
+        {outcome && (
+          <p
+            role="status"
+            className={`mt-3 text-sm ${outcome.ok ? 'text-emerald-700' : 'text-rose-700'}`}
+          >
+            {outcome.text}
+          </p>
+        )}
 
         {payment?.correlationId && (
           <Link

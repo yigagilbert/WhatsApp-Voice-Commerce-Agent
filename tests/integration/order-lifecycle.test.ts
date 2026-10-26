@@ -98,7 +98,11 @@ describe('order lifecycle, refunds and figures (integration)', () => {
     return body.replies.map((r) => r.text).join('\n');
   };
 
-  const webhook = (eventType: string, resource: Record<string, unknown>, id = randomUUID()) =>
+  const webhook = (
+    eventType: string,
+    resource: Record<string, unknown>,
+    id: string = randomUUID(),
+  ) =>
     app.inject({
       method: 'POST',
       url: '/api/paypal/webhooks',

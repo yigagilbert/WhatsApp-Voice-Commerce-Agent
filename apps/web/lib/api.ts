@@ -54,8 +54,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
       error: 'The Katale service is not responding right now. Please try again in a moment.',
     };
   }
-  // Outside the try: redirect() works by throwing.
-  redirect('/login?expired=1');
+  // Outside the try: redirect() works by throwing. /session-ended clears the cookie first.
+  redirect('/session-ended');
 }
 
 export const apiGet = <T>(path: string) => request<T>(path);

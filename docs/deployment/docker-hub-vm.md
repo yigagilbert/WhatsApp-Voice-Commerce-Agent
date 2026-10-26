@@ -175,7 +175,7 @@ See [`deploy/.env.production.example`](../../deploy/.env.production.example). Ke
 | `CUSTOMER_COMMERCE_ENABLED`                           | `false` until customer shopping is approved; then also enable it per number in the dashboard                                           |
 | `CUSTOMER_COMMERCE_PILOT_NUMBERS`                     | E.164 test numbers that may shop while the switch is off (controlled testing). Never admin numbers of the shop                         |
 
-Compose sets the in-container values (`TRUST_PROXY=true`, internal URLs, session path).
+Compose sets the in-container values (`TRUST_PROXY=loopback,uniquelocal`, internal URLs, session path).
 
 ## Database migrations
 

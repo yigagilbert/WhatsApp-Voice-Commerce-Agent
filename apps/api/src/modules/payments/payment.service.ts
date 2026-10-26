@@ -321,7 +321,8 @@ export class PaymentService {
     captured?: CapturedAmount,
   ): Promise<boolean> {
     let stockAlerts: StockAlert[] = [];
-    let outcome: 'paid' | 'reinstated' | 'duplicate' = 'paid';
+    // Set inside the transaction callback (a plain annotation would be narrowed to 'paid').
+    let outcome = 'paid' as 'paid' | 'reinstated' | 'duplicate';
     const firstTime = await this.db.$transaction(async (tx) => {
       const { count } = await tx.payment.updateMany({
         where: { id: paymentId, status: { in: ['CREATED', 'APPROVED', 'CANCELLED'] } },

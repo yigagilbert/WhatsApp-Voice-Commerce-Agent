@@ -29,7 +29,7 @@ const fail = (status: number, code: string, message: string) =>
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user) return fail(401, 'unauthorized', 'Sign in to use the analytics assistant.');
-  if (!allow(user)) return fail(429, 'rate_limited', 'Too many requests. Please wait a moment.');
+  if (!allow(user.id)) return fail(429, 'rate_limited', 'Too many requests. Please wait a moment.');
 
   const raw = await request.text();
   if (raw.length > MAX_BODY_BYTES) return fail(413, 'too_large', 'Request too large.');

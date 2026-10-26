@@ -18,7 +18,7 @@ run on the operator's machine; everything else runs on the VM.
 | 6   | unattended-upgrades                      | unexpected package change         | `apt` history; disable timer              |
 | 7   | Dashboard password / first owner account | dashboard lock-out                | second owner, SQL reset, release rollback |
 | 8   | Secrets hygiene and rotation             | services fail to authenticate     | previous values kept until verified       |
-| 9   | `TRUST_PROXY=1`                          | wrong client IPs in rate limits   | set back to `true`                        |
+| 9   | `TRUST_PROXY=loopback,uniquelocal`       | wrong client IPs in rate limits   | set back to `true`                        |
 
 ## 0. Pre-checks (all must be true before step 1)
 
@@ -313,15 +313,19 @@ Recommended order after any suspected exposure: PayPal secret â†’ AI/STT keys â†
 
 ## 9. `TRUST_PROXY`
 
-This release changes the API to accept a **hop count** for `TRUST_PROXY`. Production has exactly
-one proxy hop (NPM's nginx), so it uses `1` instead of `true`: with `true` the API trusts the
-whole client-supplied `X-Forwarded-For` chain and rate limits can be bypassed by rotating the
-header ([audit section 9](../audits/2026-10-25-katale-ai-system-audit.md#9-security-and-production-readiness)).
+This release changes `TRUST_PROXY` from a boolean to **the proxy's addresses**. With `true` the API
+trusts the whole client-supplied `X-Forwarded-For` chain and rate limits can be bypassed by
+rotating the header ([audit section 9](../audits/2026-10-25-katale-ai-system-audit.md#9-security-and-production-readiness)).
+`deploy/docker-compose.prod.yml` now sets `TRUST_PROXY: 'loopback,uniquelocal'`: only NPM on the
+private Docker network is trusted, so the client IP is the address NPM appended last.
 
-`deploy/docker-compose.prod.yml` in this release already sets `TRUST_PROXY: '1'` (older images
-read `1` as `true`, so the file is safe with either image). Copy it to the VM with the release and
-run `./deployment/vm-deploy.sh <tag>`. Verify: requests in the API log show real client IPs, not
-NPM's container IP. **Rollback:** `'true'` and `docker compose up -d api`.
+(A hop count such as `1` is deliberately not accepted: Fastify 5 treats numeric `trustProxy` as
+"trust nothing", which would put every client behind NPM's single IP.)
+
+Copy the compose file to the VM with the release and run `./deployment/vm-deploy.sh <tag>`.
+Verify: API log lines for `/api/paypal/*` show real client IPs, not NPM's container IP.
+**Rollback:** an older image only accepts `true`/`false`: set `TRUST_PROXY: 'true'` together
+with the older `KATALE_TAG`.
 
 ## Approval needed
 
@@ -334,4 +338,4 @@ NPM's container IP. **Rollback:** `'true'` and `docker compose up -d api`.
 | 6 unattended-upgrades                | none (manual reboots)                | reboot cadence                                      |
 | 7 dashboard owners + password        | none                                 | who the owners are                                  |
 | 8 secret rotation                    | dashboard logout; seconds of bot gap | whether to rotate now (yes if anything was exposed) |
-| 9 `TRUST_PROXY=1`                    | API restart                          | ship with the hop-count release                     |
+| 9 `TRUST_PROXY=loopback,uniquelocal` | API restart                          | ship with this release                              |

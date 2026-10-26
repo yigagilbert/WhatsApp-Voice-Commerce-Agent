@@ -17,6 +17,16 @@ _Last updated: 2026-10-26 — branch `feat/phase-1-production-hardening` (not me
 | Operator alerts (`ALERT_WEBHOOK_URL`) and heartbeat (`HEARTBEAT_URL`)                                                                   | ✅ unit + integration tests; not connected to a real ntfy/healthchecks yet |
 | Encrypted off-site backups, restore checks, server hardening runbooks                                                                   | Prepared (`deploy/`, `docs/deployment/`); **not applied** — needs approval |
 
+**Review and Sandbox validation (2026-10-26).** An independent review found and this branch fixed:
+duplicate-payment refunds marking the whole order refunded; a possible deadlock between cancellation
+and capture (could lose a capture); payment links issued for orders cancelled meanwhile; reinstated
+orders shippable without a stock check (now flagged, SHIP blocked until reviewed); non-atomic lockout
+counting; owners able to demote each other to zero. End-to-end run against **real PayPal Sandbox +
+real LLM** (`scripts/sandbox-e2e`): 32 checks passed, 0 failed, 6 blocked — the Sandbox seller is not
+enabled for card capture (`PAYEE_NOT_ENABLED_FOR_CARD_PROCESSING`), so a real capture, refunds and
+late-capture recovery need a Sandbox buyer to approve in a browser (covered by integration tests with
+simulated PayPal). Release plan: [docs/deployment/phase-1-release-plan.md](docs/deployment/phase-1-release-plan.md).
+
 Needs real-device / production verification after deployment: a customer cancelling over real WhatsApp;
 a real PayPal Sandbox refund (full and partial) arriving by webhook; expiry against a real Sandbox
 link; the client IP seen behind Nginx Proxy Manager (`X-Real-IP`, `TRUST_PROXY`); the first-owner

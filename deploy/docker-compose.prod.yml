@@ -43,7 +43,8 @@ services:
       NODE_ENV: production
       API_HOST: 0.0.0.0
       API_PORT: '4000'
-      TRUST_PROXY: 'true'
+      # One Nginx hop: the client IP is the address Nginx saw (not spoofable via X-Forwarded-For).
+      TRUST_PROXY: '1'
       WHATSAPP_GATEWAY_URL: http://whatsapp:4100
     depends_on:
       postgres: { condition: service_healthy }

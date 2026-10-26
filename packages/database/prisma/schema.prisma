@@ -50,6 +50,7 @@ model Merchant {
   reportSchedule   ReportSchedule?
   reportRuns       ReportRun[]
   whatsappAccounts WhatsAppAccount[]
+  dashboardUsers   DashboardUser[]
 
   @@map("merchants")
 }
@@ -129,6 +130,35 @@ model MerchantOperator {
   @@index([channel, whatsappLid])
   @@index([merchantId])
   @@map("merchant_operators")
+}
+
+/// A person who signs in to the dashboard (one account each; replaces the shared login).
+/// While no account exists, the bootstrap login from DASHBOARD_USERNAME/PASSWORD is accepted so the
+/// first owner can be created; it stops working as soon as one account exists.
+model DashboardUser {
+  id                String       @id @default(cuid())
+  merchantId        String
+  /// Sign-in name, stored lower-case; unique across the installation.
+  username          String       @unique
+  name              String
+  role              OperatorRole @default(STAFF)
+  /// scrypt hash (`scrypt$N$r$p$salt$hash`); the password itself is never stored or logged.
+  passwordHash      String
+  active            Boolean      @default(true)
+  /// Bumped on password change, deactivation and "sign out everywhere": older sessions stop working.
+  sessionVersion    Int          @default(1)
+  failedLogins      Int          @default(0)
+  /// Too many wrong passwords: no sign-in for this account until then.
+  lockedUntil       DateTime?
+  lastLoginAt       DateTime?
+  passwordChangedAt DateTime     @default(now())
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId])
+  @@map("dashboard_users")
 }
 
 enum OperatorRole {

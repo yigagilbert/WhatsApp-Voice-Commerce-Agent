@@ -8,6 +8,7 @@ import {
   AuditService,
   ConfirmationService,
   CustomerService,
+  DashboardUserService,
   OrderService,
   ProductService,
   type PaymentPolicyConfig,
@@ -153,6 +154,7 @@ export function createContainer(
   const analytics = new AnalyticsService(db);
   const inventory = new InventoryService(db, audit);
   const admins = new AdminService(db, audit, config.DEFAULT_PHONE_REGION);
+  const dashboardUsers = new DashboardUserService(db, audit);
   const reports = new ReportService(analytics, inventory);
   const notifications = new NotificationService(
     db,
@@ -351,6 +353,7 @@ export function createContainer(
     confirmations,
     analytics,
     admins,
+    dashboardUsers,
     inventory,
     notifications,
     payments,

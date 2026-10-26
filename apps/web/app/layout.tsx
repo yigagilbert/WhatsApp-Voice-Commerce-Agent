@@ -4,6 +4,7 @@ import { Nav } from '@/components/nav';
 import { WhatsAppBanner } from '@/components/whatsapp-banner';
 import { loadWebConfig } from '@vca/config';
 import { currentUser } from '@/lib/auth';
+import Link from 'next/link';
 import { logout } from './login/actions';
 import './globals.css';
 
@@ -42,10 +43,21 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               </div>
               <Nav />
               <form action={logout} className="mt-4 px-3">
-                <p className="text-xs text-slate-500">Signed in as {user}</p>
-                <button className="mt-1 text-xs font-medium text-slate-700 hover:underline">
-                  Sign out
-                </button>
+                <p className="text-xs text-slate-500">
+                  Signed in as {user.name}
+                  {user.role === 'OWNER' ? ' · owner' : ' · staff'}
+                </p>
+                <div className="mt-1 flex gap-3">
+                  <Link
+                    href="/account"
+                    className="text-xs font-medium text-slate-700 hover:underline"
+                  >
+                    Account
+                  </Link>
+                  <button className="text-xs font-medium text-slate-700 hover:underline">
+                    Sign out
+                  </button>
+                </div>
               </form>
             </aside>
             <main className="min-w-0 flex-1 p-4 md:p-8">

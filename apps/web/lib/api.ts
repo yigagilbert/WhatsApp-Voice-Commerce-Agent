@@ -1,6 +1,8 @@
 import 'server-only';
 import { loadWebConfig } from '@vca/config';
+import { redirect } from 'next/navigation';
 import { requireUser } from './auth';
+import { BOOTSTRAP_USER_ID } from './session';
 
 /**
  * Server-side API access. The dashboard token lives only on the server — it is never
@@ -14,7 +16,7 @@ function config() {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
   // Every dashboard data access requires a signed-in user (redirects to /login otherwise).
-  await requireUser();
+  const user = await requireUser();
   let cfg;
   try {
     cfg = config();
@@ -28,6 +30,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
       headers: {
         authorization: `Bearer ${cfg.API_AUTH_TOKEN}`,
         'content-type': 'application/json',
+        // Who is asking: the API checks the account is active and the session still current.
+        ...(user.id === BOOTSTRAP_USER_ID
+          ? {}
+          : { 'x-dashboard-user': user.id, 'x-dashboard-session': String(user.version) }),
         ...init.headers,
       },
       signal: AbortSignal.timeout(120_000),
@@ -35,15 +41,21 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
     const body = (await response.json().catch(() => null)) as {
       error?: { message?: string };
     } | null;
-    if (!response.ok)
-      return { ok: false, error: body?.error?.message ?? `API responded ${response.status}` };
-    return { ok: true, data: body as T };
+    // 401 = the session ended (password changed, account deactivated, or the setup login after
+    // accounts exist): handled below by sending the person to sign in again.
+    if (response.status !== 401) {
+      if (!response.ok)
+        return { ok: false, error: body?.error?.message ?? `API responded ${response.status}` };
+      return { ok: true, data: body as T };
+    }
   } catch {
     return {
       ok: false,
       error: 'The Katale service is not responding right now. Please try again in a moment.',
     };
   }
+  // Outside the try: redirect() works by throwing.
+  redirect('/login?expired=1');
 }
 
 export const apiGet = <T>(path: string) => request<T>(path);

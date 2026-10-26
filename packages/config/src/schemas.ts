@@ -164,8 +164,21 @@ export const apiSchema = baseSchema
           .filter(Boolean),
       ),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
-    /** Trust X-Forwarded-* from a reverse proxy (true in production behind Nginx). */
-    TRUST_PROXY: booleanString,
+    /**
+     * Which X-Forwarded-For hops to trust for the client IP (rate limiting, logs). A number is a
+     * hop count: 1 behind one Nginx (production) — the client can't spoof it. "true" trusts every
+     * hop, so the left-most (client-supplied) value wins: avoid it. "false" = no proxy.
+     */
+    TRUST_PROXY: z
+      .string()
+      .default('false')
+      .refine(
+        (v) => /^(true|false|0|[1-9]\d?)$/.test(v),
+        'TRUST_PROXY must be a hop count, true or false',
+      )
+      .transform((v): boolean | number =>
+        v === 'true' ? true : v === 'false' || v === '0' ? false : Number(v),
+      ),
     WHATSAPP_GATEWAY_URL: optionalString.pipe(z.string().url().optional()),
   });
 
@@ -204,10 +217,22 @@ export const webSchema = baseSchema.extend({
   /** Optional AG Studio licence key (removes the evaluation watermark). */
   AG_STUDIO_LICENSE_KEY: optionalString,
   API_AUTH_TOKEN: z.string().min(16),
-  /** Dashboard login (single operator account; grows into real accounts later). */
+  /**
+   * Bootstrap ("setup") login, accepted only while no dashboard account exists, so the first owner
+   * can be created from the dashboard. It stops working as soon as one account exists.
+   */
   DASHBOARD_USERNAME: z.string().min(1).default('admin'),
-  /** No default: without it the dashboard refuses every login (fails closed). */
+  /** No default: without it the setup login is refused (fails closed). */
   DASHBOARD_PASSWORD: optionalString.pipe(z.string().min(8).optional()),
+  /**
+   * Request header carrying the client IP, set by the reverse proxy (Nginx: X-Real-IP
+   * $remote_addr), for the login throttle. Never X-Forwarded-For's first value: clients control it.
+   */
+  DASHBOARD_CLIENT_IP_HEADER: z
+    .string()
+    .min(1)
+    .default('x-real-ip')
+    .transform((v) => v.toLowerCase()),
   /** Session lifetime in hours. */
   DASHBOARD_SESSION_HOURS: z.coerce
     .number()

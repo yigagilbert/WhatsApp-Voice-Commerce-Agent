@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Container } from '../../container';
+import { actorLabel } from '../../http/merchant-scope';
 import { parse } from '../../http/validation';
 
 const listQuery = z.object({
@@ -34,7 +35,7 @@ export async function ordersRoutes(app: FastifyInstance, { container }: { contai
       merchantId: request.merchant.id,
       reference,
       by: 'MERCHANT',
-      actorLabel: 'dashboard',
+      actorLabel: actorLabel(request),
     });
     if (!outcome) return reply.status(404).send({ error: { message: 'Order not found' } });
     if (outcome.status === 'not_cancellable')

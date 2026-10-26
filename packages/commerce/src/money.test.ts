@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { formatMoney, isPayPalSupportedCurrency, toMajorString, toMinorUnits } from './money';
+import {
+  formatMoney,
+  isPayPalSupportedCurrency,
+  toMajorNumber,
+  toMajorString,
+  toMinorUnits,
+} from './money';
 
 describe('toMinorUnits', () => {
   it('converts major units to integer minor units without float error', () => {
@@ -37,5 +43,14 @@ describe('formatting', () => {
   it('knows which currencies PayPal supports', () => {
     expect(isPayPalSupportedCurrency('USD')).toBe(true);
     expect(isPayPalSupportedCurrency('UGX')).toBe(false);
+  });
+});
+
+describe('toMajorNumber', () => {
+  it('divides only currencies that have a minor unit', () => {
+    expect(toMajorNumber(2450, 'USD')).toBe(24.5);
+    expect(toMajorNumber(50_000, 'UGX')).toBe(50_000);
+    expect(toMajorNumber(1500, 'JPY')).toBe(1500);
+    expect(formatMoney(50_000, 'UGX')).toMatch(/^UGX\s50,000$/);
   });
 });

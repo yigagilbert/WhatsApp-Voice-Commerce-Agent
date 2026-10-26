@@ -12,6 +12,12 @@ export const MAX_ATTEMPTS = BACKOFF_MINUTES.length + 1;
 const CATCH_UP_MS = 6 * 60 * 60 * 1000;
 const TICK_MS = 60_000;
 
+/** Background work run once per scheduler tick, after reports and payment checks. */
+export interface ScheduledJob {
+  name: string;
+  run(now: Date): Promise<void>;
+}
+
 const isUniqueViolation = (error: unknown) =>
   typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
 
@@ -50,6 +56,8 @@ export class ReportScheduler {
     private readonly logger: Logger,
     /** Re-checks open PayPal links in the background on the same tick (optional). */
     private readonly reconciler?: PaymentReconciler,
+    /** Other background work that runs on the same tick (e.g. unpaid-order expiry). */
+    private readonly jobs: ScheduledJob[] = [],
   ) {}
 
   start() {
@@ -90,6 +98,13 @@ export class ReportScheduler {
       await this.reconciler
         ?.sweep(now)
         .catch((error: unknown) => this.logger.error({ err: error }, 'payment sweep failed'));
+      for (const job of this.jobs) {
+        await job
+          .run(now)
+          .catch((error: unknown) =>
+            this.logger.error({ err: error, job: job.name }, 'scheduled job failed'),
+          );
+      }
     } catch (error) {
       this.logger.error({ err: error }, 'report scheduler tick failed');
     } finally {

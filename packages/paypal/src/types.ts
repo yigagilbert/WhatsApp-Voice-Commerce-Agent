@@ -47,6 +47,14 @@ export interface CreateCheckoutOrderParams {
   brandName: string;
 }
 
+export interface PayPalRefund {
+  id: string;
+  /** COMPLETED, PENDING, CANCELLED, FAILED. */
+  status: string;
+  amount?: PayPalMoney;
+  create_time?: string;
+}
+
 export interface PayPalOrder {
   id: string;
   status:
@@ -55,7 +63,11 @@ export interface PayPalOrder {
   purchase_units?: {
     reference_id?: string;
     custom_id?: string;
-    payments?: { captures?: { id: string; status: string; amount?: PayPalMoney }[] };
+    payments?: {
+      captures?: { id: string; status: string; amount?: PayPalMoney }[];
+      /** Refunds of this unit's captures (full and partial), as PayPal reports them. */
+      refunds?: PayPalRefund[];
+    };
     shipping?: { trackers?: PayPalTracker[] };
   }[];
 }

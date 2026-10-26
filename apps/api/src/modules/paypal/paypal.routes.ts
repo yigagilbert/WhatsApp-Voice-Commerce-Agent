@@ -49,6 +49,17 @@ export async function paypalRoutes(app: FastifyInstance, { container }: { contai
     const view = await container.payments.buyerView(token);
     if (!view) return notFound(reply);
 
+    // A cancelled link is never captured (no money is taken), whatever the buyer approved.
+    if (view.status === 'CANCELLED')
+      return send(reply, {
+        tone: 'neutral',
+        title: view.orderStatus === 'CANCELLED' ? 'Order cancelled' : 'Link replaced',
+        message:
+          view.orderStatus === 'CANCELLED'
+            ? `This order was cancelled, so no payment was taken. Please contact the merchant if you still want it. ${CLOSE}`
+            : `No payment was taken: this link was replaced by a newer one. Please use the latest payment link the merchant sent you. ${CLOSE}`,
+        details: view.details,
+      });
     const processing = {
       tone: 'pending' as const,
       title: 'Payment processing',

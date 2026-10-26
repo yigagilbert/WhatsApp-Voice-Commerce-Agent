@@ -41,7 +41,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
   } catch {
     return {
       ok: false,
-      error: `Cannot reach the API at ${cfg.API_BASE_URL}. Is it running (pnpm dev:api)?`,
+      error: 'The Katale service is not responding right now. Please try again in a moment.',
     };
   }
 }

@@ -1,4 +1,5 @@
-import { ValidationError } from '@vca/shared';
+// Errors only (not the package index): this module is also bundled into dashboard client code.
+import { ValidationError } from '@vca/shared/errors';
 
 /**
  * Money is represented as an integer number of MINOR units (e.g. cents) plus an
@@ -108,6 +109,14 @@ export function toMajorString(minor: number, currency: string): string {
     .toString()
     .padStart(exponent + 1, '0');
   return `${sign}${abs.slice(0, -exponent)}.${abs.slice(-exponent)}`;
+}
+
+/**
+ * Minor units -> major-unit number, for charts and grids only (never for arithmetic on money).
+ * Zero-decimal currencies (UGX, JPY, …) are not divided: UGX 50,000 is stored as 50000.
+ */
+export function toMajorNumber(minor: number, currency: string): number {
+  return Number(toMajorString(minor, currency));
 }
 
 /** Human-friendly formatting, e.g. "$680.00" or "UGX 50,000". */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PayPalClient, payPalErrorIssues } from './client';
-import { extractCaptureRefs, readWebhookHeaders } from './webhooks';
+import { extractCaptureRefs, extractRefundRefs, readWebhookHeaders } from './webhooks';
 
 interface Call {
   url: string;
@@ -231,5 +231,35 @@ describe('webhook helpers', () => {
         supplementary_data: { related_ids: { order_id: 'PP-1' } },
       }),
     ).toEqual({ captureId: 'CAP-1', paypalOrderId: 'PP-1', customId: 'pay_1' });
+  });
+
+  it('extracts the captured amount when present', () => {
+    expect(
+      extractCaptureRefs({ id: 'CAP-2', amount: { currency_code: 'USD', value: '24.00' } })?.amount,
+    ).toEqual({ value: '24.00', currency: 'USD' });
+  });
+
+  it('finds the capture behind a refund resource (related IDs or the "up" link)', () => {
+    expect(
+      extractRefundRefs({
+        id: 'RF-1',
+        supplementary_data: { related_ids: { order_id: 'PP-1', capture_id: 'CAP-1' } },
+      }),
+    ).toEqual({
+      resourceId: 'RF-1',
+      captureId: 'CAP-1',
+      paypalOrderId: 'PP-1',
+      customId: undefined,
+    });
+    expect(
+      extractRefundRefs({
+        id: 'RF-2',
+        links: [
+          { rel: 'self', href: 'https://api-m.paypal.com/v2/payments/refunds/RF-2' },
+          { rel: 'up', href: 'https://api-m.paypal.com/v2/payments/captures/CAP-9' },
+        ],
+      })?.captureId,
+    ).toBe('CAP-9');
+    expect(extractRefundRefs({ status: 'COMPLETED' })).toBeNull();
   });
 });

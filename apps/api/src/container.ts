@@ -31,6 +31,8 @@ import { createCommerceTools } from './modules/agent/tools';
 import { ChannelRegistry, HttpWhatsAppSender } from './modules/notifications/channel-registry';
 import { NotificationService } from './modules/notifications/notification.service';
 import { PaymentService } from './modules/payments/payment.service';
+import { RefundService } from './modules/payments/refund.service';
+import { OrderLifecycleService } from './modules/orders/order-lifecycle.service';
 import { PaymentReminderService } from './modules/payments/reminder.service';
 import { PaymentReconciler } from './modules/payments/reconciliation.service';
 import { WhatsAppConnectionMonitor } from './modules/whatsapp/connection-monitor';
@@ -169,8 +171,24 @@ export function createContainer(
       publicBaseUrl: config.API_PUBLIC_URL.replace(/\/$/, ''),
       brandName: config.PAYPAL_BRAND_NAME,
       policy,
+      unpaidOrderExpiryHours: config.UNPAID_ORDER_EXPIRY_HOURS,
     },
     inventory,
+  );
+  const refunds = new RefundService(
+    db,
+    paypal,
+    audit,
+    notifications,
+    logger.child({ component: 'refunds' }),
+  );
+  const orderLifecycle = new OrderLifecycleService(
+    db,
+    paypal,
+    payments,
+    notifications,
+    audit,
+    logger.child({ component: 'order-lifecycle' }),
   );
   const shipments = new ShipmentService(
     db,
@@ -197,6 +215,7 @@ export function createContainer(
       skipVerification:
         config.PAYPAL_WEBHOOK_SKIP_VERIFICATION && config.NODE_ENV === 'development',
     },
+    refunds,
   );
   const reminders = new PaymentReminderService(
     db,
@@ -241,6 +260,7 @@ export function createContainer(
     tools: createCustomerTools(customerCatalog, shopOrders),
     chatModel,
     notifications,
+    lifecycle: orderLifecycle,
     logger: logger.child({ component: 'customer-chat' }),
   });
   const tools = createCommerceTools({
@@ -274,6 +294,15 @@ export function createContainer(
     audit,
     logger.child({ component: 'reports' }),
     config.PAYMENT_RECONCILIATION_ENABLED ? reconciler : undefined,
+    [
+      {
+        name: 'order-expiry',
+        run: async (now) => {
+          const expired = await orderLifecycle.expireDue(config.UNPAID_ORDER_EXPIRY_HOURS, now);
+          if (expired.length) logger.info({ orders: expired }, 'unpaid orders expired');
+        },
+      },
+    ],
   );
   const whatsappMonitor = new WhatsAppConnectionMonitor(
     db,
@@ -325,6 +354,8 @@ export function createContainer(
     inventory,
     notifications,
     payments,
+    refunds,
+    orderLifecycle,
     reminders,
     reconciler,
     whatsappAccounts,

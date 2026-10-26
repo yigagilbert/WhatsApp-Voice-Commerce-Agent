@@ -43,8 +43,18 @@ export interface Order {
   shipments?: Shipment[];
   disputes?: { paypalDisputeId: string; status: string }[];
   notes?: string | null;
+  placedBy?: 'MERCHANT' | 'CUSTOMER';
+  deliveryMethod?: 'DELIVERY' | 'PICKUP' | null;
+  deliveryAddress?: string | null;
+  contactName?: string | null;
+  /** Unpaid orders are cancelled at this time (null = no deadline). */
+  paymentDueAt?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: 'PAYMENT_EXPIRED' | 'MERCHANT' | 'CUSTOMER' | null;
+  /** Completed refunds (minor units); equals totalMinor when fully refunded. */
+  refundedMinor?: number;
   createdAt: string;
-  customer: { name: string };
+  customer: { name: string; phone?: string | null };
   items?: {
     id: string;
     description: string;
@@ -56,7 +66,13 @@ export interface Order {
   /** Latest payment (the orders list includes at most one). */
   payments?: Pick<
     Payment,
-    'id' | 'status' | 'providerStatus' | 'checkoutUrl' | 'correlationId' | 'completedAt'
+    | 'id'
+    | 'status'
+    | 'providerStatus'
+    | 'checkoutUrl'
+    | 'correlationId'
+    | 'completedAt'
+    | 'refundedMinor'
   >[];
 }
 
@@ -188,6 +204,16 @@ export interface Payment {
   completedAt: string | null;
   reminderCount?: number;
   lastReminderAt?: string | null;
+  /** Completed refunds (minor units). Partial: status stays COMPLETED; full: REFUNDED. */
+  refundedMinor?: number;
+  refunds?: {
+    id: string;
+    externalId: string;
+    amountMinor: number;
+    status: string;
+    kind: string;
+    createdAt: string;
+  }[];
   order: { reference: string; status?: string; customer?: { name: string } };
 }
 

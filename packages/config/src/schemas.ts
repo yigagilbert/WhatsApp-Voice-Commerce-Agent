@@ -103,6 +103,16 @@ export const commerceSchema = z.object({
     .default('UG'),
   /** Run the proactive report scheduler in this process (one API instance only). */
   REPORT_SCHEDULER_ENABLED: booleanString.default(true),
+  /**
+   * Unpaid orders (awaiting payment, or placed by a customer and awaiting approval) are cancelled
+   * this many hours after they were sent for payment / placed, releasing reserved stock.
+   * 0 turns expiry off. Runs on the report scheduler's tick.
+   */
+  UNPAID_ORDER_EXPIRY_HOURS: z.coerce
+    .number()
+    .min(0)
+    .max(24 * 60)
+    .default(72),
   /** Background re-check of open PayPal links (runs on the report scheduler's tick). */
   PAYMENT_RECONCILIATION_ENABLED: booleanString.default(true),
   /**

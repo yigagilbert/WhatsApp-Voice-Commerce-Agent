@@ -1,6 +1,7 @@
 import {
   formatMoney,
   resolvePeriod,
+  toMajorNumber,
   type AnalyticsService,
   type InventoryService,
   type SalesPeriod,
@@ -21,7 +22,7 @@ export interface ChartResult {
 const compactMoney = (value: number, currency: string) => {
   // Axis ticks can fall between cents (e.g. a quarter of $2.50), so round to whole minor units.
   const minor = Math.round(value);
-  const major = minor / 100;
+  const major = toMajorNumber(minor, currency);
   const symbol = formatMoney(0, currency).replace(/[\d.,\s]/g, '');
   return major >= 1000
     ? `${symbol}${(major / 1000).toFixed(major >= 10_000 ? 0 : 1)}k`

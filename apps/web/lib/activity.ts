@@ -1,4 +1,5 @@
 import type { AuditEvent } from './types';
+import { formatMoney } from '@vca/commerce/money';
 
 /**
  * Turns audit events into plain language for the Activity page, tagged with the step of
@@ -24,13 +25,15 @@ export interface DescribedEvent {
 type Data = Record<string, unknown>;
 const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
 const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
-const usd = (minor: unknown, currency: unknown) =>
-  typeof minor === 'number'
-    ? new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: str(currency) ?? 'USD',
-      }).format(minor / 100)
-    : undefined;
+/** Currency-aware (UGX has no minor unit). Events without a currency predate multi-currency: USD. */
+const usd = (minor: unknown, currency: unknown) => {
+  if (typeof minor !== 'number' || !Number.isSafeInteger(minor)) return undefined;
+  try {
+    return formatMoney(minor, str(currency) ?? 'USD');
+  } catch {
+    return undefined;
+  }
+};
 const seconds = (ms: unknown) =>
   typeof ms === 'number' ? `${(ms / 1000).toFixed(1)} s` : undefined;
 const join = (...parts: (string | undefined | false)[]) =>

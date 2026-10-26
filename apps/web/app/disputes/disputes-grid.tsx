@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import type { ColDef } from 'ag-grid-community';
 import { CommerceGrid, formatDate, formatMinor } from '@/components/grid/commerce-grid';
 import type { DisputeRow } from '@/lib/types';
+import { toMajorNumber } from '@vca/commerce/money';
 
 type Row = DisputeRow & { amount: number | null; opened: Date | null; due: Date | null };
 
@@ -32,7 +33,8 @@ export function DisputesGrid({ disputes }: { disputes: DisputeRow[] }) {
     () =>
       disputes.map((d) => ({
         ...d,
-        amount: d.amountMinor !== null ? d.amountMinor / 100 : null,
+        amount:
+          d.amountMinor !== null && d.currency ? toMajorNumber(d.amountMinor, d.currency) : null,
         opened: d.openedAt ? new Date(d.openedAt) : null,
         due: d.sellerResponseDueAt ? new Date(d.sellerResponseDueAt) : null,
       })),

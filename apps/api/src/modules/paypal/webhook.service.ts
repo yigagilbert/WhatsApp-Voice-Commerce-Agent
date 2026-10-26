@@ -4,6 +4,7 @@ import {
   extractCaptureRefs,
   extractDisputeId,
   extractOrderRefs,
+  extractRefundRefs,
   readWebhookHeaders,
   webhookEnvelopeSchema,
   type PayPalApi,
@@ -12,6 +13,7 @@ import {
 import { UnauthorizedError, ValidationError, type Logger } from '@vca/shared';
 import type { PaymentService } from '../payments/payment.service';
 import type { DisputeService } from '../disputes/dispute.service';
+import type { RefundService } from '../payments/refund.service';
 
 export interface WebhookServiceOptions {
   webhookId: string | undefined;
@@ -20,6 +22,9 @@ export interface WebhookServiceOptions {
 }
 
 export type WebhookOutcome = 'processed' | 'ignored' | 'duplicate';
+
+/** An event left RECEIVED this long (e.g. the process died mid-dispatch) may be claimed again. */
+const STALE_CLAIM_MS = 5 * 60_000;
 
 const isUniqueViolation = (error: unknown) =>
   typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
@@ -37,6 +42,7 @@ export class PayPalWebhookService {
     private readonly disputes: DisputeService,
     private readonly logger: Logger,
     private readonly options: WebhookServiceOptions,
+    private readonly refunds?: RefundService,
   ) {}
 
   async handle(
@@ -106,7 +112,11 @@ export class PayPalWebhookService {
     if (!valid) throw new UnauthorizedError('Invalid PayPal webhook signature');
   }
 
-  /** Inserts the event row; returns null if it was already handled successfully. */
+  /**
+   * Inserts the event row; returns null if it was already handled successfully or is being
+   * handled right now. FAILED events, and RECEIVED events whose handler never finished, are
+   * claimed again.
+   */
   private async claim(event: WebhookEnvelope) {
     try {
       return await this.db.webhookEvent.create({
@@ -124,10 +134,17 @@ export class PayPalWebhookService {
       });
       if (!existing || existing.status === 'PROCESSED' || existing.status === 'IGNORED')
         return null;
-      // Previously failed: claim it for a retry (conditional update avoids double processing).
+      // Previously failed or abandoned: claim it for a retry (the conditional update means only
+      // one redelivery wins; updatedAt marks the new claim).
       const { count } = await this.db.webhookEvent.updateMany({
-        where: { id: existing.id, status: 'FAILED' },
-        data: { status: 'RECEIVED' },
+        where: {
+          id: existing.id,
+          OR: [
+            { status: 'FAILED' },
+            { status: 'RECEIVED', claimedAt: { lt: new Date(Date.now() - STALE_CLAIM_MS) } },
+          ],
+        },
+        data: { status: 'RECEIVED', error: null, claimedAt: new Date() },
       });
       return count === 1 ? existing : null;
     }
@@ -153,7 +170,7 @@ export class PayPalWebhookService {
         if (!payment) return 'ignored';
         await audit(payment);
         await this.payments.inTransactionTrace(payment, () =>
-          this.payments.markCompleted(payment.id, refs.captureId),
+          this.payments.markCompleted(payment.id, refs.captureId, refs.amount),
         );
         return 'processed';
       }
@@ -170,12 +187,19 @@ export class PayPalWebhookService {
       }
       case 'PAYMENT.CAPTURE.REFUNDED':
       case 'PAYMENT.CAPTURE.REVERSED': {
-        const refs = extractCaptureRefs(event.resource);
-        const payment = refs && (await this.payments.findByProviderRefs(refs));
+        // The resource only identifies the payment; refunds are re-read from PayPal.
+        const refs = extractRefundRefs(event.resource);
+        if (!refs) return 'ignored';
+        const payment =
+          (refs.captureId && (await this.payments.findByCaptureId(refs.captureId))) ||
+          (await this.payments.findByCaptureId(refs.resourceId)) ||
+          (await this.payments.findByProviderRefs(refs));
         if (!payment) return 'ignored';
-        await this.payments.inTransactionTrace(payment, () =>
-          this.payments.applyStatus(payment, 'REFUNDED'),
-        );
+        await audit(payment);
+        await this.payments.inTransactionTrace(payment, async () => {
+          if (this.refunds) await this.refunds.sync(payment);
+          else await this.payments.applyStatus(payment, 'REFUNDED');
+        });
         return 'processed';
       }
       case 'CUSTOMER.DISPUTE.CREATED':

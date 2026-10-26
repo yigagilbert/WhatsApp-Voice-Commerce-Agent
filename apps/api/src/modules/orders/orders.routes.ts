@@ -8,9 +8,13 @@ const listQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
+const referenceParams = z.object({ reference: z.string().min(1).max(64) });
+const idParams = z.object({ id: z.string().min(1).max(64) });
+
 /**
- * Orders and payments (dashboard). Read-only, except payment reminders: the dashboard button is
- * the merchant's explicit approval, and the reminder service re-checks everything (incl. PayPal).
+ * Orders and payments (dashboard). Merchant actions: payment reminders, cancelling unpaid orders
+ * and refreshing a payment's status/refunds from PayPal. Each button is the merchant's explicit
+ * approval; the services re-check everything (incl. PayPal) before acting.
  */
 export async function ordersRoutes(app: FastifyInstance, { container }: { container: Container }) {
   app.get('/api/orders', async (request) => {
@@ -19,8 +23,48 @@ export async function ordersRoutes(app: FastifyInstance, { container }: { contai
   });
 
   app.get('/api/orders/:reference', async (request) => {
-    const { reference } = parse(z.object({ reference: z.string().min(1).max(64) }), request.params);
+    const { reference } = parse(referenceParams, request.params);
     return container.orders.getByReference(request.merchant.id, reference);
+  });
+
+  /** Cancels an unpaid order (never a paid one); PayPal is checked first. Idempotent. */
+  app.post('/api/orders/:reference/cancel', async (request, reply) => {
+    const { reference } = parse(referenceParams, request.params);
+    const outcome = await container.orderLifecycle.cancel({
+      merchantId: request.merchant.id,
+      reference,
+      by: 'MERCHANT',
+      actorLabel: 'dashboard',
+    });
+    if (!outcome) return reply.status(404).send({ error: { message: 'Order not found' } });
+    if (outcome.status === 'not_cancellable')
+      return reply.status(409).send({ error: { message: outcome.reason } });
+    return { status: outcome.status, reference: outcome.order.reference };
+  });
+
+  /**
+   * Payment review: re-reads the payment from PayPal (completes a payment whose webhook was
+   * missed, records refunds) and returns its current state. Read-mostly, idempotent.
+   */
+  app.post('/api/payments/:id/refresh', async (request, reply) => {
+    const { id } = parse(idParams, request.params);
+    const payment = await container.db.payment.findFirst({
+      where: { id, merchantId: request.merchant.id },
+    });
+    if (!payment) return reply.status(404).send({ error: { message: 'Payment not found' } });
+    if (payment.externalId && (payment.status === 'CREATED' || payment.status === 'APPROVED')) {
+      const paypalOrder = await container.paypal.getOrder(payment.externalId);
+      if (paypalOrder.status === 'APPROVED' || paypalOrder.status === 'COMPLETED')
+        await container.payments.captureApproved(payment.externalId);
+    }
+    const current = await container.db.payment.findUniqueOrThrow({ where: { id } });
+    if (current.status === 'COMPLETED' || current.status === 'REFUNDED')
+      await container.refunds.sync(current);
+    const result = await container.db.payment.findUniqueOrThrow({
+      where: { id },
+      include: { refunds: { orderBy: { createdAt: 'asc' } } },
+    });
+    return result;
   });
 
   app.get('/api/payments', async (request) => {
@@ -29,7 +73,7 @@ export async function ordersRoutes(app: FastifyInstance, { container }: { contai
   });
 
   app.post('/api/payments/:id/remind', async (request, reply) => {
-    const { id } = parse(z.object({ id: z.string().min(1).max(64) }), request.params);
+    const { id } = parse(idParams, request.params);
     const payment = await container.db.payment.findFirst({
       where: { id, merchantId: request.merchant.id },
       select: { id: true, order: { select: { reference: true } } },

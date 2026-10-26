@@ -142,9 +142,9 @@ function Detail({ d }: { d: DisputeDetail }) {
 export default async function DisputesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ d?: string }>;
+  searchParams: Promise<{ d?: string; refresh?: string; refreshed?: string }>;
 }) {
-  const { d } = await searchParams;
+  const { d, refresh, refreshed } = await searchParams;
   const [list, detail] = await Promise.all([
     apiGet<{
       disputes: DisputeRow[];
@@ -165,6 +165,14 @@ export default async function DisputesPage({
           </button>
         </form>
       </div>
+      {refresh === 'failed' && (
+        <ErrorNotice message="Couldn't refresh from PayPal just now. Showing the last saved data; please try again later." />
+      )}
+      {refreshed !== undefined && (
+        <p role="status" className="mb-3 text-sm text-emerald-700">
+          Refreshed from PayPal ({refreshed} dispute{refreshed === '1' ? '' : 's'} checked).
+        </p>
+      )}
       {!list.ok ? (
         <ErrorNotice message={list.error} />
       ) : (

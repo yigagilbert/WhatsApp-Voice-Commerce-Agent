@@ -44,3 +44,7 @@ pnpm-debug.log*
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Sandbox E2E run output
+scripts/sandbox-e2e/events.jsonl
+scripts/sandbox-e2e/results.json

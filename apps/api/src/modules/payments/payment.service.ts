@@ -264,7 +264,17 @@ export class PaymentService {
       try {
         result = await this.paypal.captureOrder(paypalOrderId, `capture-${payment.id}`);
       } catch (error) {
-        if (!payPalErrorIssues(error).includes('ORDER_ALREADY_CAPTURED')) throw error;
+        if (!payPalErrorIssues(error).includes('ORDER_ALREADY_CAPTURED')) {
+          // The buyer approved but PayPal won't take the money (e.g. a seller-account restriction):
+          // every payment may be stuck, so the operator must hear about it.
+          const issues = payPalErrorIssues(error);
+          await this.options.alerts?.alert(
+            'paypal-capture-failed',
+            'PayPal capture failed',
+            `An approved payment (PayPal order ${paypalOrderId}) could not be captured${issues.length ? `: ${issues.join(', ')}` : ''}. The order stays unpaid and is retried; if this repeats, check the PayPal seller account.`,
+          );
+          throw error;
+        }
         this.logger.info({ paypalOrderId }, 'order already captured at PayPal; syncing status');
         result = await this.paypal.getOrder(paypalOrderId);
       }

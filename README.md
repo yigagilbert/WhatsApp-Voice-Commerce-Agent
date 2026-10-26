@@ -82,6 +82,9 @@ More in [docs/hackathon/product-story.md](docs/hackathon/product-story.md).
 - 🛍️ Customer shopping on the shop's own WhatsApp number (off by default): browse with photos, cart, checkout with delivery or pickup, PayPal link (automatic or owner-approved), order status, hand-off to a person — separate customer assistant, never the admin tools
 - 🔔 Payment reminders: "remind Sarah about ORD-123" → preview → `REMIND <code>` (or the dashboard button); PayPal is checked first, expired links are renewed; one per day, three per link
 - 🧾 Sales cross-checked with PayPal: open links re-checked in the background, missed payments recorded, mismatches flagged in the report
+- ⌛ Unpaid orders expire (`UNPAID_ORDER_EXPIRY_HOURS`, default 72) and release their stock; merchants cancel from the dashboard, customers with "cancel ORD-…"; PayPal is always checked first
+- ↩️ Refunds made in PayPal are recorded (full, partial, reversals; once per refund ID), revenue is net of refunds, stock is never restocked automatically
+- 🚨 Operator alerts outside WhatsApp (`ALERT_WEBHOOK_URL`, e.g. ntfy) and a scheduler heartbeat (`HEARTBEAT_URL`)
 - 🔒 Owner and staff admins: staff can't approve payment requests or dispute responses
 - 📡 WhatsApp outage notice to admins once the bot is back, and a dashboard banner while it's down
 - 👥 Admin WhatsApp numbers managed in the dashboard (add, edit, deactivate, remove; E.164); only active admins can operate the bot or receive business data
@@ -199,7 +202,7 @@ One root `.env` for every app, validated at startup (`packages/config`). Full an
 | Policy    | `DEFAULT_CURRENCY`, `CONFIRMATION_TTL_SECONDS`, `MAX_PAYMENT_REQUEST_AMOUNT`, `DEFAULT_PHONE_REGION`, `REPORT_SCHEDULER_ENABLED`, `UNAUTHORIZED_REPLY_COOLDOWN_HOURS`, `PAYMENT_RECONCILIATION_ENABLED`, `CUSTOMER_COMMERCE_ENABLED`, `CUSTOMER_COMMERCE_PILOT_NUMBERS` | —                 |
 | WhatsApp  | `WHATSAPP_API_BASE_URL`, `WHATSAPP_SESSION_DIR`, `WHATSAPP_CLIENT_ID`, `WHATSAPP_HEADLESS`, `WHATSAPP_CHROME_PATH`, `WHATSAPP_GATEWAY_PORT/HOST/URL`                                                                                                                    | worker            |
 | Seed      | `SEED_MERCHANT_WHATSAPP_ID`                                                                                                                                                                                                                                             | WhatsApp operator |
-| Dashboard | `API_BASE_URL` (+ `API_AUTH_TOKEN`, server-side only), `DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD`, `DASHBOARD_SESSION_HOURS`                                                                                                                                            | web               |
+| Dashboard | `API_BASE_URL` (+ `API_AUTH_TOKEN`, server-side only), `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` (setup login until the first account exists), `DASHBOARD_SESSION_HOURS`, `DASHBOARD_CLIENT_IP_HEADER`                                                                  | web               |
 
 Optional providers degrade gracefully — the API starts without AI, speech, PayPal or WhatsApp and
 `/api/health/ready` reports what is missing.
@@ -322,7 +325,7 @@ notifications, sales summary, and the audit trail.
 ## 16. Security
 
 - No secrets in code; `.env` is git-ignored; config validated at startup.
-- Dashboard login page with an HMAC-signed HttpOnly session cookie; every page and server action checks it; login attempts are throttled.
+- Individual dashboard accounts (owner/staff, scrypt-hashed passwords, per-account lockout, sessions revoked on password change or deactivation); the env login only bootstraps the first owner. CSP and clickjacking headers.
 - Dashboard → API token is server-side only; workers use a separate internal token; constant-time comparison.
 - Voice: duration checked before any STT call; spoken "confirm" never approves a payment; voice never creates customers silently.
 - Only registered `MerchantOperator` identities can drive a merchant.
@@ -340,9 +343,9 @@ notifications, sales summary, and the audit trail.
 - Verified live: WhatsApp text and English voice, PayPal Sandbox payments (incl. webhooks), LLM. Shipment/dispute verification status is in [PROJECT_STATUS.md](PROJECT_STATUS.md). Luganda voice is experimental and off by default.
 - PayPal tracking has no delivered status; Katale shows shipped/not shipped only. Disputes: no refunds, offers or claim acceptance (by design this phase); evidence is structured data and text, no file uploads.
 - Payment links paid **on a phone** need a public `API_PUBLIC_URL` (tunnel) for the return/webhook to reach the API.
-- Dashboard auth is one shared login (single-tenant merchant shortcut); no per-merchant users yet.
+- One merchant per installation: dashboard accounts belong to a merchant, but there is no self-serve multi-merchant onboarding yet.
 - Luganda vocabulary/number list is a starter set, not validated with native speakers; no TTS replies.
-- Invoicing, refunds and subscriptions: not implemented beyond PayPal client methods.
+- Invoicing, initiating refunds from Katale and subscriptions: not implemented (refunds made in PayPal are recorded).
 - Dashboard refreshes on navigation (no live push). AG Studio shows a watermark without `AG_STUDIO_LICENSE_KEY`.
 - ASR + LLM run synchronously inside the request (fine for demo scale).
 
@@ -352,6 +355,6 @@ notifications, sales summary, and the audit trail.
 2. ~~Voice notes (English) + Sunbird AI Luganda ASR~~ ✅ (Luganda experimental) — next: native-speaker validation; spoken replies (TTS)
 3. PayPal invoicing and refunds through the confirmation mechanism
 4. ~~AG Grid / AG Studio analytics~~ ✅ · ~~Shipment tracking and PayPal disputes~~ ✅ — next: dispute document uploads
-5. Per-merchant users and multi-merchant onboarding (a single dashboard login exists)
+5. Multi-merchant onboarding (dashboard accounts exist per merchant; signup and per-merchant payments do not)
 6. Official WhatsApp Cloud API adapter; web chat and Telegram channels
 7. Background jobs for slow work (ASR/LLM) and live dashboard updates

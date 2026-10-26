@@ -17,30 +17,43 @@ Every response carries `x-correlation-id` (sent by the caller or generated).
 | PayPal                  | Signature headers (verified via PayPal)     | `/api/paypal/webhooks`                |
 | Public                  | —                                           | health, PayPal return/cancel pages    |
 
-Dashboard routes operate on the merchant given by `x-merchant-id`, or the first (seeded) merchant
-— a single-tenant development simplification.
+Dashboard routes also identify the signed-in person: the dashboard server sends
+`x-dashboard-user` (account ID) and `x-dashboard-session` (session version) from its signed cookie.
+The API checks on every request that the account is active and the version current (a password
+change, deactivation or role change ends older sessions → `401`), and uses the account's merchant.
+Owner-only routes answer `403` to staff. While **no** dashboard account exists (first-time setup),
+requests without these headers act as the owner of the merchant in `x-merchant-id` or the first
+merchant; this setup mode ends when the first account is created.
 
 ## Endpoints
 
-| Method | Path                             | Auth                 | Description                                                           |
-| ------ | -------------------------------- | -------------------- | --------------------------------------------------------------------- |
-| GET    | `/api/health`                    | public               | Liveness                                                              |
-| GET    | `/api/health/ready`              | public               | DB check + which providers are configured                             |
-| POST   | `/api/agent/message`             | internal / dashboard | Process an `InboundChannelMessage`, returns replies                   |
-| GET    | `/api/customers`                 | dashboard            | List customers                                                        |
-| GET    | `/api/customers/:id`             | dashboard            | Customer detail                                                       |
-| POST   | `/api/customers`                 | dashboard            | Create customer `{ name, email?, phone?, whatsappId?, country? }`     |
-| GET    | `/api/products`                  | dashboard            | List products                                                         |
-| POST   | `/api/products`                  | dashboard            | Create product `{ name, unitPrice, currency?, sku?, stockQuantity? }` |
-| GET    | `/api/orders?status=&limit=`     | dashboard            | List orders with items and customer                                   |
-| GET    | `/api/orders/:reference`         | dashboard            | Order by reference (`ORD-…`) or ID, with payments                     |
-| GET    | `/api/payments?limit=`           | dashboard            | List payments                                                         |
-| GET    | `/api/dashboard/summary`         | dashboard            | Revenue, outstanding, counts, recent orders/payments                  |
-| GET    | `/api/dashboard/activity?limit=` | dashboard            | Audit trail                                                           |
-| GET    | `/api/dashboard/messages?limit=` | dashboard            | Recent conversation messages incl. transcripts                        |
-| POST   | `/api/paypal/webhooks`           | signature            | PayPal webhook receiver (idempotent)                                  |
-| GET    | `/api/paypal/return`             | public               | Buyer return after approval → server-side capture                     |
-| GET    | `/api/paypal/cancel`             | public               | Buyer cancelled                                                       |
+| Method | Path                             | Auth                 | Description                                                                                                              |
+| ------ | -------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/api/health`                    | public               | Liveness                                                                                                                 |
+| GET    | `/api/health/ready`              | public               | DB check + which providers are configured                                                                                |
+| POST   | `/api/agent/message`             | internal / dashboard | Process an `InboundChannelMessage`, returns replies                                                                      |
+| GET    | `/api/customers`                 | dashboard            | List customers                                                                                                           |
+| GET    | `/api/customers/:id`             | dashboard            | Customer detail                                                                                                          |
+| POST   | `/api/customers`                 | dashboard            | Create customer `{ name, email?, phone?, whatsappId?, country? }`                                                        |
+| GET    | `/api/products`                  | dashboard            | List products                                                                                                            |
+| POST   | `/api/products`                  | dashboard            | Create product `{ name, unitPrice, currency?, sku?, stockQuantity? }`                                                    |
+| GET    | `/api/orders?status=&limit=`     | dashboard            | List orders with items and customer                                                                                      |
+| GET    | `/api/orders/:reference`         | dashboard            | Order by reference (`ORD-…`) or ID, with payments                                                                        |
+| POST   | `/api/orders/:reference/cancel`  | dashboard            | Cancel an unpaid order (PayPal checked first; `409` if paid). Idempotent                                                 |
+| GET    | `/api/payments?limit=`           | dashboard            | List payments (incl. `refundedMinor`)                                                                                    |
+| POST   | `/api/payments/:id/refresh`      | dashboard            | Re-check a payment and its refunds with PayPal; returns it with refunds                                                  |
+| POST   | `/api/auth/login`                | dashboard token      | `{ username, password }` → account + session version; `401` (same answer for every failure; `NO_ACCOUNTS` in setup mode) |
+| GET    | `/api/auth/me`                   | dashboard            | Signed-in account and merchant                                                                                           |
+| POST   | `/api/auth/password`             | dashboard            | `{ current, next }` → new session version (other sessions end)                                                           |
+| GET    | `/api/dashboard-users`           | dashboard (owner)    | Dashboard accounts (never password hashes)                                                                               |
+| POST   | `/api/dashboard-users`           | dashboard (owner)    | `{ username, name, role, password }`; the first one must be an owner                                                     |
+| PATCH  | `/api/dashboard-users/:id`       | dashboard (owner)    | `{ name?, role?, active?, password? }`; last active owner protected                                                      |
+| GET    | `/api/dashboard/summary`         | dashboard            | Revenue, outstanding, counts, recent orders/payments                                                                     |
+| GET    | `/api/dashboard/activity?limit=` | dashboard            | Audit trail                                                                                                              |
+| GET    | `/api/dashboard/messages?limit=` | dashboard            | Recent conversation messages incl. transcripts                                                                           |
+| POST   | `/api/paypal/webhooks`           | signature            | PayPal webhook receiver (idempotent)                                                                                     |
+| GET    | `/api/paypal/return`             | public               | Buyer return after approval → server-side capture                                                                        |
+| GET    | `/api/paypal/cancel`             | public               | Buyer cancelled                                                                                                          |
 
 There are intentionally **no** endpoints that create payment requests directly: financial actions
 go through the confirmation flow (see `docs/architecture/financial-safety.md`).

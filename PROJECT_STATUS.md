@@ -1,6 +1,26 @@
 # Project status
 
-_Last updated: 2026-10-07 — production runs `v0.1.0-202610071145` at https://kataleai.space: English text + voice commerce to PayPal payment (verified), AG Grid/AG Studio dashboard, and post-payment operations — PayPal shipment tracking and dispute handling (deployed; real-Sandbox runs pending, see below). Luganda frozen (experimental, off)._
+_Last updated: 2026-10-26 — branch `feat/phase-1-production-hardening` (not merged, not deployed). The last production deployment recorded here is `v0.1.0-202610181605` (customer commerce Phase 0+1, switched off); Phase 2 (customer checkout) is merged to `main` but **no deployment of it is recorded**. Audit: [docs/audits/2026-10-25-katale-ai-system-audit.md](docs/audits/2026-10-25-katale-ai-system-audit.md)._
+
+## Phase 1 — production hardening (2026-10-26, branch `feat/phase-1-production-hardening`)
+
+| Capability                                                                                                                              | Status                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Unpaid orders expire (`UNPAID_ORDER_EXPIRY_HOURS`, default 72), release stock; PayPal checked first                                     | ✅ integration tests (**SIMULATED PAYPAL**)                                |
+| Merchant cancel (dashboard), customer cancel ("cancel ORD-…"), concurrent cancel/expiry run once                                        | ✅ integration tests; dashboard checked in a browser locally               |
+| Capture racing a cancellation reinstates the order; second payment via an old link flagged                                              | ✅ integration tests (**SIMULATED PAYPAL**)                                |
+| Refunds/reversals recorded from PayPal (full, partial, idempotent), never restocked; revenue net of refunds                             | ✅ integration tests (**SIMULATED PAYPAL**); real Sandbox refund pending   |
+| Abandoned webhook claims retried; captured amount checked                                                                               | ✅ integration tests                                                       |
+| Dashboard: UGX/zero-decimal money, carts excluded from counts, order drawer details, cancel, refunds, PayPal check, loading/error pages | ✅ unit + integration tests; checked in a browser locally                  |
+| Individual dashboard accounts (owner/staff), lockout, session revocation, owner-only routes                                             | ✅ unit + integration tests; full flow checked in a browser locally        |
+| Login throttle on the proxy's client IP; `TRUST_PROXY` as proxy addresses; CSP + clickjacking headers                                   | ✅ unit tests; headers checked on the production build locally             |
+| Operator alerts (`ALERT_WEBHOOK_URL`) and heartbeat (`HEARTBEAT_URL`)                                                                   | ✅ unit + integration tests; not connected to a real ntfy/healthchecks yet |
+| Encrypted off-site backups, restore checks, server hardening runbooks                                                                   | Prepared (`deploy/`, `docs/deployment/`); **not applied** — needs approval |
+
+Needs real-device / production verification after deployment: a customer cancelling over real WhatsApp;
+a real PayPal Sandbox refund (full and partial) arriving by webhook; expiry against a real Sandbox
+link; the client IP seen behind Nginx Proxy Manager (`X-Real-IP`, `TRUST_PROXY`); the first-owner
+setup on the production dashboard; real ntfy/healthchecks delivery.
 
 ## Completed
 

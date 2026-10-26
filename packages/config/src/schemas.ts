@@ -176,12 +176,14 @@ export const apiSchema = baseSchema
       .default('false')
       .refine(
         (v) =>
-          v === 'true' ||
-          v === 'false' ||
+          /^(true|false|1|0)$/.test(v) ||
           (/^[A-Za-z0-9.:/,\s]+$/.test(v) && !/^\d+$/.test(v.trim())),
         'TRUST_PROXY must be true, false or a list of proxy addresses/CIDRs (e.g. loopback,uniquelocal)',
       )
-      .transform((v): boolean | string => (v === 'true' ? true : v === 'false' ? false : v)),
+      // "1"/"0" keep their old meaning (true/false) so existing .env files still start.
+      .transform((v): boolean | string =>
+        v === 'true' || v === '1' ? true : v === 'false' || v === '0' ? false : v,
+      ),
     WHATSAPP_GATEWAY_URL: optionalString.pipe(z.string().url().optional()),
     /**
      * Operator alerts (failed webhooks, payment links, reports, background jobs; WhatsApp offline

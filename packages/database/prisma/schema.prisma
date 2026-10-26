@@ -259,6 +259,15 @@ enum OrderCancelReason {
   CUSTOMER
 }
 
+/// Why a paid order needs a person to look at it before it is fulfilled.
+enum OrderAttention {
+  /// Payment completed after the order was cancelled: it was reinstated, but its stock may have
+  /// been sold to someone else meanwhile. Shipping is blocked until an owner marks it reviewed.
+  PAID_AFTER_CANCEL
+  /// A second payment arrived for an already-paid order (old payment link): refund the extra.
+  DUPLICATE_PAYMENT
+}
+
 enum FulfillmentStatus {
   NOT_SHIPPED
   SHIPPED
@@ -307,6 +316,9 @@ model Order {
   cancelReason        OrderCancelReason?
   /// Sum of completed refunds (minor units). Equal to totalMinor once fully refunded.
   refundedMinor       Int               @default(0)
+  /// Set when the order needs review (see OrderAttention); cleared when an owner marks it reviewed.
+  attention           OrderAttention?
+  attentionAt         DateTime?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 
@@ -396,6 +408,9 @@ model Payment {
   /// Sum of completed refunds/reversals (minor units). Partial: status stays COMPLETED;
   /// full: status REFUNDED. Net revenue = amountMinor - refundedMinor.
   refundedMinor     Int             @default(0)
+  /// A second payment for an order that was already paid (e.g. through an older link). Its refunds
+  /// don't refund the order itself.
+  duplicate         Boolean         @default(false)
 
   merchant  Merchant   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)

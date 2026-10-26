@@ -4,7 +4,7 @@ import {
   timingSafeEqual,
   type ScryptOptions,
 } from 'node:crypto';
-import type { Database, DashboardUser, OperatorRole } from '@vca/database';
+import type { Database, DashboardUser, DatabaseTx, OperatorRole } from '@vca/database';
 import { ConflictError, NotFoundError, ValidationError } from '@vca/shared';
 import type { AuditService } from './audit.service';
 
@@ -106,27 +106,12 @@ export class DashboardUserService {
       await verifyPassword(password, await decoyHash);
       return (await this.count()) === 0 ? { status: 'no_users' } : { status: 'invalid' };
     }
+    // Always hash, so a locked account answers as slowly as any other (no timing tell).
+    const ok = await verifyPassword(password, user.passwordHash);
     if (user.lockedUntil && user.lockedUntil > now)
       return { status: 'locked', until: user.lockedUntil };
-    const ok = await verifyPassword(password, user.passwordHash);
     if (!ok || !user.active) {
-      const failed = user.failedLogins + 1;
-      const lock = failed >= MAX_FAILED_LOGINS;
-      await this.db.dashboardUser.update({
-        where: { id: user.id },
-        data: {
-          failedLogins: lock ? 0 : failed,
-          ...(lock ? { lockedUntil: new Date(now.getTime() + LOCKOUT_MINUTES * 60_000) } : {}),
-        },
-      });
-      await this.audit.record({
-        merchantId: user.merchantId,
-        actor: 'MERCHANT',
-        type: lock ? 'auth.account_locked' : 'auth.login_failed',
-        entityType: 'dashboard_user',
-        entityId: user.id,
-        data: { username: user.username, ...(user.active ? {} : { inactive: true }) },
-      });
+      await this.recordFailure(user, now, user.active ? {} : { inactive: true });
       return { status: 'invalid' };
     }
     const updated = await this.db.dashboardUser.update({
@@ -142,6 +127,36 @@ export class DashboardUserService {
       data: { username: user.username },
     });
     return { status: 'ok', user: updated };
+  }
+
+  /**
+   * Counts a wrong password atomically (parallel guesses can't all read the same count) and locks
+   * the account when the count reaches the limit.
+   */
+  private async recordFailure(user: DashboardUser, now: Date, extra: Record<string, unknown> = {}) {
+    const updated = await this.db.dashboardUser.update({
+      where: { id: user.id },
+      data: { failedLogins: { increment: 1 } },
+    });
+    const lock = updated.failedLogins >= MAX_FAILED_LOGINS;
+    if (lock) {
+      // Only the attempt that crossed the limit resets the counter and sets the lock.
+      await this.db.dashboardUser.updateMany({
+        where: { id: user.id, failedLogins: { gte: MAX_FAILED_LOGINS } },
+        data: {
+          failedLogins: 0,
+          lockedUntil: new Date(now.getTime() + LOCKOUT_MINUTES * 60_000),
+        },
+      });
+    }
+    await this.audit.record({
+      merchantId: user.merchantId,
+      actor: 'MERCHANT',
+      type: lock ? 'auth.account_locked' : 'auth.login_failed',
+      entityType: 'dashboard_user',
+      entityId: user.id,
+      data: { username: user.username, ...extra } as Record<string, string | boolean>,
+    });
   }
 
   /** The account behind a session, if the session is still valid (active, same version). */
@@ -195,14 +210,29 @@ export class DashboardUserService {
     input: { name?: string; role?: OperatorRole; active?: boolean; password?: string },
     by: string,
   ): Promise<DashboardUserView> {
-    const user = await this.db.dashboardUser.findFirst({ where: { id, merchantId } });
+    // One owner change at a time per merchant: two owners demoting each other at once must not
+    // leave the business without an owner.
+    return this.db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`owners:${merchantId}`}))`;
+      return this.applyUpdate(tx, merchantId, id, input, by);
+    });
+  }
+
+  private async applyUpdate(
+    tx: DatabaseTx,
+    merchantId: string,
+    id: string,
+    input: { name?: string; role?: OperatorRole; active?: boolean; password?: string },
+    by: string,
+  ): Promise<DashboardUserView> {
+    const user = await tx.dashboardUser.findFirst({ where: { id, merchantId } });
     if (!user) throw new NotFoundError('Dashboard user', id);
     const losesOwner =
       user.role === 'OWNER' &&
       user.active &&
       ((input.role !== undefined && input.role !== 'OWNER') || input.active === false);
     if (losesOwner) {
-      const owners = await this.db.dashboardUser.count({
+      const owners = await tx.dashboardUser.count({
         where: { merchantId, role: 'OWNER', active: true },
       });
       if (owners <= 1)
@@ -213,7 +243,7 @@ export class DashboardUserService {
       input.password !== undefined ||
       input.active === false ||
       (input.role !== undefined && input.role !== user.role);
-    const updated = await this.db.dashboardUser.update({
+    const updated = await tx.dashboardUser.update({
       where: { id },
       data: {
         ...(input.name !== undefined ? { name: input.name.trim().slice(0, 120) } : {}),
@@ -230,20 +260,23 @@ export class DashboardUserService {
         ...(revoke ? { sessionVersion: { increment: 1 } } : {}),
       },
     });
-    await this.audit.record({
-      merchantId,
-      actor: 'MERCHANT',
-      type: 'dashboard_user.updated',
-      entityType: 'dashboard_user',
-      entityId: id,
-      data: {
-        username: user.username,
-        by,
-        ...(input.role !== undefined ? { role: input.role } : {}),
-        ...(input.active !== undefined ? { active: input.active } : {}),
-        ...(input.password !== undefined ? { passwordReset: true } : {}),
+    await this.audit.record(
+      {
+        merchantId,
+        actor: 'MERCHANT',
+        type: 'dashboard_user.updated',
+        entityType: 'dashboard_user',
+        entityId: id,
+        data: {
+          username: user.username,
+          by,
+          ...(input.role !== undefined ? { role: input.role } : {}),
+          ...(input.active !== undefined ? { active: input.active } : {}),
+          ...(input.password !== undefined ? { passwordReset: true } : {}),
+        },
       },
-    });
+      tx,
+    );
     return view(updated);
   }
 
@@ -251,8 +284,15 @@ export class DashboardUserService {
   async changePassword(id: string, current: string, next: string): Promise<DashboardUser> {
     const user = await this.db.dashboardUser.findUnique({ where: { id } });
     if (!user || !user.active) throw new NotFoundError('Dashboard user', id);
-    if (!(await verifyPassword(current, user.passwordHash)))
+    if (user.lockedUntil && user.lockedUntil > new Date())
+      throw new ValidationError(
+        `Too many wrong passwords. Try again in ${LOCKOUT_MINUTES} minutes.`,
+      );
+    if (!(await verifyPassword(current, user.passwordHash))) {
+      // Same limit as sign-in: a borrowed session can't guess the password without limit.
+      await this.recordFailure(user, new Date(), { changePassword: true });
       throw new ValidationError('Your current password is not correct.');
+    }
     checkPasswordPolicy(next, user.username);
     const updated = await this.db.dashboardUser.update({
       where: { id },

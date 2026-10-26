@@ -194,6 +194,7 @@ export function createContainer(
     audit,
     notifications,
     logger.child({ component: 'refunds' }),
+    payments,
   );
   const orderLifecycle = new OrderLifecycleService(
     db,

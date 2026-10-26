@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Container } from '../../container';
-import { actorLabel } from '../../http/merchant-scope';
+import { actorLabel, ownerOnly } from '../../http/merchant-scope';
 import { parse } from '../../http/validation';
 
 const listQuery = z.object({
@@ -41,6 +41,33 @@ export async function ordersRoutes(app: FastifyInstance, { container }: { contai
     if (outcome.status === 'not_cancellable')
       return reply.status(409).send({ error: { message: outcome.reason } });
     return { status: outcome.status, reference: outcome.order.reference };
+  });
+
+  /**
+   * Clears an order's "needs review" flag (paid after cancellation, or paid twice) once an owner
+   * has checked stock / refunded the extra payment. Shipping stays blocked until then.
+   */
+  app.post('/api/orders/:reference/review', { preHandler: ownerOnly }, async (request, reply) => {
+    const { reference } = parse(referenceParams, request.params);
+    const order = await container.db.order.findFirst({
+      where: { merchantId: request.merchant.id, reference: reference.trim().toUpperCase() },
+    });
+    if (!order) return reply.status(404).send({ error: { message: 'Order not found' } });
+    if (!order.attention) return { status: 'already_reviewed', reference: order.reference };
+    const { count } = await container.db.order.updateMany({
+      where: { id: order.id, attention: order.attention },
+      data: { attention: null, attentionAt: null },
+    });
+    if (count === 1)
+      await container.audit.record({
+        merchantId: order.merchantId,
+        actor: 'MERCHANT',
+        type: 'order.reviewed',
+        entityType: 'order',
+        entityId: order.id,
+        data: { reference: order.reference, attention: order.attention, by: actorLabel(request) },
+      });
+    return { status: 'reviewed', reference: order.reference };
   });
 
   /**

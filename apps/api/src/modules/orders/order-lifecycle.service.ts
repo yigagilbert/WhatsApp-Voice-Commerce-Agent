@@ -1,6 +1,6 @@
 import { formatMoney, type AuditService } from '@vca/commerce';
 import type { Database, Order, OrderCancelReason, Payment } from '@vca/database';
-import { ProviderError, type Logger } from '@vca/shared';
+import { ConflictError, ProviderError, type Logger } from '@vca/shared';
 import { payPalErrorStatus, type PayPalApi } from '@vca/paypal';
 import { branded } from '../agent/copy';
 import type { NotificationService } from '../notifications/notification.service';
@@ -54,7 +54,8 @@ export class OrderLifecycleService {
 
   /**
    * Cancels an unpaid order. `customerId` restricts it to that customer's own orders. Throws
-   * ProviderError if PayPal can't be asked whether an open link was paid (try again later).
+   * ProviderError if PayPal can't be asked whether an open link was paid, and ConflictError while
+   * a payment is in flight (try again later in both cases; nothing was changed).
    */
   async cancel(params: {
     merchantId: string;
@@ -119,7 +120,14 @@ export class OrderLifecycleService {
             ? 'This order is already paid. Refund it in PayPal if needed; Katale records the refund automatically.'
             : 'This order was refunded.',
       };
-    if (by === 'CUSTOMER' && order.placedBy === 'CUSTOMER' && !order.customerConfirmedAt)
+    if (by === 'CUSTOMER' && order.placedBy !== 'CUSTOMER')
+      // An order the shop made for this customer (e.g. a phone order): the shop decides.
+      return {
+        status: 'not_cancellable',
+        order,
+        reason: 'This order was arranged with the shop, so please ask them to cancel it.',
+      };
+    if (by === 'CUSTOMER' && !order.customerConfirmedAt)
       return { status: 'not_cancellable', order, reason: 'This is your cart, not an order.' };
 
     // 1. Ask PayPal about every open link first: paid or approved means no cancellation.
@@ -132,7 +140,9 @@ export class OrderLifecycleService {
         const fresh = await this.db.order.findUniqueOrThrow({ where: { id: order.id } });
         if (fresh.status === 'PAID') return { status: 'paid', order: fresh };
         // Approved but the capture is still pending at PayPal: leave the order alone for now.
-        throw new ProviderError('paypal', 'payment is being completed; try again shortly');
+        throw new ConflictError(
+          'The buyer has approved this payment and PayPal is completing it, so the order was not cancelled. Check again in a few minutes.',
+        );
       }
     }
 
@@ -196,7 +206,9 @@ export class OrderLifecycleService {
   private async paidAtProvider(payment: OpenPayment): Promise<boolean> {
     if (!payment.externalId) {
       if (Date.now() - payment.createdAt.getTime() < ATTEMPT_IN_FLIGHT_MS)
-        throw new ProviderError('paypal', 'payment link is still being created');
+        throw new ConflictError(
+          'A PayPal payment link for this order is being created right now. Try again in a couple of minutes.',
+        );
       return false;
     }
     if (!this.paypal.configured) return false;

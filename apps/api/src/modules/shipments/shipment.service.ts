@@ -82,6 +82,11 @@ export class ShipmentService {
         `${order.reference} is ${order.status === 'AWAITING_PAYMENT' ? 'still awaiting payment' : order.status.toLowerCase().replace(/_/g, ' ')}. Tracking can only be added after the PayPal payment is completed.`,
       );
     }
+    if (order.attention === 'PAID_AFTER_CANCEL') {
+      throw new PolicyViolationError(
+        `${order.reference} was paid after it had been cancelled, so its stock may have been sold to someone else. Check stock and mark it reviewed in the dashboard (Orders) before adding tracking.`,
+      );
+    }
     if (!payment.captureId || !payment.externalId) {
       throw new ConflictError(`${order.reference} has no PayPal capture to attach tracking to.`);
     }

@@ -788,7 +788,9 @@ export class ShopOrderService {
               : o.status === 'PAID'
                 ? shipment
                   ? `paid ✅ · shipped 🚚 ${carrierDisplay(shipment)} ${shipment.trackingNumber}`
-                  : `paid ✅ · being prepared${o.refundedMinor > 0 ? ` · ${formatMoney(o.refundedMinor, o.currency)} refunded` : ''}`
+                  : o.attention === 'PAID_AFTER_CANCEL'
+                    ? 'paid ✅ · the shop is confirming availability'
+                    : `paid ✅ · being prepared${o.refundedMinor > 0 ? ` · ${formatMoney(o.refundedMinor, o.currency)} refunded` : ''}`
                 : o.status === 'REFUNDED'
                   ? 'refunded'
                   : o.status.toLowerCase();

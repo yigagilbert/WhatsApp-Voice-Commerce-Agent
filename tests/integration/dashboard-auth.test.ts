@@ -269,6 +269,93 @@ describe('dashboard accounts and authorization (integration)', () => {
     });
   });
 
+  describe('races', () => {
+    it('locks an account even when wrong passwords arrive in parallel', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/dashboard-users',
+        headers: as(sessions.owner!),
+        payload: {
+          username: `par-${run}`,
+          name: 'Pat',
+          role: 'STAFF',
+          password: 'parallel phrase 2026',
+        },
+      });
+      const id = res.json().id as string;
+      await Promise.all(
+        Array.from({ length: 8 }, (_, i) => login(`par-${run}`, `wrong ${i} guess`)),
+      );
+      const user = await container.db.dashboardUser.findUniqueOrThrow({ where: { id } });
+      expect(user.lockedUntil?.getTime() ?? 0).toBeGreaterThan(Date.now());
+      expect((await login(`par-${run}`, 'parallel phrase 2026')).statusCode).toBe(401);
+    });
+
+    it('never leaves a merchant without an active owner when owners demote each other at once', async () => {
+      const second = await app.inject({
+        method: 'POST',
+        url: '/api/dashboard-users',
+        headers: as(sessions.owner!),
+        payload: {
+          username: `own2-${run}`,
+          name: 'Second Owner',
+          role: 'OWNER',
+          password: 'second owner phrase',
+        },
+      });
+      const secondId = second.json().id as string;
+      const secondSession = await signIn(`own2-${run}`, 'second owner phrase');
+      await Promise.all([
+        app.inject({
+          method: 'PATCH',
+          url: `/api/dashboard-users/${secondId}`,
+          headers: as(sessions.owner!),
+          payload: { role: 'STAFF' },
+        }),
+        app.inject({
+          method: 'PATCH',
+          url: `/api/dashboard-users/${ownerId}`,
+          headers: as(secondSession),
+          payload: { role: 'STAFF' },
+        }),
+      ]);
+      const owners = await container.db.dashboardUser.count({
+        where: { merchantId: shop, role: 'OWNER', active: true },
+      });
+      expect(owners).toBeGreaterThanOrEqual(1);
+      // Restore the original owner session for the following tests.
+      const original = await container.db.dashboardUser.findUniqueOrThrow({
+        where: { id: ownerId },
+      });
+      if (original.role !== 'OWNER')
+        await container.db.dashboardUser.update({
+          where: { id: ownerId },
+          data: { role: 'OWNER' },
+        });
+      sessions.owner = {
+        id: ownerId,
+        version: (await container.db.dashboardUser.findUniqueOrThrow({ where: { id: ownerId } }))
+          .sessionVersion,
+      };
+    });
+
+    it('limits wrong current-password attempts when changing a password', async () => {
+      for (let i = 0; i < 5; i++)
+        await app.inject({
+          method: 'POST',
+          url: '/api/auth/password',
+          headers: as(sessions.owner!),
+          payload: { current: `not it ${i}`, next: 'whatever new phrase' },
+        });
+      const user = await container.db.dashboardUser.findUniqueOrThrow({ where: { id: ownerId } });
+      expect(user.lockedUntil?.getTime() ?? 0).toBeGreaterThan(Date.now());
+      await container.db.dashboardUser.update({
+        where: { id: ownerId },
+        data: { lockedUntil: null },
+      });
+    });
+  });
+
   describe('lockout', () => {
     it('locks an account after 5 wrong passwords, whatever the caller', async () => {
       for (let i = 0; i < 5; i++) await login(`own-${run}`, `wrong guess ${i}`);

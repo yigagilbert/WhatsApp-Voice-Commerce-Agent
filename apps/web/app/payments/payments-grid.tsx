@@ -13,7 +13,10 @@ import { toMajorNumber } from '@vca/commerce/money';
 /** Same limits as the API: one reminder per 24 h, three per payment link. */
 const MAX_REMINDERS = 3;
 
-function RemindButton({ row }: { row: PaymentRow }) {
+type Notice = { ok: boolean; text: string } | null;
+type OnNotice = (notice: Notice) => void;
+
+function RemindButton({ row, onNotice }: { row: PaymentRow; onNotice: OnNotice }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const recent =
@@ -39,7 +42,7 @@ function RemindButton({ row }: { row: PaymentRow }) {
           return;
         start(async () => {
           const result = await sendReminder(row.id);
-          window.alert(result.message);
+          onNotice({ ok: result.ok, text: result.message });
           router.refresh();
         });
       }}
@@ -51,26 +54,25 @@ function RemindButton({ row }: { row: PaymentRow }) {
 }
 
 /** Payment review: re-check the payment and its refunds with PayPal. */
-function RefreshButton({ row }: { row: PaymentRow }) {
+function RefreshButton({ row, onNotice }: { row: PaymentRow; onNotice: OnNotice }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [note, setNote] = useState<string | null>(null);
   return (
     <button
       type="button"
       disabled={pending}
-      title={note ?? 'Check this payment and its refunds with PayPal'}
+      title="Check this payment and its refunds with PayPal"
       aria-label={`Check ${row.reference} with PayPal`}
       onClick={() =>
         start(async () => {
           const result = await refreshPayment(row.id);
-          setNote(result.message);
+          onNotice({ ok: result.ok, text: `${row.reference}: ${result.message}` });
           router.refresh();
         })
       }
       className="rounded border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
     >
-      {pending ? 'Checking…' : note ? 'Checked ✓' : 'Check'}
+      {pending ? 'Checking…' : 'Check'}
     </button>
   );
 }
@@ -97,6 +99,7 @@ interface PaymentRow {
 type Pinned = { node: { rowPinned?: string | null } };
 
 export function PaymentsGrid({ payments }: { payments: Payment[] }) {
+  const [notice, setNotice] = useState<Notice>(null);
   const rows = useMemo<PaymentRow[]>(
     () =>
       payments.map((p) => ({
@@ -226,7 +229,7 @@ export function PaymentsGrid({ payments }: { payments: Payment[] }) {
           p.data &&
           !p.node.rowPinned &&
           (p.data.status === 'CREATED' || p.data.status === 'APPROVED') ? (
-            <RemindButton row={p.data} />
+            <RemindButton row={p.data} onNotice={setNotice} />
           ) : null,
       },
       {
@@ -240,7 +243,7 @@ export function PaymentsGrid({ payments }: { payments: Payment[] }) {
           !p.node.rowPinned &&
           p.data.status !== 'FAILED' &&
           p.data.status !== 'CANCELLED' ? (
-            <RefreshButton row={p.data} />
+            <RefreshButton row={p.data} onNotice={setNotice} />
           ) : null,
       },
     ],
@@ -248,36 +251,46 @@ export function PaymentsGrid({ payments }: { payments: Payment[] }) {
   );
 
   return (
-    <CommerceGrid<PaymentRow>
-      rows={rows}
-      columns={columns}
-      getRowId={(r) => r.id}
-      statusField="status"
-      statusOptions={[
-        { label: 'Completed', value: 'COMPLETED' },
-        { label: 'Awaiting buyer', value: 'CREATED' },
-        { label: 'Approved', value: 'APPROVED' },
-        { label: 'Failed', value: 'FAILED' },
-        { label: 'Refunded', value: 'REFUNDED' },
-        { label: 'Cancelled', value: 'CANCELLED' },
-      ]}
-      summarize={(visible) => {
-        // Money received: completed payments, net of refunds (not open, failed or cancelled links).
-        const received = visible.filter((r) => r.status === 'COMPLETED');
-        const currencies = [...new Set(received.map((r) => r.currency))];
-        const one = currencies.length === 1 ? currencies[0]! : '';
-        return {
-          reference: `${visible.length} payments`,
-          customer: received.length ? `${received.length} received (net)` : '',
-          amountMinor: one
-            ? received.reduce((sum, r) => sum + r.amountMinor - r.refundedMinor, 0)
-            : undefined,
-          currency: one,
-        } as Partial<PaymentRow>;
-      }}
-      exportName="katale-payments"
-      searchPlaceholder="Search payments…"
-      emptyMessage="No payment requests yet. They appear after the merchant types CONFIRM."
-    />
+    <>
+      {notice && (
+        <p
+          role="status"
+          className={`mb-3 rounded-md px-3 py-2 text-sm ${notice.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}
+        >
+          {notice.text}
+        </p>
+      )}
+      <CommerceGrid<PaymentRow>
+        rows={rows}
+        columns={columns}
+        getRowId={(r) => r.id}
+        statusField="status"
+        statusOptions={[
+          { label: 'Completed', value: 'COMPLETED' },
+          { label: 'Awaiting buyer', value: 'CREATED' },
+          { label: 'Approved', value: 'APPROVED' },
+          { label: 'Failed', value: 'FAILED' },
+          { label: 'Refunded', value: 'REFUNDED' },
+          { label: 'Cancelled', value: 'CANCELLED' },
+        ]}
+        summarize={(visible) => {
+          // Money received: completed payments, net of refunds (not open, failed or cancelled links).
+          const received = visible.filter((r) => r.status === 'COMPLETED');
+          const currencies = [...new Set(received.map((r) => r.currency))];
+          const one = currencies.length === 1 ? currencies[0]! : '';
+          return {
+            reference: `${visible.length} payments`,
+            customer: received.length ? `${received.length} received (net)` : '',
+            amountMinor: one
+              ? received.reduce((sum, r) => sum + r.amountMinor - r.refundedMinor, 0)
+              : undefined,
+            currency: one,
+          } as Partial<PaymentRow>;
+        }}
+        exportName="katale-payments"
+        searchPlaceholder="Search payments…"
+        emptyMessage="No payment requests yet. They appear after the merchant types CONFIRM."
+      />
+    </>
   );
 }

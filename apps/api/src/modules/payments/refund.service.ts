@@ -4,6 +4,7 @@ import type { Logger } from '@vca/shared';
 import type { PayPalApi } from '@vca/paypal';
 import { branded } from '../agent/copy';
 import type { NotificationService } from '../notifications/notification.service';
+import type { PaymentService } from './payment.service';
 
 export interface RefundSyncResult {
   /** Refunds recorded by this call (already-known refunds are not repeated). */
@@ -37,12 +38,21 @@ export class RefundService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
     private readonly logger: Logger,
+    private readonly payments?: Pick<PaymentService, 'captureApproved' | 'recordLateCapture'>,
   ) {}
 
   async sync(payment: Payment): Promise<RefundSyncResult> {
-    if (!payment.externalId)
-      return { added: [], refundedMinor: payment.refundedMinor, full: false };
-    const order = await this.paypal.getOrder(payment.externalId);
+    const externalId = payment.externalId;
+    if (!externalId) return { added: [], refundedMinor: payment.refundedMinor, full: false };
+    // A refund can be reported before Katale recorded the capture (lost webhook, buyer never
+    // returned): record the payment first so the refund applies to a completed payment.
+    if (this.payments && payment.status !== 'COMPLETED' && payment.status !== 'REFUNDED') {
+      if (payment.status === 'CANCELLED') await this.payments.recordLateCapture(payment);
+      else if (payment.status === 'CREATED' || payment.status === 'APPROVED')
+        await this.payments.captureApproved(externalId);
+      payment = await this.db.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    }
+    const order = await this.paypal.getOrder(externalId);
     const unit = order.purchase_units?.[0];
     const reported: ReportedRefund[] = (unit?.payments?.refunds ?? [])
       .filter((r) => r.amount && r.amount.currency_code === payment.currency)
@@ -75,6 +85,8 @@ export class RefundService {
     const result = await this.db.$transaction(async (tx) => {
       // Serialise refund bookkeeping per payment (webhook + reconciliation may race).
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`refunds:${paymentId}`}))`;
+      // Same lock order as payment completion and cancellation: the order row first.
+      await tx.$queryRaw`SELECT o.id FROM orders o JOIN payments p ON p."orderId" = o.id WHERE p.id = ${paymentId} FOR UPDATE OF o`;
       const payment = await tx.payment.findUniqueOrThrow({
         where: { id: paymentId },
         include: { order: true },
@@ -123,20 +135,37 @@ export class RefundService {
         },
       });
       // Order totals follow the sum over all its payments (normally one).
-      const orderRefunds = await tx.refund.aggregate({
-        where: { orderId: payment.orderId, status: 'COMPLETED' },
-        _sum: { amountMinor: true },
-      });
-      const orderRefunded = Math.min(orderRefunds._sum.amountMinor ?? 0, payment.order.totalMinor);
-      await tx.order.update({
-        where: { id: payment.orderId },
-        data: {
-          refundedMinor: orderRefunded,
-          ...(orderRefunded >= payment.order.totalMinor && payment.order.status === 'PAID'
-            ? { status: 'REFUNDED' }
-            : {}),
-        },
-      });
+      if (payment.duplicate) {
+        // Refunding an extra payment doesn't refund the order. Once every extra payment is fully
+        // refunded, the order no longer needs review for it.
+        const unrefunded = await tx.payment.count({
+          where: { orderId: payment.orderId, duplicate: true, status: 'COMPLETED' },
+        });
+        if (full && unrefunded === 0 && payment.order.attention === 'DUPLICATE_PAYMENT')
+          await tx.order.update({
+            where: { id: payment.orderId },
+            data: { attention: null, attentionAt: null },
+          });
+      } else {
+        // Order totals follow the refunds of the payments that paid it (not extra payments).
+        const orderRefunds = await tx.refund.aggregate({
+          where: { orderId: payment.orderId, status: 'COMPLETED', payment: { duplicate: false } },
+          _sum: { amountMinor: true },
+        });
+        const orderRefunded = Math.min(
+          orderRefunds._sum.amountMinor ?? 0,
+          payment.order.totalMinor,
+        );
+        await tx.order.update({
+          where: { id: payment.orderId },
+          data: {
+            refundedMinor: orderRefunded,
+            ...(orderRefunded >= payment.order.totalMinor && payment.order.status === 'PAID'
+              ? { status: 'REFUNDED' }
+              : {}),
+          },
+        });
+      }
       await this.audit.record(
         {
           merchantId: payment.merchantId,
@@ -178,6 +207,20 @@ export class RefundService {
       include: { customer: true },
     });
     const money = (m: number) => formatMoney(m, payment.currency);
+    if (payment.duplicate) {
+      await this.notifications.toAdmins(
+        payment.merchantId,
+        branded(
+          `↩️ The extra payment for order ${order.reference} (${order.customer.name}) was refunded: ${money(refundedMinor)} of ${money(payment.amountMinor)}. The order itself stays paid.`,
+        ),
+      );
+      if (order.placedBy === 'CUSTOMER' && order.conversationId)
+        await this.notifications.toConversation(
+          order.conversationId,
+          `↩️ Your extra payment of ${money(newlyRefundedMinor)} for order ${order.reference} was refunded to your PayPal account. Your order is still paid.`,
+        );
+      return;
+    }
     const fulfilment =
       order.fulfillmentStatus === 'SHIPPED'
         ? 'It was already shipped. Stock was not changed: if the items come back, tell me (e.g. "2 baskets returned").'

@@ -25,6 +25,9 @@ import type { OpsAlerts } from '../ops/ops-alerts';
 
 type OrderWithDetails = Awaited<ReturnType<OrderService['getByReference']>>;
 
+/** Capture states where the money was taken (later refunds don't undo that it was paid). */
+const CAPTURED = new Set(['COMPLETED', 'PARTIALLY_REFUNDED', 'REFUNDED']);
+
 /**
  * - completed: this call moved the payment to COMPLETED
  * - already_handled: it was already completed/closed (duplicate callback) — no side effects
@@ -172,7 +175,15 @@ export class PaymentService {
             providerStatus: paypalOrder.status,
           },
         });
-        if (!renewedFrom) await this.orders.transition(order.id, 'DRAFT', 'AWAITING_PAYMENT', tx);
+        // The order may have been cancelled (expiry, customer) since it was loaded: then the link
+        // must not be issued. Throwing rolls this back; the PayPal order is never shown and expires.
+        const stillOpen = renewedFrom
+          ? (await tx.order.count({ where: { id: order.id, status: 'AWAITING_PAYMENT' } })) === 1
+          : await this.orders.transition(order.id, 'DRAFT', 'AWAITING_PAYMENT', tx);
+        if (!stillOpen)
+          throw new ConflictError(
+            `Order ${order.reference} was cancelled or changed meanwhile, so no payment link was sent.`,
+          );
         // A new link (or a renewed one the merchant asked for) gets a full payment window.
         const dueAt = this.paymentDueAt();
         if (dueAt)
@@ -214,8 +225,8 @@ export class PaymentService {
         entityId: payment.id,
         data: { error: error instanceof Error ? error.message : String(error) },
       });
-      // Policy refusals are expected business outcomes; provider failures need a look.
-      if (!(error instanceof PolicyViolationError))
+      // Policy refusals and conflicts are expected business outcomes; provider failures need a look.
+      if (!(error instanceof PolicyViolationError) && !(error instanceof ConflictError))
         await this.options.alerts?.alert(
           'paypal-checkout-failed',
           'PayPal payment link failed',
@@ -273,7 +284,7 @@ export class PaymentService {
         'paypal capture result',
       );
 
-      if (capture?.status === 'COMPLETED') {
+      if (capture && CAPTURED.has(capture.status)) {
         const amount = capture.amount
           ? { value: capture.amount.value, currency: capture.amount.currency_code }
           : undefined;
@@ -324,6 +335,9 @@ export class PaymentService {
     // Set inside the transaction callback (a plain annotation would be narrowed to 'paid').
     let outcome = 'paid' as 'paid' | 'reinstated' | 'duplicate';
     const firstTime = await this.db.$transaction(async (tx) => {
+      // Lock the order row first, like cancellation does, so the two can't deadlock (a deadlock
+      // victim here would mean money captured but not recorded).
+      await tx.$queryRaw`SELECT o.id FROM orders o JOIN payments p ON p."orderId" = o.id WHERE p.id = ${paymentId} FOR UPDATE OF o`;
       const { count } = await tx.payment.updateMany({
         where: { id: paymentId, status: { in: ['CREATED', 'APPROVED', 'CANCELLED'] } },
         data: {
@@ -343,9 +357,16 @@ export class PaymentService {
         await this.orders.transition(order.id, 'AWAITING_PAYMENT', 'PAID', tx);
       } else if (order.status === 'CANCELLED') {
         await this.orders.transition(order.id, 'CANCELLED', 'PAID', tx);
+        // Its stock was released at cancellation and may have been sold since: flag it so it
+        // can't be shipped until an owner has checked stock (or refunded it).
         await tx.order.update({
           where: { id: order.id },
-          data: { cancelledAt: null, cancelReason: null },
+          data: {
+            cancelledAt: null,
+            cancelReason: null,
+            attention: 'PAID_AFTER_CANCEL',
+            attentionAt: new Date(),
+          },
         });
         outcome = 'reinstated';
         await this.audit.record(
@@ -361,6 +382,11 @@ export class PaymentService {
         );
       } else {
         outcome = 'duplicate';
+        await tx.order.update({
+          where: { id: order.id },
+          data: { attention: 'DUPLICATE_PAYMENT', attentionAt: new Date() },
+        });
+        await tx.payment.update({ where: { id: payment.id }, data: { duplicate: true } });
       }
       // A paid order reduces stock once (ledgered); alerts are sent after the commit.
       if (this.inventory && outcome !== 'duplicate')
@@ -410,6 +436,25 @@ export class PaymentService {
       if (stockAlerts.length) await this.notifyStockAlerts(paymentId, stockAlerts);
     }
     return firstTime;
+  }
+
+  /**
+   * A cancelled link is never captured by Katale, but a capture already in flight when it was
+   * cancelled can still complete at PayPal. Records such money (asking PayPal, never capturing).
+   * Returns true if a payment was recorded now.
+   */
+  async recordLateCapture(payment: Payment): Promise<boolean> {
+    if (payment.status !== 'CANCELLED' || !payment.externalId) return false;
+    const paypalOrder = await this.paypal.getOrder(payment.externalId);
+    const capture = paypalOrder.purchase_units?.[0]?.payments?.captures?.[0];
+    if (paypalOrder.status !== 'COMPLETED' || !capture || !CAPTURED.has(capture.status))
+      return false;
+    const amount = capture.amount
+      ? { value: capture.amount.value, currency: capture.amount.currency_code }
+      : undefined;
+    return this.inTransactionTrace(payment, () =>
+      this.markCompleted(payment.id, capture.id, amount),
+    );
   }
 
   private matches(payment: Pick<Payment, 'amountMinor' | 'currency'>, captured: CapturedAmount) {
@@ -526,8 +571,21 @@ export class PaymentService {
   private async notifyPaymentReceived(paymentId: string, reinstated = false): Promise<void> {
     const payment = await this.db.payment.findUniqueOrThrow({
       where: { id: paymentId },
-      include: { order: { include: { customer: true } } },
+      include: {
+        order: {
+          include: {
+            customer: true,
+            items: { include: { product: { select: { name: true, stockQuantity: true } } } },
+          },
+        },
+      },
     });
+    // After a reinstatement the sale may have taken stock below zero: name what is short.
+    const short = reinstated
+      ? payment.order.items
+          .filter((i) => i.product?.stockQuantity != null && i.product.stockQuantity < 0)
+          .map((i) => `${i.product!.name} (${i.product!.stockQuantity})`)
+      : [];
     // Built only from trusted payment state; sent once (markCompleted's conditional update).
     const text = branded(
       [
@@ -537,9 +595,15 @@ export class PaymentService {
         `Customer: ${payment.order.customer.name}`,
         `Amount: ${formatMoney(payment.amountMinor, payment.currency)}`,
         '',
-        reinstated
-          ? 'This order had been cancelled, but the payment went through, so it is marked as paid again. Please check stock before you fulfil it, or refund it in PayPal.'
-          : 'The order is now marked as paid.',
+        ...(reinstated
+          ? [
+              '⚠️ This order had been cancelled, but the payment went through, so it is marked as paid again.',
+              short.length
+                ? `Stock is now short: ${short.join(', ')}. Restock or refund it in PayPal.`
+                : 'Check you can still fulfil it, or refund it in PayPal.',
+              'Shipping is blocked until you mark it reviewed in the dashboard (Orders).',
+            ]
+          : ['The order is now marked as paid.']),
       ].join('\n'),
     );
     if (payment.order.placedBy === 'CUSTOMER') {
@@ -551,9 +615,12 @@ export class PaymentService {
             `✅ *Payment received — thank you!*`,
             '',
             `Order ${payment.order.reference} · ${formatMoney(payment.amountMinor, payment.currency)} is paid.`,
-            payment.order.deliveryMethod === 'PICKUP'
-              ? "We'll let you know when it's ready to pick up."
-              : "We're preparing it now. Reply *orders* any time to check its status.",
+            // A reinstated order isn't promised yet: the shop checks stock first.
+            reinstated
+              ? 'Your order had been cancelled just before the payment arrived, so the shop will check availability and confirm it with you shortly.'
+              : payment.order.deliveryMethod === 'PICKUP'
+                ? "We'll let you know when it's ready to pick up."
+                : "We're preparing it now. Reply *orders* any time to check its status.",
           ].join('\n'),
         );
       await this.notifications.toAdmins(payment.merchantId, text);

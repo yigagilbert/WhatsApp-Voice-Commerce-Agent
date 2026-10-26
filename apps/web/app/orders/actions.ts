@@ -32,3 +32,17 @@ export async function cancelOrder(reference: string): Promise<{ ok: boolean; mes
       };
   }
 }
+
+/** Owners: the order was checked (stock, or the extra payment refunded); allows shipping again. */
+export async function markOrderReviewed(
+  reference: string,
+): Promise<{ ok: boolean; message: string }> {
+  await requireUser();
+  const result = await apiPost<{ status: 'reviewed' | 'already_reviewed' }>(
+    `/api/orders/${encodeURIComponent(reference)}/review`,
+    {},
+  );
+  revalidatePath('/orders');
+  if (!result.ok) return { ok: false, message: result.error };
+  return { ok: true, message: `${reference} is marked as reviewed.` };
+}

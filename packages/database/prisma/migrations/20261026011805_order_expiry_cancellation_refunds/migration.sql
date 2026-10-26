@@ -1,8 +1,13 @@
 -- CreateEnum
 CREATE TYPE "OrderCancelReason" AS ENUM ('PAYMENT_EXPIRED', 'MERCHANT', 'CUSTOMER');
 
+-- CreateEnum
+CREATE TYPE "OrderAttention" AS ENUM ('PAID_AFTER_CANCEL', 'DUPLICATE_PAYMENT');
+
 -- AlterTable
-ALTER TABLE "orders" ADD COLUMN     "cancelReason" "OrderCancelReason",
+ALTER TABLE "orders" ADD COLUMN     "attention" "OrderAttention",
+ADD COLUMN     "attentionAt" TIMESTAMP(3),
+ADD COLUMN     "cancelReason" "OrderCancelReason",
 ADD COLUMN     "cancelledAt" TIMESTAMP(3),
 ADD COLUMN     "paymentDueAt" TIMESTAMP(3),
 ADD COLUMN     "refundedMinor" INTEGER NOT NULL DEFAULT 0;
@@ -11,7 +16,8 @@ ADD COLUMN     "refundedMinor" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE "webhook_events" ADD COLUMN     "claimedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- AlterTable
-ALTER TABLE "payments" ADD COLUMN     "refundedMinor" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "payments" ADD COLUMN     "duplicate" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "refundedMinor" INTEGER NOT NULL DEFAULT 0;
 
 -- CreateTable
 CREATE TABLE "refunds" (

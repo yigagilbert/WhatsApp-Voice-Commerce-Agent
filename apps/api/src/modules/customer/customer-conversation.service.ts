@@ -314,7 +314,13 @@ export class CustomerConversationService {
         customerId: actor.customer.id,
       });
     } catch (error) {
-      if (!isAppError(error) || !error.code.startsWith('PROVIDER')) throw error;
+      if (!isAppError(error)) throw error;
+      if (error.code === 'CONFLICT')
+        return this.reply(
+          conversation,
+          'Your payment for this order is being processed right now, so it was not cancelled. Reply *orders* in a few minutes to see its status.',
+        );
+      if (!error.code.startsWith('PROVIDER')) throw error;
       return this.reply(
         conversation,
         "I couldn't check that order's payment with PayPal just now. Please try again in a few minutes.",
@@ -344,7 +350,9 @@ export class CustomerConversationService {
           conversation,
           outcome.order.status === 'PAID' || outcome.order.status === 'REFUNDED'
             ? `Order ${ref} has already been paid, so it can't be cancelled here. Reply *4* to talk to the shop.`
-            : `${outcome.reason} Reply *cart* to change it.`,
+            : outcome.order.placedBy === 'CUSTOMER'
+              ? `${outcome.reason} Reply *cart* to change it.`
+              : `${outcome.reason} Reply *4* to talk to the shop.`,
         );
     }
   }

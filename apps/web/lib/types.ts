@@ -53,6 +53,8 @@ export interface Order {
   cancelReason?: 'PAYMENT_EXPIRED' | 'MERCHANT' | 'CUSTOMER' | null;
   /** Completed refunds (minor units); equals totalMinor when fully refunded. */
   refundedMinor?: number;
+  /** Needs an owner's review before fulfilment (paid after cancellation / paid twice). */
+  attention?: 'PAID_AFTER_CANCEL' | 'DUPLICATE_PAYMENT' | null;
   createdAt: string;
   customer: { name: string; phone?: string | null };
   items?: {

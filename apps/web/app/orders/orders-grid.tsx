@@ -8,7 +8,7 @@ import { CommerceGrid, formatDate, formatMinor } from '@/components/grid/commerc
 import { InputModePill, StatusPill } from '@/components/ui-client';
 import type { Order } from '@/lib/types';
 import { toMajorNumber } from '@vca/commerce/money';
-import { cancelOrder } from './actions';
+import { cancelOrder, markOrderReviewed } from './actions';
 
 const CANCEL_REASONS: Record<NonNullable<Order['cancelReason']>, string> = {
   PAYMENT_EXPIRED: 'not paid in time',
@@ -54,13 +54,15 @@ export function OrdersGrid({ orders }: { orders: Order[] }) {
         currency: o.currency,
         status: o.status,
         paymentStatus: o.payments?.[0]?.status ?? '',
-        fulfillment: (o.disputes ?? []).some((d) => d.status !== 'RESOLVED')
-          ? 'Disputed'
-          : o.fulfillmentStatus === 'SHIPPED'
-            ? 'Shipped'
-            : o.status === 'PAID'
-              ? 'To ship'
-              : '',
+        fulfillment: o.attention
+          ? 'Needs review'
+          : (o.disputes ?? []).some((d) => d.status !== 'RESOLVED')
+            ? 'Disputed'
+            : o.fulfillmentStatus === 'SHIPPED'
+              ? 'Shipped'
+              : o.status === 'PAID'
+                ? 'To ship'
+                : '',
         createdAt: new Date(o.createdAt),
         order: o,
       })),
@@ -124,7 +126,7 @@ export function OrdersGrid({ orders }: { orders: Order[] }) {
               className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium leading-5 ring-1 ring-inset ${
                 p.value === 'Shipped'
                   ? 'bg-teal-50 text-teal-700 ring-teal-600/20'
-                  : p.value === 'Disputed'
+                  : p.value === 'Disputed' || p.value === 'Needs review'
                     ? 'bg-rose-50 text-rose-700 ring-rose-600/20'
                     : 'bg-amber-50 text-amber-800 ring-amber-600/20'
               }`}
@@ -227,6 +229,39 @@ function CancelOrderButton({
   );
 }
 
+const ATTENTION: Record<NonNullable<Order['attention']>, string> = {
+  PAID_AFTER_CANCEL:
+    'Paid after it had been cancelled. Its stock may have been sold to someone else meanwhile: check stock (or refund it in PayPal). Shipping is blocked until an owner marks it reviewed.',
+  DUPLICATE_PAYMENT:
+    'A second payment arrived for this order through an older payment link. Refund the extra payment in PayPal, then mark it reviewed.',
+};
+
+function ReviewPanel({ order, onResult }: { order: Order; onResult: (outcome: Outcome) => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  if (!order.attention) return null;
+  return (
+    <div role="alert" className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
+      <p className="text-sm font-medium text-amber-900">Needs review</p>
+      <p className="mt-1 text-sm text-amber-900">{ATTENTION[order.attention]}</p>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            const result = await markOrderReviewed(order.reference);
+            onResult({ ok: result.ok, text: result.message });
+            router.refresh();
+          })
+        }
+        className="mt-2 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+      >
+        {pending ? 'Saving…' : 'Mark reviewed'}
+      </button>
+    </div>
+  );
+}
+
 function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) {
   const m = (minor: number) => formatMinor(minor, order.currency);
   const payment = order.payments?.[0];
@@ -270,6 +305,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
           </span>
         </div>
 
+        <ReviewPanel order={order} onResult={setOutcome} />
         {order.status === 'CANCELLED' && (
           <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
             Cancelled

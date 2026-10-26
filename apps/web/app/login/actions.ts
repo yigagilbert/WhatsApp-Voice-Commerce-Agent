@@ -60,11 +60,11 @@ export async function login(_state: LoginState, formData: FormData): Promise<Log
   if (recent.length >= MAX_FAILURES) {
     return { error: 'Too many failed attempts. Please wait 15 minutes and try again.' };
   }
-  const fail = (error: string): LoginState => {
-    failures.set(client, [...recent, now]);
-    if (failures.size > 10_000) failures.delete(failures.keys().next().value!);
-    return { error };
-  };
+  // Count the attempt before awaiting the API, so parallel guesses can't all pass the check;
+  // a successful sign-in clears it again.
+  failures.set(client, [...recent, now]);
+  if (failures.size > 10_000) failures.delete(failures.keys().next().value!);
+  const fail = (error: string): LoginState => ({ error });
 
   const username = String(formData.get('username') ?? '').slice(0, 200);
   const password = String(formData.get('password') ?? '').slice(0, 200);
@@ -73,6 +73,7 @@ export async function login(_state: LoginState, formData: FormData): Promise<Log
   try {
     result = await apiLogin(username, password);
   } catch {
+    failures.set(client, recent); // not the person's fault: don't count it
     return { error: 'The Katale service is not responding right now. Please try again shortly.' };
   }
   if (result.status === 200 && result.body.user) {

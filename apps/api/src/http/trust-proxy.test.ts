@@ -20,11 +20,13 @@ async function clientIp(trustProxy: boolean | string, forwardedFor: string) {
 }
 
 describe('TRUST_PROXY', () => {
-  it('parses booleans and proxy address lists, and rejects hop counts', () => {
+  it('parses booleans (incl. legacy 1/0) and proxy address lists, and rejects hop counts', () => {
     expect(parseTrustProxy('false')).toBe(false);
     expect(parseTrustProxy('true')).toBe(true);
+    expect(parseTrustProxy('1')).toBe(true);
+    expect(parseTrustProxy('0')).toBe(false);
     expect(parseTrustProxy('loopback,uniquelocal')).toBe('loopback,uniquelocal');
-    expect(() => parseTrustProxy('1')).toThrow();
+    expect(() => parseTrustProxy('2')).toThrow();
   });
 
   it('production setting: a spoofed X-Forwarded-For prefix cannot change the client IP', async () => {

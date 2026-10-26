@@ -29,6 +29,24 @@ export interface ReconciliationResult {
 const PAYABLE = new Set(['CREATED', 'SAVED', 'PAYER_ACTION_REQUIRED']);
 
 /**
+ * Cancelled links are re-checked this long after cancellation: a capture racing the cancellation
+ * whose webhook was lost would otherwise never be recorded. (They are never captured by us.)
+ */
+const CANCELLED_WATCH_MS = 3 * 24 * 60 * MINUTE;
+
+/** Open links, plus links cancelled recently enough that money might still have arrived. */
+const watched = (now: Date) => ({
+  externalId: { not: null },
+  OR: [
+    { status: { in: ['CREATED' as const, 'APPROVED' as const] } },
+    {
+      status: 'CANCELLED' as const,
+      updatedAt: { gt: new Date(now.getTime() - CANCELLED_WATCH_MS) },
+    },
+  ],
+});
+
+/**
  * Makes sure sales recorded in Katale match PayPal. Open payment links are re-checked with
  * PayPal (GET order): money that arrived without a webhook is captured/recorded through the
  * normal idempotent path, and expired links are flagged. Orders and payments are also checked
@@ -49,12 +67,15 @@ export class PaymentReconciler {
     const due = await this.db.payment.findMany({
       where: {
         ...(options.merchantId ? { merchantId: options.merchantId } : {}),
-        status: { in: ['CREATED', 'APPROVED'] },
-        externalId: { not: null },
         createdAt: { lt: new Date(now.getTime() - MIN_AGE_MS) },
-        OR: [
-          { providerCheckedAt: null },
-          { providerCheckedAt: { lt: new Date(now.getTime() - RECHECK_MS) } },
+        AND: [
+          watched(now),
+          {
+            OR: [
+              { providerCheckedAt: null },
+              { providerCheckedAt: { lt: new Date(now.getTime() - RECHECK_MS) } },
+            ],
+          },
         ],
       },
       include: { order: { select: { reference: true, status: true } } },
@@ -77,8 +98,7 @@ export class PaymentReconciler {
       const open = await this.db.payment.findMany({
         where: {
           merchantId,
-          status: { in: ['CREATED', 'APPROVED'] },
-          externalId: { not: null },
+          ...watched(now),
           createdAt: { lt: new Date(now.getTime() - MIN_AGE_MS) },
         },
         include: { order: { select: { reference: true, status: true } } },
@@ -110,6 +130,15 @@ export class PaymentReconciler {
         where: { id: payment.id },
         data: { providerCheckedAt: now, providerStatus: status },
       });
+      if (payment.status === 'CANCELLED') {
+        // Never capture a cancelled link; only record money PayPal already captured.
+        if (status === 'COMPLETED' && (await this.payments.recordLateCapture(payment)))
+          result.recovered.push({
+            reference: payment.order.reference,
+            amount: formatMoney(payment.amountMinor, payment.currency),
+          });
+        return;
+      }
       if (status === 'APPROVED' || status === 'COMPLETED') {
         const outcome = await this.payments.captureApproved(payment.externalId!);
         if (outcome === 'completed')

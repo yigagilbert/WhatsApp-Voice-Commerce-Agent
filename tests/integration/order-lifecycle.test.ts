@@ -396,6 +396,28 @@ describe('order lifecycle, refunds and figures (integration)', () => {
       expect(await say(jane, `cancel ${reference}`)).toContain('already cancelled');
     });
 
+    it("can't cancel an order the shop arranged for them", async () => {
+      const janeId = (
+        await db().customer.findFirstOrThrow({ where: { merchantId: shop, whatsappId: jane } })
+      ).id;
+      const merchantOrder = await db().order.create({
+        data: {
+          reference: generateOrderReference(),
+          merchantId: shop,
+          customerId: janeId,
+          status: 'AWAITING_PAYMENT',
+          placedBy: 'MERCHANT',
+          currency: 'USD',
+          subtotalMinor: 1200,
+          totalMinor: 1200,
+          source: 'whatsapp',
+        },
+      });
+      const reply = await say(jane, `cancel ${merchantOrder.reference}`);
+      expect(reply).toContain('ask them to cancel it');
+      expect((await orderOf(merchantOrder.id)).status).toBe('AWAITING_PAYMENT');
+    });
+
     it("can't cancel someone else's order", async () => {
       await say(bob, 'hi');
       const reply = await say(bob, `cancel ${reference}`);
@@ -454,12 +476,168 @@ describe('order lifecycle, refunds and figures (integration)', () => {
         supplementary_data: { related_ids: { order_id: payment.externalId } },
       });
       expect(res.json()).toMatchObject({ outcome: 'processed' });
-      expect(await orderOf(order.id)).toMatchObject({ status: 'PAID', cancelReason: null });
+      expect(await orderOf(order.id)).toMatchObject({
+        status: 'PAID',
+        cancelReason: null,
+        attention: 'PAID_AFTER_CANCEL',
+      });
       expect((await db().payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe(
         'COMPLETED',
       );
       expect(await basketStock()).toBe(stock! - 2);
       expect(sender.to(admin).some((t) => t.includes('had been cancelled'))).toBe(true);
+
+      // It can't be shipped until an owner has reviewed it.
+      const merchant = await db().merchant.findUniqueOrThrow({ where: { id: shop } });
+      await expect(
+        container.shipments.prepare(merchant, {
+          orderReference: order.reference,
+          carrier: 'DHL',
+          trackingNumber: 'TRACK12345',
+        }),
+      ).rejects.toThrow(/paid after it had been cancelled/);
+      const review = await app.inject({
+        method: 'POST',
+        url: `/api/orders/${order.reference}/review`,
+        headers: dashboard,
+        payload: {},
+      });
+      expect(review.json()).toMatchObject({ status: 'reviewed' });
+      expect((await orderOf(order.id)).attention).toBeNull();
+      await expect(
+        container.shipments.prepare(merchant, {
+          orderReference: order.reference,
+          carrier: 'DHL',
+          trackingNumber: 'TRACK12345',
+        }),
+      ).resolves.toBeTruthy();
+    });
+
+    it('names the products that went short when a reinstated sale oversells', async () => {
+      const { order, payment } = await awaitingOrder(2);
+      await container.orderLifecycle.cancel({
+        merchantId: shop,
+        reference: order.reference,
+        by: 'MERCHANT',
+      });
+      // The released stock was sold to someone else meanwhile.
+      await db().product.update({ where: { id: basketId }, data: { stockQuantity: 1 } });
+      await container.payments.markCompleted(payment.id, `CAP-${payment.externalId}`);
+      expect(await basketStock()).toBe(-1);
+      expect(
+        sender
+          .to(admin)
+          .some(
+            (t) =>
+              t.includes(order.reference) && t.includes('Stock is now short: Handmade Basket (-1)'),
+          ),
+      ).toBe(true);
+      await db().product.update({ where: { id: basketId }, data: { stockQuantity: 100 } });
+    });
+
+    it('never issues a payment link for an order cancelled after it was loaded', async () => {
+      const draft = await db().order.create({
+        data: {
+          reference: generateOrderReference(),
+          merchantId: shop,
+          customerId,
+          status: 'DRAFT',
+          currency: 'USD',
+          subtotalMinor: 1200,
+          totalMinor: 1200,
+          source: 'whatsapp',
+          items: {
+            create: [
+              {
+                productId: basketId,
+                description: 'Handmade Basket',
+                quantity: 1,
+                unitPriceMinor: 1200,
+                lineTotalMinor: 1200,
+              },
+            ],
+          },
+        },
+      });
+      const stale = await container.orders.getByReference(shop, draft.reference);
+      await db().order.update({ where: { id: draft.id }, data: { status: 'CANCELLED' } });
+      await expect(container.payments.createCheckout(stale, `lc-stale-${run}`)).rejects.toThrow(
+        /cancelled or changed meanwhile/,
+      );
+      expect((await orderOf(draft.id)).status).toBe('CANCELLED');
+      const payments = await db().payment.findMany({ where: { orderId: draft.id } });
+      expect(payments.every((p) => p.status === 'FAILED')).toBe(true);
+    });
+
+    it('records money captured on a cancelled link when the buyer returns, instead of saying nothing was taken', async () => {
+      const { order, payment } = await awaitingOrder(1);
+      await container.orderLifecycle.cancel({
+        merchantId: shop,
+        reference: order.reference,
+        by: 'MERCHANT',
+      });
+      paypal.capturedElsewhere.add(payment.externalId!);
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/paypal/return?token=${payment.externalId}`,
+      });
+      expect(res.body).toContain('Payment received');
+      expect(await orderOf(order.id)).toMatchObject({
+        status: 'PAID',
+        attention: 'PAID_AFTER_CANCEL',
+      });
+    });
+
+    it('background reconciliation recovers a capture on a recently cancelled link (lost webhook)', async () => {
+      const { order, payment } = await awaitingOrder(1);
+      await container.orderLifecycle.cancel({
+        merchantId: shop,
+        reference: order.reference,
+        by: 'MERCHANT',
+      });
+      paypal.capturedElsewhere.add(payment.externalId!);
+      await db().payment.update({
+        where: { id: payment.id },
+        data: { createdAt: new Date(Date.now() - 60 * 60_000) },
+      });
+      const result = await container.reconciler.reconcile(shop);
+      expect(result.recovered.map((r) => r.reference)).toContain(order.reference);
+      expect((await orderOf(order.id)).status).toBe('PAID');
+      // A cancelled link that was never paid is left alone (never captured by us).
+      const { order: other, payment: unpaid } = await awaitingOrder(1);
+      await container.orderLifecycle.cancel({
+        merchantId: shop,
+        reference: other.reference,
+        by: 'MERCHANT',
+      });
+      await db().payment.update({
+        where: { id: unpaid.id },
+        data: { createdAt: new Date(Date.now() - 60 * 60_000) },
+      });
+      paypal.orderStatus.set(unpaid.externalId!, 'APPROVED');
+      await container.reconciler.reconcile(shop);
+      expect(paypal.captures).not.toContain(unpaid.externalId);
+      expect((await orderOf(other.id)).status).toBe('CANCELLED');
+    });
+
+    it('cancellation racing a payment always ends paid and recorded (no deadlock, no lost capture)', async () => {
+      for (let i = 0; i < 6; i++) {
+        const { order, payment } = await awaitingOrder(1);
+        const results = await Promise.allSettled([
+          container.orderLifecycle.cancel({
+            merchantId: shop,
+            reference: order.reference,
+            by: 'MERCHANT',
+          }),
+          container.payments.markCompleted(payment.id, `CAP-race-${i}-${run}`),
+        ]);
+        const rejected = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+        expect(rejected.map((r) => String(r.reason))).toEqual([]);
+        expect((await db().payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe(
+          'COMPLETED',
+        );
+        expect((await orderOf(order.id)).status).toBe('PAID');
+      }
     });
 
     it('records a second payment through a superseded link and asks for a refund', async () => {
@@ -480,10 +658,36 @@ describe('order lifecycle, refunds and figures (integration)', () => {
         },
       });
       expect(await container.payments.markCompleted(old.id, 'CAP-OLD')).toBe(true);
-      expect((await orderOf(order.id)).status).toBe('PAID');
+      expect(await orderOf(order.id)).toMatchObject({
+        status: 'PAID',
+        attention: 'DUPLICATE_PAYMENT',
+      });
       expect(await basketStock()).toBe(stock);
       expect(sender.to(admin).some((t) => t.includes('Second payment received'))).toBe(true);
       expect(await container.payments.markCompleted(old.id, 'CAP-OLD')).toBe(false);
+
+      // The merchant refunds the extra payment in full: the order stays paid (not refunded).
+      paypal.capturedElsewhere.add(old.externalId!);
+      paypal.refunds.set(old.externalId!, [
+        {
+          id: `RF-DUP-${run}`,
+          status: 'COMPLETED',
+          amount: { currency_code: 'USD', value: '12.00' },
+        },
+      ]);
+      await container.refunds.sync(await db().payment.findUniqueOrThrow({ where: { id: old.id } }));
+      expect(await db().payment.findUniqueOrThrow({ where: { id: old.id } })).toMatchObject({
+        status: 'REFUNDED',
+        duplicate: true,
+      });
+      expect(await orderOf(order.id)).toMatchObject({
+        status: 'PAID',
+        refundedMinor: 0,
+        attention: null,
+      });
+      expect(
+        sender.to(admin).some((t) => t.includes('extra payment') && t.includes(order.reference)),
+      ).toBe(true);
     });
 
     it('flags a captured amount that differs from the order', async () => {
@@ -578,6 +782,24 @@ describe('order lifecycle, refunds and figures (integration)', () => {
       expect(
         sender.to(admin).some((t) => t.includes('Order refunded') && t.includes('Do not ship')),
       ).toBe(true);
+    });
+
+    it('records the capture first when a refund is reported for a payment Katale never saw complete', async () => {
+      const { order, payment } = await awaitingOrder(1);
+      paypal.capturedElsewhere.add(payment.externalId!);
+      paypal.refunds.set(payment.externalId!, [
+        {
+          id: `RF-EARLY-${run}`,
+          status: 'COMPLETED',
+          amount: { currency_code: 'USD', value: '4.00' },
+        },
+      ]);
+      await container.refunds.sync(payment);
+      expect(await db().payment.findUniqueOrThrow({ where: { id: payment.id } })).toMatchObject({
+        status: 'COMPLETED',
+        refundedMinor: 400,
+      });
+      expect(await orderOf(order.id)).toMatchObject({ status: 'PAID', refundedMinor: 400 });
     });
 
     it('ignores pending refunds until they complete', async () => {

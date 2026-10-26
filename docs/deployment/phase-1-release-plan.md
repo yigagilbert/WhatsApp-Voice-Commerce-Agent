@@ -106,15 +106,15 @@ reconciliation sweep (every open link is re-checked; captures on recently cancel
 
 ## 6. Infrastructure — separate approvals (runbooks ready)
 
-| Item                                      | Today                                                         | Runbook                                                                                                                |
-| ----------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Encrypted off-site backups + cron         | **Not operational** (manual, on-VM only)                      | [backups-and-monitoring.md](backups-and-monitoring.md) — script tested locally (age, rclone, retention, failure paths) |
-| Weekly restore check                      | Not operational                                               | same; `restore-verify.sh --fresh`                                                                                      |
-| Uptime / heartbeat / alerts               | Not operational (code ready after this release)               | same; ntfy + healthchecks.io, optional Uptime Kuma                                                                     |
-| NPM admin port 81                         | **Open to the internet** (verified 2026-10-26)                | [server-hardening.md](server-hardening.md) §3 (bind to 127.0.0.1 + SSH tunnel; brief NPM restart affects all sites)    |
-| SSH password authentication               | **Still offered** (`publickey,password`, verified 2026-10-26) | server-hardening.md §2 (keys first, test in a new session, then disable)                                               |
-| Firewall / fail2ban / unattended-upgrades | Unknown (not inspected)                                       | server-hardening.md §4–6                                                                                               |
-| App ports 3000/4000/4100/5432             | Closed to the internet (verified)                             | —                                                                                                                      |
+| Item                                      | Today                                           | Runbook                                                                                                                |
+| ----------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Encrypted off-site backups + cron         | **Not operational** (manual, on-VM only)        | [backups-and-monitoring.md](backups-and-monitoring.md) — script tested locally (age, rclone, retention, failure paths) |
+| Weekly restore check                      | Not operational                                 | same; `restore-verify.sh --fresh`                                                                                      |
+| Uptime / heartbeat / alerts               | Not operational (code ready after this release) | same; ntfy + healthchecks.io, optional Uptime Kuma                                                                     |
+| NPM admin port 81                         | Needs restricting (see private operator notes)  | [server-hardening.md](server-hardening.md) §3 (bind to 127.0.0.1 + SSH tunnel; brief NPM restart affects all sites)    |
+| SSH password authentication               | To be disabled (see private operator notes)     | server-hardening.md §2 (keys first, test in a new session, then disable)                                               |
+| Firewall / fail2ban / unattended-upgrades | Unknown (not inspected)                         | server-hardening.md §4–6                                                                                               |
+| App ports 3000/4000/4100/5432             | Not published (compose has no host ports)       | —                                                                                                                      |
 
 Recommended order after the release: alerts + heartbeat (minutes, no risk) → off-site backups →
 SSH keys-only → port 81 → firewall/fail2ban.

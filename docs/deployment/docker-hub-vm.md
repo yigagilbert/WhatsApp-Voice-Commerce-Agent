@@ -2,6 +2,9 @@
 
 Katale AI is deployed as **prebuilt production images**. Nothing is built on the server.
 
+See also: [Backups, restore drills and monitoring](backups-and-monitoring.md) ·
+[Server hardening runbook](server-hardening.md).
+
 ```text
 build locally (pnpm verify gate) → push immutable tags to Docker Hub
   → VM: docker compose pull → migrate → up -d
@@ -266,6 +269,7 @@ that `vm-deploy.sh` wrote.
 **Backups:** `backup.sh` keeps the newest 14 dumps (`KEEP=n`). Recommended: a daily cron
 (`0 2 * * * cd /opt/apps/katale-ai && ./deployment/backup.sh daily`) and copying dumps off the VM
 periodically. Restore is tested by `restore.sh`, which takes a safety backup first.
+Scheduled, encrypted off-site backups and restore checks: [backups-and-monitoring.md](backups-and-monitoring.md).
 
 ## Local rehearsal
 
@@ -282,6 +286,9 @@ any nginx container on the test network with `npm-advanced.conf` to mimic NPM.
 ## Known infrastructure gaps (deferred)
 
 Recorded deliberately and **not** addressed yet:
+
+Runbooks to close them (pending approval): [server-hardening.md](server-hardening.md),
+[backups-and-monitoring.md](backups-and-monitoring.md).
 
 - The VM `deploy` user still accepts password SSH; rotate the password, move to key-only SSH.
 - Nginx Proxy Manager's admin UI (port **81**) is reachable from the internet; restrict it (firewall or VPN).

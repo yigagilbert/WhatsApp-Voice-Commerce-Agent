@@ -1,6 +1,7 @@
 import type { Database } from '@vca/database';
 import { HEADERS, type Logger } from '@vca/shared';
 import type { NotificationService } from '../notifications/notification.service';
+import type { OpsAlerts } from '../ops/ops-alerts';
 
 /** Outages shorter than this (e.g. a deploy restart) are not reported. */
 const ALERT_AFTER_MS = 5 * 60_000;
@@ -31,6 +32,8 @@ export class WhatsAppConnectionMonitor {
     private readonly internalToken: string,
     private readonly logger: Logger,
     private readonly fetchImpl: typeof fetch = fetch,
+    /** Operator alert while WhatsApp is down (admins can't be told over WhatsApp then). */
+    private readonly alerts?: Pick<OpsAlerts, 'alert' | 'resolve'>,
   ) {}
 
   get current(): ConnectionHealth {
@@ -70,6 +73,12 @@ export class WhatsAppConnectionMonitor {
     if (state === 'ready') {
       const downSince = previous.downSince ? new Date(previous.downSince) : null;
       this.health = { state, downSince: null, checkedAt: now.toISOString() };
+      if (downSince)
+        await this.alerts?.resolve(
+          'whatsapp-down',
+          'WhatsApp is connected again',
+          `The bot was offline since ${downSince.toISOString()}. Admins are told on WhatsApp.`,
+        );
       if (downSince && now.getTime() - downSince.getTime() >= ALERT_AFTER_MS)
         await this.reportOutage(downSince, now).catch((error: unknown) =>
           this.logger.error({ err: error }, 'outage notice failed'),
@@ -83,6 +92,14 @@ export class WhatsAppConnectionMonitor {
       checkedAt: now.toISOString(),
     };
     if (!previous.downSince) this.logger.warn({ state }, 'WhatsApp bot is not connected');
+    const since = new Date(this.health.downSince!);
+    if (now.getTime() - since.getTime() >= ALERT_AFTER_MS)
+      await this.alerts?.alert(
+        'whatsapp-down',
+        'WhatsApp bot is offline',
+        `State: ${state}, since ${since.toISOString()}. Customers and admins get no replies. Open the dashboard → WhatsApp to reconnect or scan a new QR code.`,
+        now.getTime(),
+      );
   }
 
   private async reportOutage(from: Date, to: Date) {

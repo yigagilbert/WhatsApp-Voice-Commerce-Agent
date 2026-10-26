@@ -34,6 +34,7 @@ import { NotificationService } from './modules/notifications/notification.servic
 import { PaymentService } from './modules/payments/payment.service';
 import { RefundService } from './modules/payments/refund.service';
 import { OrderLifecycleService } from './modules/orders/order-lifecycle.service';
+import { OpsAlerts } from './modules/ops/ops-alerts';
 import { PaymentReminderService } from './modules/payments/reminder.service';
 import { PaymentReconciler } from './modules/payments/reconciliation.service';
 import { WhatsAppConnectionMonitor } from './modules/whatsapp/connection-monitor';
@@ -54,6 +55,7 @@ export interface ContainerOverrides {
   chatModel?: ChatModel | null;
   speech?: SpeechPipeline | null;
   channels?: ChannelRegistry;
+  alerts?: OpsAlerts;
 }
 
 function createChatModel(config: ApiConfig): ChatModel | null {
@@ -135,6 +137,14 @@ export function createContainer(
   const speech =
     overrides.speech !== undefined ? overrides.speech : createSpeechPipeline(config, logger);
 
+  const alerts =
+    overrides.alerts ??
+    new OpsAlerts({
+      webhookUrl: config.ALERT_WEBHOOK_URL,
+      heartbeatUrl: config.HEARTBEAT_URL,
+      logger: logger.child({ component: 'ops-alerts' }),
+    });
+
   const channels = overrides.channels ?? new ChannelRegistry();
   if (!overrides.channels && config.WHATSAPP_GATEWAY_URL) {
     channels.register(
@@ -174,6 +184,7 @@ export function createContainer(
       brandName: config.PAYPAL_BRAND_NAME,
       policy,
       unpaidOrderExpiryHours: config.UNPAID_ORDER_EXPIRY_HOURS,
+      alerts,
     },
     inventory,
   );
@@ -216,6 +227,7 @@ export function createContainer(
       webhookId: config.PAYPAL_WEBHOOK_ID,
       skipVerification:
         config.PAYPAL_WEBHOOK_SKIP_VERIFICATION && config.NODE_ENV === 'development',
+      alerts,
     },
     refunds,
   );
@@ -305,6 +317,7 @@ export function createContainer(
         },
       },
     ],
+    alerts,
   );
   const whatsappMonitor = new WhatsAppConnectionMonitor(
     db,
@@ -312,6 +325,8 @@ export function createContainer(
     config.WHATSAPP_GATEWAY_URL,
     config.INTERNAL_SERVICE_TOKEN,
     logger.child({ component: 'whatsapp-monitor' }),
+    fetch,
+    alerts,
   );
   const inbound = new InboundMessageService({
     db,
@@ -372,6 +387,7 @@ export function createContainer(
     inbound,
     reportScheduler,
     whatsappMonitor,
+    alerts,
     close: async () => {
       reportScheduler.stop();
       whatsappMonitor.stop();

@@ -180,6 +180,13 @@ export const apiSchema = baseSchema
         v === 'true' ? true : v === 'false' || v === '0' ? false : Number(v),
       ),
     WHATSAPP_GATEWAY_URL: optionalString.pipe(z.string().url().optional()),
+    /**
+     * Operator alerts (failed webhooks, payment links, reports, background jobs; WhatsApp offline
+     * 5+ min) as a plain-text POST — e.g. an ntfy.sh topic URL. Not WhatsApp: it may be what's down.
+     */
+    ALERT_WEBHOOK_URL: optionalString.pipe(z.string().url().optional()),
+    /** Dead-man's switch (e.g. healthchecks.io): pinged at most every 5 min after healthy scheduler passes. */
+    HEARTBEAT_URL: optionalString.pipe(z.string().url().optional()),
   });
 
 export const whatsappSchema = baseSchema.extend({

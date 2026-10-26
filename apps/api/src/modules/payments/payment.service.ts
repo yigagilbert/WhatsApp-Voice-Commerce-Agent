@@ -21,6 +21,7 @@ import {
 import { payPalErrorIssues, type PayPalApi, type PayPalOrder } from '@vca/paypal';
 import { branded } from '../agent/copy';
 import type { NotificationService } from '../notifications/notification.service';
+import type { OpsAlerts } from '../ops/ops-alerts';
 
 type OrderWithDetails = Awaited<ReturnType<OrderService['getByReference']>>;
 
@@ -40,6 +41,8 @@ export interface PaymentServiceOptions {
   policy: PaymentPolicyConfig;
   /** Hours an order may wait for payment before it is cancelled (0 = never). */
   unpaidOrderExpiryHours?: number;
+  /** Operator alert when PayPal refuses or fails to create a payment link. */
+  alerts?: Pick<OpsAlerts, 'alert'>;
 }
 
 /** Captured money as PayPal reports it (major-unit string), to check against what we asked for. */
@@ -211,6 +214,13 @@ export class PaymentService {
         entityId: payment.id,
         data: { error: error instanceof Error ? error.message : String(error) },
       });
+      // Policy refusals are expected business outcomes; provider failures need a look.
+      if (!(error instanceof PolicyViolationError))
+        await this.options.alerts?.alert(
+          'paypal-checkout-failed',
+          'PayPal payment link failed',
+          `A payment link for order ${order.reference} could not be created: ${(error instanceof Error ? error.message : String(error)).slice(0, 300)}\nThe customer/merchant can retry; check PayPal status and credentials if this repeats.`,
+        );
       throw error;
     }
   }

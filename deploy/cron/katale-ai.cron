@@ -1,0 +1,26 @@
+# Katale AI — scheduled backups and restore checks (example; /etc/cron.d format).
+#
+# Install (as root; cron.d ignores file names containing a dot, so drop the .cron suffix):
+#   sudo install -o root -g root -m 644 deployment/cron/katale-ai.cron /etc/cron.d/katale-ai
+#   sudo install -o <DEPLOY_USER> -g <DEPLOY_USER> -m 640 /dev/null /var/log/katale-backup.log
+# Replace <DEPLOY_USER> below (a user in the docker group that owns /opt/apps/katale-ai) and, if you
+# use heartbeats, the <HEALTHCHECKS_PING_URL_*> placeholders (one healthchecks.io check per job).
+# Without heartbeats, replace each `if …; then curl …; else curl …; fi` with just the script call.
+# Uninstall: sudo rm /etc/cron.d/katale-ai
+#
+# Times are VM local time (check with `timedatectl`). Off-site upload, encryption and retention are
+# configured in /opt/apps/katale-ai/.env (BACKUP_* keys) — see docs/deployment/backups-and-monitoring.md.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+# Nightly 02:30: pg_dump → age-encrypt → upload (BACKUP_RCLONE_REMOTE) → prune. Ping on success,
+# signal failure explicitly so the check alerts immediately instead of waiting for the grace period.
+30 2 * * * <DEPLOY_USER> cd /opt/apps/katale-ai && { echo "[$(date -Is)] backup"; if ./deployment/backup.sh nightly; then curl -fsS -m 10 --retry 3 -o /dev/null <HEALTHCHECKS_PING_URL_BACKUP>; else curl -fsS -m 10 --retry 3 -o /dev/null <HEALTHCHECKS_PING_URL_BACKUP>/fail; fi; } >> /var/log/katale-backup.log 2>&1
+
+# Weekly, Sunday 04:15: restore check in a throwaway container (never the production DB).
+# --fresh streams a new pg_dump because the age private key is deliberately NOT on the VM; the
+# off-site encrypted copies are checked by the monthly drill (restore-verify.sh --offsite on a
+# trusted machine). If backups are NOT encrypted, drop --fresh to verify the newest backup file.
+15 4 * * 0 <DEPLOY_USER> cd /opt/apps/katale-ai && { echo "[$(date -Is)] restore-verify"; if ./deployment/restore-verify.sh --fresh; then curl -fsS -m 10 --retry 3 -o /dev/null <HEALTHCHECKS_PING_URL_VERIFY>; else curl -fsS -m 10 --retry 3 -o /dev/null <HEALTHCHECKS_PING_URL_VERIFY>/fail; fi; } >> /var/log/katale-backup.log 2>&1

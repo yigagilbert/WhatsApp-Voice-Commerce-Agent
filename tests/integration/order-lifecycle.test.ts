@@ -21,6 +21,7 @@ import {
 import { buildApp } from '../../apps/api/src/app';
 import { createContainer, type Container } from '../../apps/api/src/container';
 import { ChannelRegistry } from '../../apps/api/src/modules/notifications/channel-registry';
+import { OpsAlerts } from '../../apps/api/src/modules/ops/ops-alerts';
 import { FakePayPal, ScriptedChatModel, testEnv } from '../support/fakes';
 
 loadEnvFile();
@@ -58,6 +59,16 @@ class RecordingSender implements ChannelSender {
 describe('order lifecycle, refunds and figures (integration)', () => {
   const paypal = new FakePayPal(`LC-${run}`);
   const sender = new RecordingSender();
+  /** Operator alerts posted to the (fake) alert webhook. */
+  const alertBodies: string[] = [];
+  const alerts = new OpsAlerts({
+    webhookUrl: 'https://alerts.test/katale',
+    logger: createLogger({ name: 'it-lc-alerts', level: 'silent' }),
+    fetch: (async (_url: string, init: RequestInit) => {
+      alertBodies.push(String(init.body));
+      return new Response('ok');
+    }) as unknown as typeof fetch,
+  });
   let container: Container;
   let app: FastifyInstance;
   let basketId: string;
@@ -146,7 +157,7 @@ describe('order lifecycle, refunds and figures (integration)', () => {
         }),
       ),
       createLogger({ name: 'it-lc', level: 'silent' }),
-      { paypal, chatModel: new ScriptedChatModel([]), speech: null, channels },
+      { paypal, chatModel: new ScriptedChatModel([]), speech: null, channels, alerts },
     );
     app = await buildApp(container);
     for (const [id, name, currency] of [
@@ -622,6 +633,22 @@ describe('order lifecycle, refunds and figures (integration)', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({ refundedMinor: 300, status: 'COMPLETED' });
       expect(res.json().refunds).toHaveLength(1);
+    });
+  });
+
+  describe('operator alerts', () => {
+    it('alerts when a webhook can’t be processed, and PayPal gets a retryable error', async () => {
+      const { payment } = await paidOrder(1);
+      // PayPal can't be reached for the canonical re-read.
+      paypal.expired.add(payment.externalId!);
+      const res = await webhook('PAYMENT.CAPTURE.REFUNDED', {
+        id: `RF-ERR-${run}`,
+        supplementary_data: { related_ids: { capture_id: `CAP-${payment.externalId}` } },
+      });
+      expect(res.statusCode).toBeGreaterThanOrEqual(400);
+      expect(alertBodies.some((b) => b.startsWith('PayPal webhook failed'))).toBe(true);
+      expect(alertBodies.join('\n')).not.toContain('Sarah Lifecycle');
+      paypal.expired.delete(payment.externalId!);
     });
   });
 

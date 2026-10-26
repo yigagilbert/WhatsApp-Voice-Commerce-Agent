@@ -14,11 +14,14 @@ import { UnauthorizedError, ValidationError, type Logger } from '@vca/shared';
 import type { PaymentService } from '../payments/payment.service';
 import type { DisputeService } from '../disputes/dispute.service';
 import type { RefundService } from '../payments/refund.service';
+import type { OpsAlerts } from '../ops/ops-alerts';
 
 export interface WebhookServiceOptions {
   webhookId: string | undefined;
   /** Only honoured when NODE_ENV=development. */
   skipVerification: boolean;
+  /** Operator alert when an event can't be processed (PayPal retries it). */
+  alerts?: Pick<OpsAlerts, 'alert'>;
 }
 
 export type WebhookOutcome = 'processed' | 'ignored' | 'duplicate';
@@ -76,10 +79,16 @@ export class PayPalWebhookService {
       });
       return outcome;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       await this.db.webhookEvent.update({
         where: { id: record.id },
-        data: { status: 'FAILED', error: error instanceof Error ? error.message : String(error) },
+        data: { status: 'FAILED', error: message },
       });
+      await this.options.alerts?.alert(
+        'paypal-webhook-failed',
+        'PayPal webhook failed',
+        `${event.event_type} (${event.id}) could not be processed: ${message.slice(0, 300)}\nPayPal retries it automatically; the background payment check also catches missed payments. Check the API logs if this repeats.`,
+      );
       throw error; // non-2xx → PayPal redelivers later
     }
   }

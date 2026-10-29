@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { normalizeCurrency, toMinorUnits } from '@vca/commerce';
+import { NotFoundError } from '@vca/shared';
 import { z } from 'zod';
 import type { Container } from '../../container';
 import { parse } from '../../http/validation';
@@ -21,6 +22,8 @@ const createProductSchema = z.object({
   unitPrice: z.union([z.number().nonnegative(), z.string()]),
   currency: z.string().length(3).optional(),
   stockQuantity: z.number().int().nonnegative().optional(),
+  reorderLevel: z.number().int().nonnegative().nullable().optional(),
+  visibleToCustomers: z.boolean().optional(),
 });
 
 const idParams = z.object({ id: z.string().min(1).max(64) });
@@ -51,6 +54,40 @@ export async function catalogRoutes(app: FastifyInstance, { container }: { conta
     container.analytics.productStats(request.merchant.id),
   );
 
+  /** One product with its photo details (edit page). */
+  app.get('/api/products/:id', async (request) => {
+    const { id } = parse(idParams, request.params);
+    const product = await container.db.product.findFirst({
+      where: { id, merchantId: request.merchant.id },
+      include: {
+        image: {
+          select: {
+            id: true,
+            updatedAt: true,
+            storage: true,
+            width: true,
+            height: true,
+            sizeBytes: true,
+          },
+        },
+      },
+    });
+    if (!product) throw new NotFoundError('Product', id);
+    const { image, ...rest } = product;
+    return {
+      ...rest,
+      image: image
+        ? {
+            version: `${image.id}-${image.updatedAt.getTime()}`,
+            storage: image.storage,
+            width: image.width,
+            height: image.height,
+            sizeBytes: image.sizeBytes,
+          }
+        : null,
+    };
+  });
+
   app.post('/api/products', async (request, reply) => {
     const body = parse(createProductSchema, request.body);
     const currency = normalizeCurrency(body.currency ?? request.merchant.preferredCurrency);
@@ -61,6 +98,10 @@ export async function catalogRoutes(app: FastifyInstance, { container }: { conta
       currency,
       unitPriceMinor: toMinorUnits(body.unitPrice, currency),
       stockQuantity: body.stockQuantity ?? null,
+      reorderLevel: body.reorderLevel ?? null,
+      ...(body.visibleToCustomers !== undefined
+        ? { visibleToCustomers: body.visibleToCustomers }
+        : {}),
     });
     return reply.status(201).send(product);
   });

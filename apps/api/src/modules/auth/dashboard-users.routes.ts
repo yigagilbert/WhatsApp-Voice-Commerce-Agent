@@ -33,7 +33,12 @@ export async function dashboardUserRoutes(
 
   app.get('/api/auth/me', async (request) => ({
     user: request.dashboardUser,
-    merchant: { id: request.merchant.id, businessName: request.merchant.businessName },
+    merchant: {
+      id: request.merchant.id,
+      businessName: request.merchant.businessName,
+      currency: request.merchant.preferredCurrency,
+      timezone: request.merchant.timezone,
+    },
     accounts: await users.count(),
   }));
 

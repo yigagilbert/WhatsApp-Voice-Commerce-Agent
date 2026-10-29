@@ -190,6 +190,27 @@ export const apiSchema = baseSchema
      * 5+ min) as a plain-text POST — e.g. an ntfy.sh topic URL. Not WhatsApp: it may be what's down.
      */
     ALERT_WEBHOOK_URL: optionalString.pipe(z.string().url().optional()),
+    /**
+     * Product photo storage. "auto" (default) uses Cloudflare R2 when the R2_* settings are present
+     * and the database otherwise; "r2" requires them; "database" keeps photos in Postgres.
+     */
+    IMAGE_STORAGE: z.enum(['auto', 'r2', 'database']).default('auto'),
+    /** Cloudflare account ID (the R2 S3 endpoint is https://<id>.r2.cloudflarestorage.com). */
+    R2_ACCOUNT_ID: optionalString,
+    /** R2 API token (Object Read & Write, scoped to the bucket) — server-side only. */
+    R2_ACCESS_KEY_ID: optionalString,
+    R2_SECRET_ACCESS_KEY: optionalString,
+    /** Private bucket for product photos. */
+    R2_BUCKET: optionalString,
+    /** Override of the S3 endpoint (tests / S3-compatible stores); defaults to the account's R2 URL. */
+    R2_ENDPOINT: optionalString.pipe(z.string().url().optional()),
+    /** Largest photo a merchant may upload, before resizing (bytes). */
+    IMAGE_MAX_UPLOAD_BYTES: z.coerce
+      .number()
+      .int()
+      .min(100_000)
+      .max(20 * 1024 * 1024)
+      .default(8 * 1024 * 1024),
     /** Dead-man's switch (e.g. healthchecks.io): pinged at most every 5 min after healthy scheduler passes. */
     HEARTBEAT_URL: optionalString.pipe(z.string().url().optional()),
   });

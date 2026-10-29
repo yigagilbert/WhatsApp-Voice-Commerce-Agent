@@ -18,7 +18,8 @@ factual response, and submits it only after `SUBMIT 7312`.
 > Shipment tracking and disputes: see [PROJECT_STATUS.md](PROJECT_STATUS.md) for what is verified
 > against real PayPal Sandbox vs simulated. Local languages (Luganda) are experimental and frozen.
 > Guides: [deployment](docs/deployment/docker-hub-vm.md) · [final demo](docs/hackathon/final-demo-script.md) ·
-> [shipment & disputes](docs/hackathon/shipment-dispute-demo.md) · [AG Grid / AG Studio](docs/hackathon/ag-grid-integration.md).
+> [shipment & disputes](docs/hackathon/shipment-dispute-demo.md) · [AG Grid / AG Studio](docs/hackathon/ag-grid-integration.md) ·
+> [product photos & Cloudflare R2](docs/deployment/cloudflare-r2.md) · [hackathon readiness](docs/hackathon/2026-10-29-mvp-readiness.md).
 
 ---
 
@@ -42,6 +43,7 @@ factual response, and submits it only after `SUBMIT 7312`.
 16. [Security](#16-security)
 17. [Known limitations](#17-known-limitations)
 18. [Roadmap](#18-roadmap)
+19. [License](#19-license)
 
 ---
 
@@ -192,17 +194,18 @@ Full guide and troubleshooting: [docs/development/local-setup.md](docs/developme
 One root `.env` for every app, validated at startup (`packages/config`). Full annotated list in
 [`.env.example`](.env.example).
 
-| Group     | Variables                                                                                                                                                                                                                                                               | Required for      |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| Core      | `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`                                                                                                                                                                                                                                 | everything        |
-| API       | `API_PORT`, `API_PUBLIC_URL`, `API_AUTH_TOKEN`, `INTERNAL_SERVICE_TOKEN`, `CORS_ORIGINS`, `RATE_LIMIT_MAX`                                                                                                                                                              | API               |
-| AI        | `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_MS`                                                                                                                                                                                                 | agent replies     |
-| Speech    | `VOICE_NOTES_ENABLED`, `VOICE_MAX_DURATION_SECONDS`, `VOICE_MIN_CONFIDENCE`, `STT_*`, `SUNBIRD_API_URL`, `SUNBIRD_API_KEY`, `TRANSLATION_PROVIDER`, `VOICE_TRANSLATE_LANGUAGES`, `MEDIA_MAX_BYTES`                                                                      | voice notes       |
-| PayPal    | `PAYPAL_ENV`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_BRAND_NAME`, `PAYPAL_WEBHOOK_SKIP_VERIFICATION`                                                                                                                                  | payments          |
-| Policy    | `DEFAULT_CURRENCY`, `CONFIRMATION_TTL_SECONDS`, `MAX_PAYMENT_REQUEST_AMOUNT`, `DEFAULT_PHONE_REGION`, `REPORT_SCHEDULER_ENABLED`, `UNAUTHORIZED_REPLY_COOLDOWN_HOURS`, `PAYMENT_RECONCILIATION_ENABLED`, `CUSTOMER_COMMERCE_ENABLED`, `CUSTOMER_COMMERCE_PILOT_NUMBERS` | —                 |
-| WhatsApp  | `WHATSAPP_API_BASE_URL`, `WHATSAPP_SESSION_DIR`, `WHATSAPP_CLIENT_ID`, `WHATSAPP_HEADLESS`, `WHATSAPP_CHROME_PATH`, `WHATSAPP_GATEWAY_PORT/HOST/URL`                                                                                                                    | worker            |
-| Seed      | `SEED_MERCHANT_WHATSAPP_ID`                                                                                                                                                                                                                                             | WhatsApp operator |
-| Dashboard | `API_BASE_URL` (+ `API_AUTH_TOKEN`, server-side only), `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` (setup login until the first account exists), `DASHBOARD_SESSION_HOURS`, `DASHBOARD_CLIENT_IP_HEADER`                                                                  | web               |
+| Group     | Variables                                                                                                                                                                                                                                                               | Required for         |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| Core      | `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`                                                                                                                                                                                                                                 | everything           |
+| API       | `API_PORT`, `API_PUBLIC_URL`, `API_AUTH_TOKEN`, `INTERNAL_SERVICE_TOKEN`, `CORS_ORIGINS`, `RATE_LIMIT_MAX`                                                                                                                                                              | API                  |
+| AI        | `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_MS`                                                                                                                                                                                                 | agent replies        |
+| Speech    | `VOICE_NOTES_ENABLED`, `VOICE_MAX_DURATION_SECONDS`, `VOICE_MIN_CONFIDENCE`, `STT_*`, `SUNBIRD_API_URL`, `SUNBIRD_API_KEY`, `TRANSLATION_PROVIDER`, `VOICE_TRANSLATE_LANGUAGES`, `MEDIA_MAX_BYTES`                                                                      | voice notes          |
+| PayPal    | `PAYPAL_ENV`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_BRAND_NAME`, `PAYPAL_WEBHOOK_SKIP_VERIFICATION`                                                                                                                                  | payments             |
+| Policy    | `DEFAULT_CURRENCY`, `CONFIRMATION_TTL_SECONDS`, `MAX_PAYMENT_REQUEST_AMOUNT`, `DEFAULT_PHONE_REGION`, `REPORT_SCHEDULER_ENABLED`, `UNAUTHORIZED_REPLY_COOLDOWN_HOURS`, `PAYMENT_RECONCILIATION_ENABLED`, `CUSTOMER_COMMERCE_ENABLED`, `CUSTOMER_COMMERCE_PILOT_NUMBERS` | —                    |
+| WhatsApp  | `WHATSAPP_API_BASE_URL`, `WHATSAPP_SESSION_DIR`, `WHATSAPP_CLIENT_ID`, `WHATSAPP_HEADLESS`, `WHATSAPP_CHROME_PATH`, `WHATSAPP_GATEWAY_PORT/HOST/URL`                                                                                                                    | worker               |
+| Seed      | `SEED_MERCHANT_WHATSAPP_ID`                                                                                                                                                                                                                                             | WhatsApp operator    |
+| Photos    | `IMAGE_STORAGE`, `IMAGE_MAX_UPLOAD_BYTES`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` (API only; see [cloudflare-r2.md](docs/deployment/cloudflare-r2.md))                                                                                | product photos in R2 |
+| Dashboard | `API_BASE_URL` (+ `API_AUTH_TOKEN`, server-side only), `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` (setup login until the first account exists), `DASHBOARD_SESSION_HOURS`, `DASHBOARD_CLIENT_IP_HEADER`                                                                  | web                  |
 
 Optional providers degrade gracefully — the API starts without AI, speech, PayPal or WhatsApp and
 `/api/health/ready` reports what is missing.
@@ -358,3 +361,7 @@ notifications, sales summary, and the audit trail.
 5. Multi-merchant onboarding (dashboard accounts exist per merchant; signup and per-merchant payments do not)
 6. Official WhatsApp Cloud API adapter; web chat and Telegram channels
 7. Background jobs for slow work (ASR/LLM) and live dashboard updates
+
+## 19. License
+
+[MIT](LICENSE).

@@ -15,6 +15,7 @@
  * Run: pnpm test:integration
  */
 import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { apiSchema, loadEnvFile, parseConfig } from '@vca/config';
@@ -564,21 +565,26 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
       ).rejects.toThrow(/not found/i);
     });
 
-    it('uploads product photos (JPEG/PNG only) and keeps them per merchant', async () => {
+    it('uploads product photos (decoded images only) and keeps them per merchant', async () => {
       const wallet = await container.db.product.findFirstOrThrow({
         where: { merchantId: shopA, name: 'Barkcloth Wallet' },
       });
-      const put = (merchant: string, mimeType: string, data: Buffer) =>
+      const photo = await sharp({
+        create: { width: 400, height: 300, channels: 3, background: '#8a5a2b' },
+      })
+        .jpeg()
+        .toBuffer();
+      const put = (merchant: string, data: Buffer) =>
         app.inject({
           method: 'PUT',
           url: `/api/products/${wallet.id}/image`,
           headers: headers(merchant),
-          payload: { mimeType, dataBase64: data.toString('base64') },
+          payload: { dataBase64: data.toString('base64') },
         });
-      expect((await put(shopA, 'image/png', JPEG)).statusCode).toBe(400);
-      expect((await put(shopA, 'image/jpeg', Buffer.from('<svg/>'))).statusCode).toBe(400);
-      expect((await put(shopB, 'image/jpeg', JPEG)).statusCode).toBe(404);
-      expect((await put(shopA, 'image/jpeg', JPEG)).statusCode).toBe(200);
+      expect((await put(shopA, JPEG)).statusCode).toBe(400); // header only, not a decodable image
+      expect((await put(shopA, Buffer.from('<svg/>'))).statusCode).toBe(400);
+      expect((await put(shopB, photo)).statusCode).toBe(404);
+      expect((await put(shopA, photo)).statusCode).toBe(200);
       const own = await app.inject({
         method: 'GET',
         url: `/api/products/${wallet.id}/image`,

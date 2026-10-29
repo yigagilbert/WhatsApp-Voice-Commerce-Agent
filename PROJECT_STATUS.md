@@ -1,6 +1,33 @@
 # Project status
 
-_Last updated: 2026-10-26 — production runs **`v0.1.0-202610260553`** (Phase 1 hardening, commit `47b96f7` from PR #3, deployed 2026-10-26; previous release `v0.1.0-202610181635` kept for rollback). Customer shopping remains switched off. Dashboard is in setup mode until the first owner account is created. Audit: [docs/audits/2026-10-25-katale-ai-system-audit.md](docs/audits/2026-10-25-katale-ai-system-audit.md)._
+_Last updated: 2026-10-29 — production runs **`v0.1.0-202610291327`** (product photos with Cloudflare R2, commit `1556e00` from PR #4 before merge, deployed 2026-10-29; previous release `v0.1.0-202610260553` kept for rollback). Customer shopping remains switched off. Audit: [docs/audits/2026-10-25-katale-ai-system-audit.md](docs/audits/2026-10-25-katale-ai-system-audit.md)._
+
+## Product photos, R2 and hackathon readiness (2026-10-29, branch `feat/hackathon-mvp-r2-images`)
+
+| Capability                                                                                                 | Status                                                                                                |
+| ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Product editor (create/edit name, price, description, stock count, low-stock alert, SKU, visibility)       | ✅ integration tests; checked in a browser locally                                                    |
+| Product photos: validate by decoding, strip EXIF, ≤1600 px JPEG + 320 px thumbnail, preview/replace/remove | ✅ unit + integration tests; checked in a browser locally                                             |
+| Cloudflare R2 storage (private bucket, SigV4), database fallback, merchant-scoped keys, cleanup            | ✅ unit + integration tests (in-memory store); exercised against MinIO; **real R2 needs credentials** |
+| Photos sent to WhatsApp customers for active, visible products                                             | ✅ integration tests; local check with a stand-in gateway                                             |
+| Worker retries images as a document when inline sending fails (weekly chart failure)                       | ✅ unit tests; **real-device check pending**                                                          |
+| Getting-started checklist on the overview                                                                  | ✅ checked in a browser locally                                                                       |
+| MIT license; R2 guide; readiness, demo and submission pack                                                 | [docs/hackathon/2026-10-29-mvp-readiness.md](docs/hackathon/2026-10-29-mvp-readiness.md)              |
+
+## Production deployment 2026-10-29 (`v0.1.0-202610291327`)
+
+| Check                                                                                                                                                  | Result                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
+| `pnpm verify` + GitHub CI on the released commit; amd64 images pushed, digests printed                                                                 | PASS                       |
+| R2 credentials: write/read/delete of a temporary object from the developer machine and from the API container; anonymous access refused                | PASS                       |
+| Pre-deploy backup written and gzip-verified                                                                                                            | PASS                       |
+| Migration `product_image_storage` applied (15 total)                                                                                                   | PASS                       |
+| All services recreated and healthy; API reports `productImages: "R2"`; readiness `ok`; no errors in logs                                               | PASS                       |
+| WhatsApp session restored from disk (no QR), client ready                                                                                              | PASS                       |
+| Record counts identical before/after (merchants, operators, customers, products, orders, payments, refunds, stock, messages, audit, accounts, revenue) | PASS                       |
+| Dashboard redirects to login; CSP and X-Frame-Options present; forged PayPal webhook → 401                                                             | PASS                       |
+| First product photo uploaded through the dashboard and stored in R2                                                                                    | **Pending — owner action** |
+| Weekly report chart arrives on a real phone (image retry)                                                                                              | **Pending — next report**  |
 
 ## Production deployment 2026-10-26 (`v0.1.0-202610260553`)
 

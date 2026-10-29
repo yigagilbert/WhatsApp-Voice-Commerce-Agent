@@ -6,6 +6,7 @@ import type { ColDef } from 'ag-grid-community';
 import { CommerceGrid, formatMinor } from '@/components/grid/commerce-grid';
 import type { ProductStat } from '@/lib/types';
 import { toMajorNumber } from '@vca/commerce/money';
+import { photoUrl } from '@/lib/photo';
 
 type Row = ProductStat & { price: number; revenue: number; activeLabel: string };
 
@@ -23,6 +24,31 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
   );
   const columns = useMemo<ColDef<Row>[]>(
     () => [
+      {
+        colId: 'photo',
+        headerName: 'Photo',
+        pinned: 'left',
+        width: 76,
+        sortable: false,
+        filter: false,
+        cellRenderer: (p: { data?: Row; node: { rowPinned?: string | null } }) =>
+          p.node.rowPinned || !p.data ? null : p.data.imageVersion ? (
+            // eslint-disable-next-line @next/next/no-img-element -- authenticated thumbnail
+            <img
+              src={photoUrl(p.data.id, p.data.imageVersion, 'thumb')}
+              alt=""
+              loading="lazy"
+              className="my-1 h-8 w-8 rounded object-cover"
+            />
+          ) : (
+            <span
+              title="No photo yet: open the product to add one"
+              className="my-1 inline-flex h-8 w-8 items-center justify-center rounded border border-dashed border-slate-300 text-[10px] text-slate-400"
+            >
+              +
+            </span>
+          ),
+      },
       {
         field: 'name',
         headerName: 'Product',
@@ -95,7 +121,7 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
       }}
       exportName="katale-products"
       searchPlaceholder="Search products…"
-      emptyMessage="No products yet."
+      emptyMessage="No products yet. Use “Add product” to create your first one."
       height={420}
     />
   );

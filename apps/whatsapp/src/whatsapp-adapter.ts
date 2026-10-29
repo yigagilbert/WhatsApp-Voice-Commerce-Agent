@@ -244,7 +244,12 @@ export class WhatsAppWebTransport implements WhatsAppTransport {
   async sendImage(chatId: string, image: OutgoingImage, caption: string): Promise<void> {
     if (!this.ready) throw new Error('WhatsApp client is not ready');
     const media = new MessageMedia(image.mimeType, image.dataBase64, image.filename ?? 'chart.png');
-    await this.client.sendMessage(await this.toChatId(chatId), media, { caption });
+    const to = await this.toChatId(chatId);
+    await sendImageWithFallback(
+      () => this.client.sendMessage(to, media, { caption }),
+      () => this.client.sendMessage(to, media, { caption, sendMediaAsDocument: true }),
+      this.log,
+    );
   }
 
   onMessage(handler: (message: IncomingWhatsAppMessage) => Promise<void>): void {
@@ -326,5 +331,33 @@ export class WhatsAppWebTransport implements WhatsAppTransport {
     this.phoneCache.set(chatId, phone);
     if (this.phoneCache.size > 5000) this.phoneCache.delete(this.phoneCache.keys().next().value!);
     return phone;
+  }
+}
+
+/**
+ * WhatsApp Web changes sometimes break inline image sending (it failed in production for weekly
+ * report charts) while documents still go through. Try the image inline first, then as a
+ * document, and only fail when both do — with the real reasons in the log.
+ */
+export async function sendImageWithFallback(
+  inline: () => Promise<unknown>,
+  asDocument: () => Promise<unknown>,
+  logger: {
+    warn(details: object, message: string): void;
+    error(details: object, message: string): void;
+  },
+): Promise<'inline' | 'document'> {
+  try {
+    await inline();
+    return 'inline';
+  } catch (first) {
+    logger.warn({ err: first }, 'inline image send failed; retrying as a document');
+    try {
+      await asDocument();
+      return 'document';
+    } catch (second) {
+      logger.error({ err: second, inlineError: String(first) }, 'image send failed');
+      throw second;
+    }
   }
 }

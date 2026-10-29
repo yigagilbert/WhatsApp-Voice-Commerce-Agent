@@ -867,13 +867,30 @@ model ReportDelivery {
 
 /// One photo per product, uploaded in the dashboard and sent in WhatsApp product browsing.
 /// Stored in Postgres (small JPEG/PNG, ≤ 1 MB) so no extra storage service is needed.
+/// Where a product photo's bytes live.
+enum ImageStorage {
+  /// In this table (`data` / `thumbData`): no object storage configured.
+  DATABASE
+  /// In the Cloudflare R2 bucket under `objectKey` / `thumbKey` (private; served through the API).
+  R2
+}
+
+/// One photo per product: a resized main image (JPEG, ≤1600 px) and a 320 px thumbnail.
 model ProductImage {
-  id        String   @id @default(cuid())
-  productId String   @unique
-  mimeType  String
-  data      Bytes
-  sizeBytes Int
-  updatedAt DateTime @updatedAt
+  id         String       @id @default(cuid())
+  productId  String       @unique
+  mimeType   String
+  storage    ImageStorage @default(DATABASE)
+  /// DATABASE storage: the main image and thumbnail bytes.
+  data       Bytes?
+  thumbData  Bytes?
+  /// R2 storage: object keys (merchants/<merchant>/products/<product>/<uuid>[-thumb].jpg).
+  objectKey  String?
+  thumbKey   String?
+  sizeBytes  Int
+  width      Int?
+  height     Int?
+  updatedAt  DateTime     @updatedAt
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 

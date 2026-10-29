@@ -44,8 +44,8 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Self-contained server for the production Docker image (.next/standalone).
   output: 'standalone',
-  // Product photos (≤ 1 MB) are uploaded through a server action.
-  experimental: { serverActions: { bodySizeLimit: '2mb' } },
+  // Product photos (≤ 8 MB before resizing) are uploaded through a server action.
+  experimental: { serverActions: { bodySizeLimit: '10mb' } },
   async headers() {
     return [{ source: '/(.*)', headers: securityHeaders }];
   },

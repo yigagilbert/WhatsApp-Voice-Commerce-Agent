@@ -29,6 +29,7 @@ async function main() {
       speech: container.speech ? 'configured' : 'not configured',
       paypal: container.paypal.configured ? config.PAYPAL_ENV : 'not configured',
       whatsappGateway: config.WHATSAPP_GATEWAY_URL ?? 'not configured',
+      productImages: container.productImages.storage,
     },
     'providers',
   );

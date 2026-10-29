@@ -324,7 +324,12 @@ export class AnalyticsService {
   /** Catalog rows with units sold and revenue from paid orders (Products grid). */
   async productStats(merchantId: string) {
     const [products, sold] = await Promise.all([
-      this.db.product.findMany({ where: { merchantId }, orderBy: { name: 'asc' }, take: 1000 }),
+      this.db.product.findMany({
+        where: { merchantId },
+        include: { image: { select: { id: true, updatedAt: true } } },
+        orderBy: { name: 'asc' },
+        take: 1000,
+      }),
       this.db.orderItem.groupBy({
         by: ['productId'],
         where: { productId: { not: null }, order: { merchantId, status: 'PAID' } },
@@ -342,6 +347,10 @@ export class AnalyticsService {
         currency: p.currency,
         stockQuantity: p.stockQuantity,
         active: p.active,
+        reorderLevel: p.reorderLevel,
+        visibleToCustomers: p.visibleToCustomers,
+        /** Changes with each new photo (cache key for thumbnails); null = no photo. */
+        imageVersion: p.image ? `${p.image.id}-${p.image.updatedAt.getTime()}` : null,
         unitsSold: s?._sum.quantity ?? 0,
         revenueMinor: s?._sum.lineTotalMinor ?? 0,
       };

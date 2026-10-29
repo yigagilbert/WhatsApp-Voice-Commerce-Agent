@@ -4,6 +4,7 @@ import { apiGet } from '@/lib/api';
 import { amounts, dateTime, money } from '@/lib/format';
 import { buildInsights } from '@/lib/insights';
 import type { DashboardSummary } from '@/lib/types';
+import { GettingStarted } from './getting-started';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,6 +75,8 @@ export default async function OverviewPage() {
         title={s.merchant.businessName}
         description={`Revenue counts completed PayPal payments only · ${s.merchant.timezone}`}
       />
+
+      <GettingStarted summary={s} />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard

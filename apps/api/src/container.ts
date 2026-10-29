@@ -35,6 +35,8 @@ import { PaymentService } from './modules/payments/payment.service';
 import { RefundService } from './modules/payments/refund.service';
 import { OrderLifecycleService } from './modules/orders/order-lifecycle.service';
 import { OpsAlerts } from './modules/ops/ops-alerts';
+import { R2ObjectStore, type ObjectStore } from './modules/images/object-store';
+import { ProductImageService } from './modules/images/product-image.service';
 import { PaymentReminderService } from './modules/payments/reminder.service';
 import { PaymentReconciler } from './modules/payments/reconciliation.service';
 import { WhatsAppConnectionMonitor } from './modules/whatsapp/connection-monitor';
@@ -56,6 +58,8 @@ export interface ContainerOverrides {
   speech?: SpeechPipeline | null;
   channels?: ChannelRegistry;
   alerts?: OpsAlerts;
+  /** null = keep photos in the database. */
+  objectStore?: ObjectStore | null;
 }
 
 function createChatModel(config: ApiConfig): ChatModel | null {
@@ -65,6 +69,27 @@ function createChatModel(config: ApiConfig): ChatModel | null {
     apiKey: config.AI_API_KEY,
     model: config.AI_MODEL,
     timeoutMs: config.AI_TIMEOUT_MS,
+  });
+}
+
+/**
+ * Product photo storage: Cloudflare R2 when configured (IMAGE_STORAGE=auto|r2), else Postgres.
+ * "r2" without credentials is a configuration error, so a misconfigured server fails at startup.
+ */
+function createObjectStore(config: ApiConfig): ObjectStore | null {
+  const hasR2 = !!(config.R2_ACCESS_KEY_ID && config.R2_SECRET_ACCESS_KEY && config.R2_BUCKET);
+  if (config.IMAGE_STORAGE === 'database' || (config.IMAGE_STORAGE === 'auto' && !hasR2))
+    return null;
+  if (!hasR2 || (!config.R2_ACCOUNT_ID && !config.R2_ENDPOINT))
+    throw new Error(
+      'IMAGE_STORAGE=r2 needs R2_ACCOUNT_ID (or R2_ENDPOINT), R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET',
+    );
+  return new R2ObjectStore({
+    accountId: config.R2_ACCOUNT_ID,
+    accessKeyId: config.R2_ACCESS_KEY_ID!,
+    secretAccessKey: config.R2_SECRET_ACCESS_KEY!,
+    bucket: config.R2_BUCKET!,
+    endpoint: config.R2_ENDPOINT,
   });
 }
 
@@ -257,7 +282,14 @@ export function createContainer(
   // Customer commerce: its own catalog view, tools and conversation flow (admin tools never used).
   const whatsappAccounts = new WhatsAppAccountService(db, audit);
   const customerIdentity = new CustomerIdentityService(db, audit, config.DEFAULT_PHONE_REGION);
-  const customerCatalog = new CustomerCatalog(db);
+  const productImages = new ProductImageService(
+    db,
+    audit,
+    logger.child({ component: 'product-images' }),
+    overrides.objectStore !== undefined ? overrides.objectStore : createObjectStore(config),
+    config.IMAGE_MAX_UPLOAD_BYTES,
+  );
+  const customerCatalog = new CustomerCatalog(db, productImages);
   const shopOrders = new ShopOrderService(
     db,
     orders,
@@ -379,6 +411,7 @@ export function createContainer(
     reconciler,
     whatsappAccounts,
     customerCatalog,
+    productImages,
     customerChats,
     shopOrders,
     shipments,

@@ -1,25 +1,25 @@
 import type { FastifyInstance } from 'fastify';
 import { toMajorString, toMinorUnits } from '@vca/commerce';
-import { HEADERS, NotFoundError, ValidationError } from '@vca/shared';
+import { HEADERS, NotFoundError } from '@vca/shared';
 import { z } from 'zod';
 import type { Container } from '../../container';
-import { ownerOnly } from '../../http/merchant-scope';
+import { actorLabel, ownerOnly } from '../../http/merchant-scope';
 import { parse } from '../../http/validation';
 
-export const MAX_PHOTO_BYTES = 1_000_000;
-
 const idParams = z.object({ id: z.string().min(1).max(64) });
-const photoBody = z.object({
-  mimeType: z.enum(['image/jpeg', 'image/png']),
-  dataBase64: z
-    .string()
-    .min(1)
-    .max(Math.ceil((MAX_PHOTO_BYTES * 4) / 3) + 8),
-});
 const productPatch = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
   description: z.string().max(1000).nullable().optional(),
   visibleToCustomers: z.boolean().optional(),
+  active: z.boolean().optional(),
+  /** Major units, e.g. 12 or "12.50", in the product's currency. */
+  unitPrice: z.union([z.number().positive(), z.string().min(1)]).optional(),
+  reorderLevel: z.number().int().min(0).max(1_000_000).nullable().optional(),
+  sku: z.string().trim().max(64).nullable().optional(),
+  /** A counted stock level; recorded in the stock ledger as a dashboard count. */
+  stockQuantity: z.number().int().min(0).max(1_000_000).optional(),
 });
+const imageQuery = z.object({ size: z.enum(['main', 'thumb']).optional() });
 const accountPatch = z.object({
   customerCommerceEnabled: z.boolean().optional(),
   paymentLinkMode: z.enum(['AUTO', 'APPROVAL']).optional(),
@@ -31,12 +31,6 @@ const accountPatch = z.object({
   pickupEnabled: z.boolean().optional(),
   pickupInfo: z.string().max(300).nullable().optional(),
 });
-
-/** Real JPEG/PNG only, whatever the declared type says. */
-const looksLike = (bytes: Buffer, mimeType: string) =>
-  mimeType === 'image/jpeg'
-    ? bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
-    : bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 
 /**
  * Dashboard routes for customer commerce: the shop's WhatsApp number and its settings, product
@@ -128,64 +122,83 @@ export async function customerCommerceRoutes(
     return p;
   };
 
+  /** Edits a product. Prices and names are audited; a stock count goes through the ledger. */
   app.patch('/api/products/:id', async (request) => {
     const { id } = parse(idParams, request.params);
     const body = parse(productPatch, request.body);
-    await product(request.merchant.id, id);
-    return db.product.update({
-      where: { id },
-      data: {
-        ...(body.description !== undefined
-          ? { description: body.description?.trim() || null }
-          : {}),
-        ...(body.visibleToCustomers !== undefined
-          ? { visibleToCustomers: body.visibleToCustomers }
-          : {}),
-      },
+    const current = await product(request.merchant.id, id);
+    const updated = await container.products.update(request.merchant.id, id, {
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.description !== undefined ? { description: body.description?.trim() || null } : {}),
+      ...(body.visibleToCustomers !== undefined
+        ? { visibleToCustomers: body.visibleToCustomers }
+        : {}),
+      ...(body.active !== undefined ? { active: body.active } : {}),
+      ...(body.reorderLevel !== undefined ? { reorderLevel: body.reorderLevel } : {}),
+      ...(body.sku !== undefined ? { sku: body.sku || null } : {}),
+      ...(body.unitPrice !== undefined
+        ? { unitPriceMinor: toMinorUnits(body.unitPrice, current.currency) }
+        : {}),
     });
+    if (body.stockQuantity !== undefined && body.stockQuantity !== current.stockQuantity) {
+      await container.inventory.adjust({
+        merchantId: request.merchant.id,
+        product: updated.name,
+        setTo: body.stockQuantity,
+        type: 'ADJUSTMENT',
+        note: 'Stock count from the dashboard',
+        actor: 'MERCHANT',
+      });
+    }
+    return db.product.findUniqueOrThrow({ where: { id } });
   });
 
-  app.put('/api/products/:id/image', { bodyLimit: 2 * 1024 * 1024 }, async (request) => {
-    const { id } = parse(idParams, request.params);
-    const body = parse(photoBody, request.body);
-    const p = await product(request.merchant.id, id);
-    const bytes = Buffer.from(body.dataBase64, 'base64');
-    if (bytes.length > MAX_PHOTO_BYTES)
-      throw new ValidationError('Photos must be 1 MB or smaller. Try a smaller JPEG.');
-    if (!looksLike(bytes, body.mimeType)) throw new ValidationError('Upload a JPEG or PNG photo.');
-    await db.productImage.upsert({
-      where: { productId: p.id },
-      update: { mimeType: body.mimeType, data: bytes, sizeBytes: bytes.length },
-      create: { productId: p.id, mimeType: body.mimeType, data: bytes, sizeBytes: bytes.length },
-    });
-    await container.audit.record({
-      merchantId: request.merchant.id,
-      actor: 'MERCHANT',
-      type: 'product.photo_updated',
-      entityType: 'product',
-      entityId: p.id,
-      data: { product: p.name, sizeBytes: bytes.length },
-    });
-    return { ok: true, sizeBytes: bytes.length };
+  /**
+   * Uploads (or replaces) the product photo. Any JPEG/PNG/WebP up to IMAGE_MAX_UPLOAD_BYTES; it is
+   * decoded, resized and stored in R2 (or the database) by the image service.
+   */
+  const maxUpload = container.config.IMAGE_MAX_UPLOAD_BYTES;
+  const photoBody = z.object({
+    dataBase64: z
+      .string()
+      .min(1)
+      .max(Math.ceil((maxUpload * 4) / 3) + 8),
   });
+  app.put(
+    '/api/products/:id/image',
+    { bodyLimit: Math.ceil(maxUpload * 1.4) + 64 * 1024 },
+    async (request) => {
+      const { id } = parse(idParams, request.params);
+      const body = parse(photoBody, request.body);
+      const saved = await container.productImages.save(
+        request.merchant.id,
+        id,
+        Buffer.from(body.dataBase64, 'base64'),
+        actorLabel(request),
+      );
+      return { ok: true, ...saved };
+    },
+  );
 
   app.delete('/api/products/:id/image', async (request, reply) => {
     const { id } = parse(idParams, request.params);
-    await product(request.merchant.id, id);
-    await db.productImage.deleteMany({ where: { productId: id } });
+    await container.productImages.remove(request.merchant.id, id, actorLabel(request));
     return reply.status(204).send();
   });
 
+  /** The photo (?size=thumb for the 320 px thumbnail), with an ETag for cheap revalidation. */
   app.get('/api/products/:id/image', async (request, reply) => {
     const { id } = parse(idParams, request.params);
-    const image = await db.productImage.findFirst({
-      where: { productId: id, product: { merchantId: request.merchant.id } },
-    });
+    const { size } = parse(imageQuery, request.query);
+    const image = await container.productImages.read(request.merchant.id, id, size ?? 'main');
     if (!image) return reply.status(404).send({ error: { message: 'No photo' } });
+    const etag = `"${image.version}-${size ?? 'main'}"`;
+    if (request.headers['if-none-match'] === etag) return reply.status(304).send();
     return reply
       .header('content-type', image.mimeType)
-      .header('cache-control', 'private, max-age=60')
-      .send(Buffer.from(image.data));
+      .header('etag', etag)
+      .header('cache-control', 'private, max-age=300')
+      .send(image.bytes);
   });
 
   // ─── Customer chats (hand-offs) ───────────────────────────────────────────

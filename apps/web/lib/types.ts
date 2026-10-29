@@ -182,8 +182,24 @@ export interface ProductStat {
   currency: string;
   stockQuantity: number | null;
   active: boolean;
+  reorderLevel?: number | null;
+  visibleToCustomers?: boolean;
+  /** Changes with each new photo (thumbnail cache key); null = no photo. */
+  imageVersion?: string | null;
   unitsSold: number;
   revenueMinor: number;
+}
+
+/** One product for the edit page (GET /api/products/:id). */
+export interface ProductDetail extends Product {
+  reorderLevel: number | null;
+  image: {
+    version: string;
+    storage: 'DATABASE' | 'R2';
+    width: number | null;
+    height: number | null;
+    sizeBytes: number;
+  } | null;
 }
 
 export interface MoneyFigure {

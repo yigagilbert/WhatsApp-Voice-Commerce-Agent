@@ -1,6 +1,7 @@
 import { closestMatches, formatMoney, normalizeProductTokens, stockStatus } from '@vca/commerce';
 import type { Database, Product } from '@vca/database';
 import type { OutboundMedia } from '@vca/shared';
+import type { ProductImageService } from '../images/product-image.service';
 
 export type Availability = 'In stock' | 'Low stock' | 'Out of stock';
 
@@ -28,7 +29,10 @@ export const PAGE_SIZE = 8;
  * scoped to one merchant (the bot's).
  */
 export class CustomerCatalog {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly images?: Pick<ProductImageService, 'read'>,
+  ) {}
 
   private visible(merchantId: string) {
     return this.db.product.findMany({
@@ -110,15 +114,18 @@ export class CustomerCatalog {
     return partial.length === 1 ? this.view(partial[0]!) : null;
   }
 
-  /** The product photo as a WhatsApp image, if the merchant uploaded one. */
+  /** The product photo as a WhatsApp image, if the merchant uploaded one (visible products only). */
   async photo(merchantId: string, productId: string): Promise<OutboundMedia | null> {
-    const image = await this.db.productImage.findFirst({
-      where: { productId, product: { merchantId, active: true, visibleToCustomers: true } },
+    if (!this.images) return null;
+    const visible = await this.db.product.count({
+      where: { id: productId, merchantId, active: true, visibleToCustomers: true },
     });
+    if (!visible) return null;
+    const image = await this.images.read(merchantId, productId, 'main');
     if (!image || (image.mimeType !== 'image/jpeg' && image.mimeType !== 'image/png')) return null;
     return {
       mimeType: image.mimeType,
-      dataBase64: Buffer.from(image.data).toString('base64'),
+      dataBase64: image.bytes.toString('base64'),
       filename: image.mimeType === 'image/png' ? 'product.png' : 'product.jpg',
     };
   }

@@ -1,6 +1,6 @@
 import type { Database, Product } from '@vca/database';
 import type { AuditService } from './audit.service';
-import { ConflictError, NotFoundError } from '@vca/shared';
+import { ConflictError, NotFoundError, ValidationError } from '@vca/shared';
 
 /** Lowercase, strip punctuation, crude singularisation ("baskets" -> "basket"). */
 export function normalizeProductTokens(text: string): string[] {
@@ -72,6 +72,8 @@ export class ProductService {
       sku?: string | null;
       description?: string | null;
       stockQuantity?: number | null;
+      reorderLevel?: number | null;
+      visibleToCustomers?: boolean;
     },
   ) {
     const name = input.name.trim();
@@ -88,6 +90,10 @@ export class ProductService {
         sku: input.sku ?? null,
         description: input.description ?? null,
         stockQuantity: input.stockQuantity ?? null,
+        reorderLevel: input.reorderLevel ?? null,
+        ...(input.visibleToCustomers !== undefined
+          ? { visibleToCustomers: input.visibleToCustomers }
+          : {}),
       },
     });
     await this.audit?.record({
@@ -109,9 +115,26 @@ export class ProductService {
   async update(
     merchantId: string,
     id: string,
-    data: { unitPriceMinor?: number; active?: boolean; name?: string },
+    data: {
+      unitPriceMinor?: number;
+      active?: boolean;
+      name?: string;
+      description?: string | null;
+      visibleToCustomers?: boolean;
+      reorderLevel?: number | null;
+      sku?: string | null;
+    },
   ): Promise<Product> {
     const product = await this.get(merchantId, id);
+    if (data.name !== undefined) {
+      const name = data.name.trim();
+      if (!name) throw new ValidationError('Give the product a name.');
+      const clash = await this.db.product.findFirst({
+        where: { merchantId, id: { not: id }, name: { equals: name, mode: 'insensitive' } },
+      });
+      if (clash) throw new ConflictError(`'${clash.name}' is already in the catalog.`);
+      data = { ...data, name };
+    }
     const updated = await this.db.product.update({ where: { id: product.id }, data });
     await this.audit?.record({
       merchantId,
@@ -125,6 +148,11 @@ export class ProductService {
           ? { priceBeforeMinor: product.unitPriceMinor, priceAfterMinor: data.unitPriceMinor }
           : {}),
         ...(data.active !== undefined ? { active: data.active } : {}),
+        ...(data.name !== undefined && data.name !== product.name ? { renamedTo: data.name } : {}),
+        ...(data.reorderLevel !== undefined ? { reorderLevel: data.reorderLevel } : {}),
+        ...(data.visibleToCustomers !== undefined
+          ? { visibleToCustomers: data.visibleToCustomers }
+          : {}),
       },
     });
     return updated;

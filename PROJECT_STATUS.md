@@ -2,6 +2,18 @@
 
 _Last updated: 2026-10-26 — production runs **`v0.1.0-202610260553`** (Phase 1 hardening, commit `47b96f7` from PR #3, deployed 2026-10-26; previous release `v0.1.0-202610181635` kept for rollback). Customer shopping remains switched off. Dashboard is in setup mode until the first owner account is created. Audit: [docs/audits/2026-10-25-katale-ai-system-audit.md](docs/audits/2026-10-25-katale-ai-system-audit.md)._
 
+## Product photos, R2 and hackathon readiness (2026-10-29, branch `feat/hackathon-mvp-r2-images`) — NOT IN PROD
+
+| Capability                                                                                                 | Status                                                                                                |
+| ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Product editor (create/edit name, price, description, stock count, low-stock alert, SKU, visibility)       | ✅ integration tests; checked in a browser locally                                                    |
+| Product photos: validate by decoding, strip EXIF, ≤1600 px JPEG + 320 px thumbnail, preview/replace/remove | ✅ unit + integration tests; checked in a browser locally                                             |
+| Cloudflare R2 storage (private bucket, SigV4), database fallback, merchant-scoped keys, cleanup            | ✅ unit + integration tests (in-memory store); exercised against MinIO; **real R2 needs credentials** |
+| Photos sent to WhatsApp customers for active, visible products                                             | ✅ integration tests; local check with a stand-in gateway                                             |
+| Worker retries images as a document when inline sending fails (weekly chart failure)                       | ✅ unit tests; **real-device check pending**                                                          |
+| Getting-started checklist on the overview                                                                  | ✅ checked in a browser locally                                                                       |
+| MIT license; R2 guide; readiness, demo and submission pack                                                 | [docs/hackathon/2026-10-29-mvp-readiness.md](docs/hackathon/2026-10-29-mvp-readiness.md)              |
+
 ## Production deployment 2026-10-26 (`v0.1.0-202610260553`)
 
 | Check                                                                                                                               | Result                                                                                                                                                       |

@@ -26,7 +26,7 @@ The biggest gaps for judging were not technical depth but **access and polish**:
 
 | Gap                                                                      | Status on this branch                                                       |
 | ------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| No open-source license (required for a public repo submission)           | **Fixed** — MIT `LICENSE` added (owner to confirm the choice)               |
+| No open-source license (required for a public repo submission)           | **Fixed** — MIT `LICENSE` added (confirmed by the owner)                    |
 | Product photos hard to find; no way to create a product in the dashboard | **Fixed** — full product editor with photo upload, preview, replace, remove |
 | Photos stored only in Postgres                                           | **Fixed** — Cloudflare R2 (private bucket) with database fallback           |
 | Weekly report chart images failing in production                         | **Mitigated** — worker retries as a document; needs a real-device check     |
@@ -200,7 +200,7 @@ Keep it under 3:00; record the phone screen and dashboard separately and cut the
 | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | Working project that uses PayPal and AI                                 | ✅ live (PayPal Sandbox)                                                      |
 | Public code repository                                                  | ✅ public on GitHub                                                           |
-| Open-source license visible in the repo                                 | ✅ on this branch (MIT) — **confirm choice, merge**                           |
+| Open-source license visible in the repo                                 | ✅ on this branch (MIT, confirmed) — **merge**                                |
 | Demo video under 3 minutes, public on YouTube (or as the rules specify) | ❌ to record                                                                  |
 | Text description of the project and how it was built                    | ❌ to write (outline above)                                                   |
 | Access for judges: live URL and test credentials, or setup instructions | ⚠️ live URL exists; judge account and testing instructions to add (section 8) |
@@ -218,7 +218,7 @@ private runbook.
 
 ## 8. Decisions needed from the owner
 
-1. **License:** MIT is on this branch. Confirm or name another OSI license.
+1. **License:** MIT — confirmed 2026-10-29.
 2. **Judge access:** recommended — a staff dashboard account for judges plus a short
    "Testing Katale AI" section in the Devpost submission that walks through the **Agent console**
    (no phone needed) and the products/photo editor. Judges cannot message our WhatsApp number unless
@@ -241,7 +241,7 @@ payments, refunds or customer messages were sent.
 
 ## 10. Recommendations (priority order)
 
-1. **P0** Confirm the license and merge; create the dashboard owner account in production.
+1. **P0** Merge (MIT confirmed); create the dashboard owner account in production.
 2. **P0** Decide judge access; write the Devpost testing instructions.
 3. **P0** Record the 3-minute video from the script above.
 4. **P1** Deploy this branch (after review); configure R2 or keep database storage; add photos to

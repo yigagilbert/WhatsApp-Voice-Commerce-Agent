@@ -1,8 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useTransition } from 'react';
-import { logoutWhatsApp, reconnectWhatsApp } from './actions';
+import { useEffect, useState, useTransition } from 'react';
+import { logoutWhatsApp, reconnectWhatsApp, type ShopActionState } from './actions';
 
 /** Re-reads the connection while pairing/connecting (QR codes rotate about every 20 s). */
 export function AutoRefresh({ seconds }: { seconds: number }) {
@@ -16,12 +16,15 @@ export function AutoRefresh({ seconds }: { seconds: number }) {
 
 export function SessionControls({ connected }: { connected: boolean }) {
   const [pending, start] = useTransition();
+  const [result, setResult] = useState<ShopActionState>(null);
+  const run = (action: () => Promise<ShopActionState>) =>
+    start(async () => setResult(await action()));
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <button
         type="button"
         disabled={pending}
-        onClick={() => start(() => reconnectWhatsApp())}
+        onClick={() => run(reconnectWhatsApp)}
         className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
       >
         {pending ? 'Working…' : 'Reconnect'}
@@ -36,12 +39,17 @@ export function SessionControls({ connected }: { connected: boolean }) {
                 'Unlink Katale AI from this WhatsApp account? The bot stops receiving messages until you scan a new QR code.',
               )
             )
-              start(() => logoutWhatsApp());
+              run(logoutWhatsApp);
           }}
           className="rounded-md border border-rose-200 bg-white px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
         >
           Unlink device
         </button>
+      )}
+      {result && (
+        <p role="status" className={`text-sm ${result.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+          {result.message}
+        </p>
       )}
     </div>
   );

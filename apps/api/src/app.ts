@@ -1,7 +1,11 @@
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
+import Fastify, {
+  type FastifyBaseLogger,
+  type FastifyInstance,
+  type FastifyServerOptions,
+} from 'fastify';
 import { HEADERS, runWithContext } from '@vca/shared';
 import type { Container } from './container';
 import type {} from './fastify-augment';
@@ -17,15 +21,19 @@ import { disputesRoutes } from './modules/disputes/disputes.routes';
 import { whatsappSessionRoutes } from './modules/whatsapp/session.routes';
 import { customerCommerceRoutes } from './modules/customer/customer.routes';
 import { adminRoutes } from './modules/admin/admin.routes';
+import { authRoutes } from './modules/auth/auth.routes';
+import { dashboardUserRoutes } from './modules/auth/dashboard-users.routes';
 
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 
 export async function buildApp(container: Container): Promise<FastifyInstance> {
+  // Trusted proxy addresses (production: "loopback,uniquelocal") or a boolean.
+  const trustProxy: FastifyServerOptions['trustProxy'] = container.config.TRUST_PROXY;
   const app = Fastify({
     loggerInstance: container.logger as FastifyBaseLogger,
     bodyLimit: 1024 * 1024,
     // Behind Nginx the client IP comes from X-Forwarded-For (rate limiting, logs).
-    trustProxy: container.config.TRUST_PROXY,
+    trustProxy,
     // Reuse an incoming correlation ID (e.g. from the WhatsApp worker) or mint one.
     genReqId: (req) => {
       const incoming = req.headers[HEADERS.correlationId];
@@ -66,6 +74,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   await app.register(healthRoutes, { container });
   await app.register(paypalRoutes, { container });
   await app.register(agentRoutes, { container });
+  await app.register(authRoutes, { container });
 
   // Dashboard routes: service-token auth + merchant scope (encapsulated plugin).
   await app.register(async (scope) => {
@@ -77,6 +86,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
     await scope.register(whatsappSessionRoutes, { container });
     await scope.register(adminRoutes, { container });
     await scope.register(customerCommerceRoutes, { container });
+    await scope.register(dashboardUserRoutes, { container });
   });
 
   return app;

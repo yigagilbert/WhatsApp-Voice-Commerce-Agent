@@ -11,6 +11,7 @@ import {
   type IRowNode,
   type RowClickedEvent,
 } from 'ag-grid-community';
+import { formatMoney } from '@vca/commerce/money';
 
 // AG Grid Community (MIT): sorting, filtering, pagination, resizing, CSV export.
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -207,14 +208,21 @@ export function CommerceGrid<T>({
   );
 }
 
-/** Formats integer minor units for display (grid cells). */
+/**
+ * Formats integer minor units for display (grid cells). Currency-aware: UGX and other
+ * zero-decimal currencies are stored without a minor unit and must not be divided by 100.
+ */
 export const formatMinor = (
   minor: number | null | undefined,
   currency: string | null | undefined,
-) =>
-  minor == null || !currency
-    ? ''
-    : new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(minor / 100);
+) => {
+  if (minor == null || !currency) return '';
+  try {
+    return formatMoney(minor, currency);
+  } catch {
+    return `${currency} ${minor}`;
+  }
+};
 
 export const formatDate = (value: Date | string | null | undefined) =>
   value

@@ -21,6 +21,11 @@ function setup() {
     state === null
       ? Promise.reject(new Error('ECONNREFUSED'))
       : new Response(JSON.stringify({ state }), { status: 200 })) as typeof fetch;
+  const alerts: string[] = [];
+  const opsAlerts = {
+    alert: async (key: string) => (alerts.push(key), true),
+    resolve: async (key: string) => void alerts.push(`${key}:resolved`),
+  };
   const monitor = new WhatsAppConnectionMonitor(
     db,
     notifications,
@@ -28,8 +33,9 @@ function setup() {
     'token',
     createLogger({ name: 't', level: 'silent' }),
     fetchImpl,
+    opsAlerts,
   );
-  return { monitor, sent, audits, set: (s: string | null) => (state = s) };
+  return { monitor, sent, audits, alerts, set: (s: string | null) => (state = s) };
 }
 
 describe('WhatsApp connection monitor', () => {
@@ -71,5 +77,19 @@ describe('WhatsApp connection monitor', () => {
     set('ready');
     await monitor.check(new Date(t0.getTime() + 2 * MIN));
     expect(sent).toHaveLength(0);
+  });
+
+  it('alerts the operator outside WhatsApp after 5 minutes down, and when it recovers', async () => {
+    const { monitor, alerts, set } = setup();
+    const t0 = new Date('2026-10-18T09:00:00Z');
+    set('qr');
+    await monitor.check(t0);
+    await monitor.check(new Date(t0.getTime() + 4 * MIN));
+    expect(alerts).toEqual([]);
+    await monitor.check(new Date(t0.getTime() + 5 * MIN));
+    expect(alerts).toEqual(['whatsapp-down']);
+    set('ready');
+    await monitor.check(new Date(t0.getTime() + 9 * MIN));
+    expect(alerts).toEqual(['whatsapp-down', 'whatsapp-down:resolved']);
   });
 });

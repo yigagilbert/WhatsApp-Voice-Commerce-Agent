@@ -50,6 +50,7 @@ model Merchant {
   reportSchedule   ReportSchedule?
   reportRuns       ReportRun[]
   whatsappAccounts WhatsAppAccount[]
+  dashboardUsers   DashboardUser[]
 
   @@map("merchants")
 }
@@ -129,6 +130,35 @@ model MerchantOperator {
   @@index([channel, whatsappLid])
   @@index([merchantId])
   @@map("merchant_operators")
+}
+
+/// A person who signs in to the dashboard (one account each; replaces the shared login).
+/// While no account exists, the bootstrap login from DASHBOARD_USERNAME/PASSWORD is accepted so the
+/// first owner can be created; it stops working as soon as one account exists.
+model DashboardUser {
+  id                String       @id @default(cuid())
+  merchantId        String
+  /// Sign-in name, stored lower-case; unique across the installation.
+  username          String       @unique
+  name              String
+  role              OperatorRole @default(STAFF)
+  /// scrypt hash (`scrypt$N$r$p$salt$hash`); the password itself is never stored or logged.
+  passwordHash      String
+  active            Boolean      @default(true)
+  /// Bumped on password change, deactivation and "sign out everywhere": older sessions stop working.
+  sessionVersion    Int          @default(1)
+  failedLogins      Int          @default(0)
+  /// Too many wrong passwords: no sign-in for this account until then.
+  lockedUntil       DateTime?
+  lastLoginAt       DateTime?
+  passwordChangedAt DateTime     @default(now())
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId])
+  @@map("dashboard_users")
 }
 
 enum OperatorRole {
@@ -219,6 +249,25 @@ enum OrderStatus {
   REFUNDED
 }
 
+/// Why an order was cancelled.
+enum OrderCancelReason {
+  /// Not paid by its payment due time (UNPAID_ORDER_EXPIRY_HOURS).
+  PAYMENT_EXPIRED
+  /// Cancelled by the merchant (dashboard).
+  MERCHANT
+  /// Cancelled by the customer (WhatsApp "cancel ORD-…").
+  CUSTOMER
+}
+
+/// Why a paid order needs a person to look at it before it is fulfilled.
+enum OrderAttention {
+  /// Payment completed after the order was cancelled: it was reinstated, but its stock may have
+  /// been sold to someone else meanwhile. Shipping is blocked until an owner marks it reviewed.
+  PAID_AFTER_CANCEL
+  /// A second payment arrived for an already-paid order (old payment link): refund the extra.
+  DUPLICATE_PAYMENT
+}
+
 enum FulfillmentStatus {
   NOT_SHIPPED
   SHIPPED
@@ -260,6 +309,16 @@ model Order {
   deliveryAddress     String?
   /// Name for the order as given by the customer at checkout.
   contactName         String?
+  /// Unpaid orders (awaiting payment, or placed by a customer and awaiting the owner's approval)
+  /// are cancelled after this time and their reserved stock is released.
+  paymentDueAt        DateTime?
+  cancelledAt         DateTime?
+  cancelReason        OrderCancelReason?
+  /// Sum of completed refunds (minor units). Equal to totalMinor once fully refunded.
+  refundedMinor       Int               @default(0)
+  /// Set when the order needs review (see OrderAttention); cleared when an owner marks it reviewed.
+  attention           OrderAttention?
+  attentionAt         DateTime?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 
@@ -270,7 +329,9 @@ model Order {
   payments     Payment[]
   shipments    Shipment[]
   disputes     Dispute[]
+  refunds      Refund[]
 
+  @@index([status, paymentDueAt])
   @@index([merchantId, createdAt])
   @@index([merchantId, status])
   @@index([merchantId, customerId, status])
@@ -344,16 +405,52 @@ model Payment {
   lastReminderAt    DateTime?
   /// Last time the reconciler asked PayPal about this payment (throttles background checks).
   providerCheckedAt DateTime?
+  /// Sum of completed refunds/reversals (minor units). Partial: status stays COMPLETED;
+  /// full: status REFUNDED. Net revenue = amountMinor - refundedMinor.
+  refundedMinor     Int             @default(0)
+  /// A second payment for an order that was already paid (e.g. through an older link). Its refunds
+  /// don't refund the order itself.
+  duplicate         Boolean         @default(false)
 
   merchant  Merchant   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
   shipments Shipment[]
   disputes  Dispute[]
+  refunds   Refund[]
 
   @@unique([provider, externalId])
   @@index([merchantId, status])
   @@index([merchantId, completedAt])
   @@map("payments")
+}
+
+/// A refund or reversal of a captured payment, as reported by the provider (one row per provider
+/// refund ID, so webhook redeliveries and reconciliation never count a refund twice). Katale
+/// never initiates refunds; it records them and keeps the order and analytics consistent.
+model Refund {
+  id          String          @id @default(cuid())
+  merchantId  String
+  orderId     String
+  paymentId   String
+  provider    PaymentProvider
+  /// Provider refund ID (PayPal refund ID, or "reversal:<captureId>" for a reversal).
+  externalId  String
+  amountMinor Int
+  currency    String
+  /// Provider status (e.g. COMPLETED, PENDING). Only COMPLETED refunds count towards totals.
+  status      String
+  /// "refund" or "reversal".
+  kind        String          @default("refund")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalId])
+  @@index([merchantId, createdAt])
+  @@index([paymentId])
+  @@map("refunds")
 }
 
 // ---------------------------------------------------------------------------
@@ -528,6 +625,8 @@ model WebhookEvent {
   payload     Json
   error       String?
   receivedAt  DateTime           @default(now())
+  /// When processing last started; a RECEIVED event claimed long ago was abandoned and is retried.
+  claimedAt   DateTime           @default(now())
   processedAt DateTime?
 
   @@unique([provider, eventId])

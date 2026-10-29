@@ -3,6 +3,7 @@ import { nextSlot } from '@vca/commerce';
 import { ValidationError } from '@vca/shared';
 import { z } from 'zod';
 import type { Container } from '../../container';
+import { ownerOnly } from '../../http/merchant-scope';
 import { parse } from '../../http/validation';
 import { DEFAULT_SCHEDULE } from '../reports/report-scheduler';
 
@@ -78,20 +79,20 @@ export async function adminRoutes(app: FastifyInstance, { container }: { contain
 
   app.get('/api/admins', async (request) => view(request.merchant.id));
 
-  app.post('/api/admins', async (request, reply) => {
+  app.post('/api/admins', { preHandler: ownerOnly }, async (request, reply) => {
     const body = parse(adminBody, request.body);
     const admin = await admins.create(request.merchant.id, body);
     return reply.status(201).send({ id: admin.id, phone: admin.phone });
   });
 
-  app.patch('/api/admins/:id', async (request) => {
+  app.patch('/api/admins/:id', { preHandler: ownerOnly }, async (request) => {
     const { id } = parse(idParams, request.params);
     const body = parse(adminBody.partial(), request.body);
     const admin = await admins.update(request.merchant.id, id, body);
     return { id: admin.id, phone: admin.phone, active: admin.active, role: admin.role };
   });
 
-  app.delete('/api/admins/:id', async (request, reply) => {
+  app.delete('/api/admins/:id', { preHandler: ownerOnly }, async (request, reply) => {
     const { id } = parse(idParams, request.params);
     await admins.remove(request.merchant.id, id);
     return reply.status(204).send();
@@ -137,7 +138,7 @@ export async function adminRoutes(app: FastifyInstance, { container }: { contain
     };
   });
 
-  app.put('/api/reports/schedule', async (request) => {
+  app.put('/api/reports/schedule', { preHandler: ownerOnly }, async (request) => {
     const body = parse(scheduleBody, request.body);
     if (body.timezone && !validTimeZone(body.timezone))
       throw new ValidationError(`Unknown time zone '${body.timezone}'.`);

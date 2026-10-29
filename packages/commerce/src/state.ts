@@ -6,7 +6,9 @@ const ORDER_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   DRAFT: ['AWAITING_PAYMENT', 'CANCELLED'],
   AWAITING_PAYMENT: ['PAID', 'CANCELLED'],
   PAID: ['REFUNDED'],
-  CANCELLED: [],
+  // A payment that completes after the order was cancelled (a capture racing the cancellation)
+  // reinstates it: the money is real, so the order must say PAID.
+  CANCELLED: ['PAID'],
   REFUNDED: [],
 };
 
@@ -16,7 +18,8 @@ const PAYMENT_TRANSITIONS: Record<PaymentStatus, readonly PaymentStatus[]> = {
   APPROVED: ['COMPLETED', 'FAILED', 'CANCELLED'],
   COMPLETED: ['REFUNDED'],
   FAILED: [],
-  CANCELLED: [],
+  // Only via PaymentService.markCompleted: money captured after the link was cancelled.
+  CANCELLED: ['COMPLETED'],
   REFUNDED: [],
 };
 

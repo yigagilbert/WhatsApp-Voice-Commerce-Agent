@@ -2,6 +2,9 @@
 
 Katale AI is deployed as **prebuilt production images**. Nothing is built on the server.
 
+See also: [Backups, restore drills and monitoring](backups-and-monitoring.md) ·
+[Server hardening runbook](server-hardening.md).
+
 ```text
 build locally (pnpm verify gate) → push immutable tags to Docker Hub
   → VM: docker compose pull → migrate → up -d
@@ -44,22 +47,30 @@ flowchart LR
 
 | Image                         | Tag                   | Digest (linux/amd64)                                                      |
 | ----------------------------- | --------------------- | ------------------------------------------------------------------------- |
-| `yigagilbert/katale-api`      | `v0.1.0-202610170605` | `sha256:f8ba79123545a74cfcdb107cc9381e2da1071af6432110ff94606c1c0864d26c` |
-| `yigagilbert/katale-web`      | `v0.1.0-202610170605` | `sha256:51c17267c1a47f2e467e055674e83375c09d9558201fefc169dbf4fe6999744e` |
-| `yigagilbert/katale-whatsapp` | `v0.1.0-202610170605` | `sha256:e6f60fd0033678e122cc461cc8da33d6da741689d38b801ab325e08c3bcf110e` |
+| `yigagilbert/katale-api`      | `v0.1.0-202610260553` | `sha256:2d6c29bc3a17ed242cedc53cafce7f366583fccdc956cb5ed7d13dcb59c9ce8e` |
+| `yigagilbert/katale-web`      | `v0.1.0-202610260553` | `sha256:b78254d11c06064c1b3e5cca428e413cac080aa6ac4ea2020cdf7934eb88690a` |
+| `yigagilbert/katale-whatsapp` | `v0.1.0-202610260553` | `sha256:5d9c51087f26712d0463503ea2650b7e90fd968776aae2c4f31e2df6ac6128d1` |
+
+Built from commit `47b96f7` (PR #3, Phase 1 hardening), deployed 2026-10-26. Previous release, kept
+for rollback: `v0.1.0-202610181635` (api `sha256:206163ed7a7c…`, web `sha256:d3a75042853b…`,
+whatsapp `sha256:573b2e948c8e…`). **Rolling back to it also needs the previous compose file**
+(`docker-compose.yml.pre-v0.1.0-202610260553` on the VM), because older images only accept
+`TRUST_PROXY: 'true'`.
 
 Release history (rollback = set `KATALE_TAG` to an earlier tag and re-run `vm-deploy.sh`; rolling back is safe: the migrations since
 `v0.1.0-202610051458` only add columns, tables and enum values):
 
-| Tag                   | Contents                                                                                                                                                                                                    |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `v0.1.0-202610170605` | Inventory ledger + alerts, catalog/stock tools, WhatsApp charts, period comparisons, dashboard WhatsApp page (QR/reconnect/unlink), call handling; migration `inventory_movements` (additive) (**current**) |
-| `v0.1.0-202610071145` | Shipment tracking (Orders v2) and PayPal disputes (Disputes v1), Disputes page, operations analytics; migration `shipments_and_disputes` (additive)                                                         |
-| `v0.1.0-202610071011` | AG Grid + AG Studio dashboard, merchant analytics tools, buyer pages, English-only voice default, demo reset; migration `order_input_mode`                                                                  |
-| `v0.1.0-202610061859` | Luganda number normaliser, voice customer guard, non-catalog warnings                                                                                                                                       |
-| `v0.1.0-202610060937` | Patched `whatsapp-web.js` voice download, `@newsletter` skip                                                                                                                                                |
-| `v0.1.0-202610060910` | Dashboard login, voice notes (Whisper + Sunbird cascade)                                                                                                                                                    |
-| `v0.1.0-202610051458` | First production release (text, PayPal, webhooks)                                                                                                                                                           |
+| Tag                   | Contents                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `v0.1.0-202610260553` | Phase 1 hardening: unpaid-order expiry (72 h) and cancellation, refund recording, late/duplicate payment flags, dashboard accounts (setup login until the first owner), sign-in lockout, security headers, `TRUST_PROXY` as proxy addresses, operator alerts/heartbeat (unconfigured); migrations `order_expiry_cancellation_refunds`, `dashboard_users` (additive) (**current**) |
+| `v0.1.0-202610181635` | Customer commerce Phase 0–2 code (customer shopping switched off) — previous release, rollback target                                                                                                                                                                                                                                                                             |
+| `v0.1.0-202610170605` | Inventory ledger + alerts, catalog/stock tools, WhatsApp charts, period comparisons, dashboard WhatsApp page (QR/reconnect/unlink), call handling; migration `inventory_movements` (additive)                                                                                                                                                                                     |
+| `v0.1.0-202610071145` | Shipment tracking (Orders v2) and PayPal disputes (Disputes v1), Disputes page, operations analytics; migration `shipments_and_disputes` (additive)                                                                                                                                                                                                                               |
+| `v0.1.0-202610071011` | AG Grid + AG Studio dashboard, merchant analytics tools, buyer pages, English-only voice default, demo reset; migration `order_input_mode`                                                                                                                                                                                                                                        |
+| `v0.1.0-202610061859` | Luganda number normaliser, voice customer guard, non-catalog warnings                                                                                                                                                                                                                                                                                                             |
+| `v0.1.0-202610060937` | Patched `whatsapp-web.js` voice download, `@newsletter` skip                                                                                                                                                                                                                                                                                                                      |
+| `v0.1.0-202610060910` | Dashboard login, voice notes (Whisper + Sunbird cascade)                                                                                                                                                                                                                                                                                                                          |
+| `v0.1.0-202610051458` | First production release (text, PayPal, webhooks)                                                                                                                                                                                                                                                                                                                                 |
 
 First deployed 2026-10-06 to `217.65.145.220` → **https://kataleai.space** (NPM proxy host #26, Let's Encrypt
 certificate #36, expires 2027-01-04, auto-renewed by NPM). PayPal Sandbox webhook registered for
@@ -172,7 +183,7 @@ See [`deploy/.env.production.example`](../../deploy/.env.production.example). Ke
 | `CUSTOMER_COMMERCE_ENABLED`                           | `false` until customer shopping is approved; then also enable it per number in the dashboard                                           |
 | `CUSTOMER_COMMERCE_PILOT_NUMBERS`                     | E.164 test numbers that may shop while the switch is off (controlled testing). Never admin numbers of the shop                         |
 
-Compose sets the in-container values (`TRUST_PROXY=true`, internal URLs, session path).
+Compose sets the in-container values (`TRUST_PROXY=loopback,uniquelocal`, internal URLs, session path).
 
 ## Database migrations
 
@@ -266,6 +277,7 @@ that `vm-deploy.sh` wrote.
 **Backups:** `backup.sh` keeps the newest 14 dumps (`KEEP=n`). Recommended: a daily cron
 (`0 2 * * * cd /opt/apps/katale-ai && ./deployment/backup.sh daily`) and copying dumps off the VM
 periodically. Restore is tested by `restore.sh`, which takes a safety backup first.
+Scheduled, encrypted off-site backups and restore checks: [backups-and-monitoring.md](backups-and-monitoring.md).
 
 ## Local rehearsal
 
@@ -282,6 +294,9 @@ any nginx container on the test network with `npm-advanced.conf` to mimic NPM.
 ## Known infrastructure gaps (deferred)
 
 Recorded deliberately and **not** addressed yet:
+
+Runbooks to close them (pending approval): [server-hardening.md](server-hardening.md),
+[backups-and-monitoring.md](backups-and-monitoring.md).
 
 - The VM `deploy` user still accepts password SSH; rotate the password, move to key-only SSH.
 - Nginx Proxy Manager's admin UI (port **81**) is reachable from the internet; restrict it (firewall or VPN).

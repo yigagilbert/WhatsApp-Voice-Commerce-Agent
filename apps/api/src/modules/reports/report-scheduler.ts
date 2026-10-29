@@ -4,6 +4,7 @@ import type { Logger } from '@vca/shared';
 import type { NotificationService } from '../notifications/notification.service';
 import type { PaymentReconciler } from '../payments/reconciliation.service';
 import type { BusinessReportBuilder } from './business-report';
+import type { OpsAlerts } from '../ops/ops-alerts';
 
 /** Retries after a failed delivery: 2, 5, 15 minutes; then the delivery stays FAILED. */
 const BACKOFF_MINUTES = [2, 5, 15];
@@ -11,6 +12,12 @@ export const MAX_ATTEMPTS = BACKOFF_MINUTES.length + 1;
 /** A scheduled slot is still sent if the API was down when it fell due, for this long. */
 const CATCH_UP_MS = 6 * 60 * 60 * 1000;
 const TICK_MS = 60_000;
+
+/** Background work run once per scheduler tick, after reports and payment checks. */
+export interface ScheduledJob {
+  name: string;
+  run(now: Date): Promise<void>;
+}
 
 const isUniqueViolation = (error: unknown) =>
   typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
@@ -50,6 +57,10 @@ export class ReportScheduler {
     private readonly logger: Logger,
     /** Re-checks open PayPal links in the background on the same tick (optional). */
     private readonly reconciler?: PaymentReconciler,
+    /** Other background work that runs on the same tick (e.g. unpaid-order expiry). */
+    private readonly jobs: ScheduledJob[] = [],
+    /** Operator alerts for failed jobs/reports, and the heartbeat after healthy passes. */
+    private readonly alerts?: Pick<OpsAlerts, 'alert' | 'heartbeat'>,
   ) {}
 
   start() {
@@ -90,8 +101,27 @@ export class ReportScheduler {
       await this.reconciler
         ?.sweep(now)
         .catch((error: unknown) => this.logger.error({ err: error }, 'payment sweep failed'));
+      let healthy = true;
+      for (const job of this.jobs) {
+        await job.run(now).catch(async (error: unknown) => {
+          healthy = false;
+          this.logger.error({ err: error, job: job.name }, 'scheduled job failed');
+          await this.alerts?.alert(
+            `job-${job.name}`,
+            `Background job failed: ${job.name}`,
+            `${error instanceof Error ? error.message.slice(0, 300) : String(error)}\nIt runs again every minute; check the API logs if this repeats.`,
+          );
+        });
+      }
+      // Dead-man's switch: only healthy passes ping, so a stuck or failing scheduler goes quiet.
+      if (healthy) await this.alerts?.heartbeat(now.getTime());
     } catch (error) {
       this.logger.error({ err: error }, 'report scheduler tick failed');
+      await this.alerts?.alert(
+        'scheduler-tick',
+        'Background scheduler failed',
+        `${error instanceof Error ? error.message.slice(0, 300) : String(error)}\nReports, payment checks and order expiry may be delayed.`,
+      );
     } finally {
       this.running = false;
     }
@@ -283,6 +313,12 @@ export class ReportScheduler {
       where: { id: runId },
       data: { status, ...(status === 'SENDING' ? {} : { completedAt: new Date() }) },
     });
+    if (status === 'FAILED' || status === 'PARTIAL')
+      await this.alerts?.alert(
+        `report-${run.merchantId}`,
+        status === 'FAILED' ? 'Business report not delivered' : 'Business report partly delivered',
+        `Report ${run.periodKey}: delivered to ${sent} of ${deliveries.length} admins after all retries. Is WhatsApp connected?`,
+      );
     if (status !== 'SENDING') {
       await this.audit.record({
         merchantId: run.merchantId,

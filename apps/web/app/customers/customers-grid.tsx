@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import type { ColDef } from 'ag-grid-community';
 import { CommerceGrid, formatDate, formatMinor } from '@/components/grid/commerce-grid';
 import type { CustomerStat } from '@/lib/types';
+import { toMajorNumber } from '@vca/commerce/money';
 
 type Row = CustomerStat & { revenue: number; lastOrder: Date | null; contact: string };
 
@@ -21,7 +22,7 @@ export function CustomersGrid({ customers }: { customers: CustomerStat[] }) {
     () =>
       customers.map((c) => ({
         ...c,
-        revenue: c.revenueMinor / 100,
+        revenue: c.currency ? toMajorNumber(c.revenueMinor, c.currency) : 0,
         lastOrder: c.lastOrderAt ? new Date(c.lastOrderAt) : null,
         contact: [c.email, c.phone, c.hasWhatsApp ? 'WhatsApp' : null].filter(Boolean).join(' · '),
       })),

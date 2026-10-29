@@ -1,6 +1,56 @@
 # Project status
 
-_Last updated: 2026-10-07 — production runs `v0.1.0-202610071145` at https://kataleai.space: English text + voice commerce to PayPal payment (verified), AG Grid/AG Studio dashboard, and post-payment operations — PayPal shipment tracking and dispute handling (deployed; real-Sandbox runs pending, see below). Luganda frozen (experimental, off)._
+_Last updated: 2026-10-26 — production runs **`v0.1.0-202610260553`** (Phase 1 hardening, commit `47b96f7` from PR #3, deployed 2026-10-26; previous release `v0.1.0-202610181635` kept for rollback). Customer shopping remains switched off. Dashboard is in setup mode until the first owner account is created. Audit: [docs/audits/2026-10-25-katale-ai-system-audit.md](docs/audits/2026-10-25-katale-ai-system-audit.md)._
+
+## Production deployment 2026-10-26 (`v0.1.0-202610260553`)
+
+| Check                                                                                                                               | Result                                                                                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm verify` + GitHub CI on the released commit; images pushed and digests verified                                                | PASS                                                                                                                                                         |
+| Pre-deploy backup written and verified (gzip integrity, 7 orders / 6 payments in the dump)                                          | PASS                                                                                                                                                         |
+| Migrations `order_expiry_cancellation_refunds`, `dashboard_users` applied (14 total)                                                | PASS                                                                                                                                                         |
+| api, web, whatsapp recreated and healthy; Postgres untouched; no restarts                                                           | PASS                                                                                                                                                         |
+| WhatsApp session restored from disk (no QR), client ready                                                                           | PASS                                                                                                                                                         |
+| Record counts identical before/after (merchants, operators, customers, products, orders, payments, stock, revenue, messages, audit) | PASS                                                                                                                                                         |
+| Existing unpaid orders received a 72 h payment window (none cancelled)                                                              | PASS                                                                                                                                                         |
+| Dashboard redirects to login; CSP / X-Frame-Options / nosniff / Referrer-Policy present                                             | PASS                                                                                                                                                         |
+| Setup mode: API reports no accounts; dashboard figures match the database ($456.00, 7 orders)                                       | PASS                                                                                                                                                         |
+| Forged PayPal webhook → 401; PayPal Sandbox configured; reconciliation ran today                                                    | PASS                                                                                                                                                         |
+| API sees real client IPs through the proxy (`TRUST_PROXY`, `X-Real-IP`)                                                             | PASS                                                                                                                                                         |
+| Admin assistant (Agent console channel, real LLM) answers stock, unpaid orders, sales correctly                                     | PASS                                                                                                                                                         |
+| First owner account created                                                                                                         | **Pending — owner action**                                                                                                                                   |
+| Admin message from a real WhatsApp phone; real Sandbox payment/refund webhooks after this release                                   | **Pending — needs a person**                                                                                                                                 |
+| Weekly report chart image                                                                                                           | **Pre-existing failure** since 2026-10-19: text is delivered, the chart image fails at the worker (`whatsapp-gateway: HTTP 500`); not caused by this release |
+
+## Phase 1 — production hardening (2026-10-26, branch `feat/phase-1-production-hardening`)
+
+| Capability                                                                                                                              | Status                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Unpaid orders expire (`UNPAID_ORDER_EXPIRY_HOURS`, default 72), release stock; PayPal checked first                                     | ✅ integration tests (**SIMULATED PAYPAL**)                                |
+| Merchant cancel (dashboard), customer cancel ("cancel ORD-…"), concurrent cancel/expiry run once                                        | ✅ integration tests; dashboard checked in a browser locally               |
+| Capture racing a cancellation reinstates the order; second payment via an old link flagged                                              | ✅ integration tests (**SIMULATED PAYPAL**)                                |
+| Refunds/reversals recorded from PayPal (full, partial, idempotent), never restocked; revenue net of refunds                             | ✅ integration tests (**SIMULATED PAYPAL**); real Sandbox refund pending   |
+| Abandoned webhook claims retried; captured amount checked                                                                               | ✅ integration tests                                                       |
+| Dashboard: UGX/zero-decimal money, carts excluded from counts, order drawer details, cancel, refunds, PayPal check, loading/error pages | ✅ unit + integration tests; checked in a browser locally                  |
+| Individual dashboard accounts (owner/staff), lockout, session revocation, owner-only routes                                             | ✅ unit + integration tests; full flow checked in a browser locally        |
+| Login throttle on the proxy's client IP; `TRUST_PROXY` as proxy addresses; CSP + clickjacking headers                                   | ✅ unit tests; headers checked on the production build locally             |
+| Operator alerts (`ALERT_WEBHOOK_URL`) and heartbeat (`HEARTBEAT_URL`)                                                                   | ✅ unit + integration tests; not connected to a real ntfy/healthchecks yet |
+| Encrypted off-site backups, restore checks, server hardening runbooks                                                                   | Prepared (`deploy/`, `docs/deployment/`); **not applied** — needs approval |
+
+**Review and Sandbox validation (2026-10-26).** An independent review found and this branch fixed:
+duplicate-payment refunds marking the whole order refunded; a possible deadlock between cancellation
+and capture (could lose a capture); payment links issued for orders cancelled meanwhile; reinstated
+orders shippable without a stock check (now flagged, SHIP blocked until reviewed); non-atomic lockout
+counting; owners able to demote each other to zero. End-to-end run against **real PayPal Sandbox +
+real LLM** (`scripts/sandbox-e2e`): 32 checks passed, 0 failed, 6 blocked — the Sandbox seller is not
+enabled for card capture (`PAYEE_NOT_ENABLED_FOR_CARD_PROCESSING`), so a real capture, refunds and
+late-capture recovery need a Sandbox buyer to approve in a browser (covered by integration tests with
+simulated PayPal). Release plan: [docs/deployment/phase-1-release-plan.md](docs/deployment/phase-1-release-plan.md).
+
+Needs real-device / production verification after deployment: a customer cancelling over real WhatsApp;
+a real PayPal Sandbox refund (full and partial) arriving by webhook; expiry against a real Sandbox
+link; the client IP seen behind Nginx Proxy Manager (`X-Real-IP`, `TRUST_PROXY`); the first-owner
+setup on the production dashboard; real ntfy/healthchecks delivery.
 
 ## Completed
 

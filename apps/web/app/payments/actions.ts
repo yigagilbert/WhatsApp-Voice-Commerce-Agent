@@ -40,3 +40,27 @@ export async function sendReminder(paymentId: string): Promise<{ ok: boolean; me
     message: `Reminder ${o.reminderNumber} sent to ${o.customer} for ${o.orderReference}.${o.renewed ? ' The old PayPal link had expired, so a new one was sent.' : ''}`,
   };
 }
+
+/**
+ * Payment review: re-reads the payment from PayPal (records a payment whose webhook was missed,
+ * and any refunds) — the same checks the background reconciliation runs.
+ */
+export async function refreshPayment(paymentId: string): Promise<{ ok: boolean; message: string }> {
+  await requireUser();
+  const result = await apiPost<{
+    status: string;
+    amountMinor: number;
+    refundedMinor: number;
+    currency: string;
+    order: { reference: string } | undefined;
+  }>(`/api/payments/${encodeURIComponent(paymentId)}/refresh`, {});
+  revalidatePath('/payments');
+  revalidatePath('/orders');
+  if (!result.ok) return { ok: false, message: result.error };
+  const p = result.data;
+  const status =
+    p.status === 'COMPLETED' && p.refundedMinor > 0
+      ? 'partially refunded'
+      : p.status.toLowerCase().replace(/_/g, ' ');
+  return { ok: true, message: `Checked with PayPal: this payment is ${status}.` };
+}

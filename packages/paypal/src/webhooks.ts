@@ -48,6 +48,7 @@ export function readWebhookHeaders(
 const captureResourceSchema = z.object({
   id: z.string(),
   status: z.string().optional(),
+  amount: z.object({ currency_code: z.string(), value: z.string() }).optional(),
   custom_id: z.string().optional(),
   supplementary_data: z
     .object({ related_ids: z.object({ order_id: z.string().optional() }).optional() })
@@ -61,6 +62,41 @@ export function extractCaptureRefs(resource: Record<string, unknown>) {
   return {
     captureId: parsed.data.id,
     paypalOrderId: parsed.data.supplementary_data?.related_ids?.order_id,
+    customId: parsed.data.custom_id,
+    amount: parsed.data.amount
+      ? { value: parsed.data.amount.value, currency: parsed.data.amount.currency_code }
+      : undefined,
+  };
+}
+
+const refundResourceSchema = z.object({
+  id: z.string(),
+  custom_id: z.string().optional(),
+  supplementary_data: z
+    .object({
+      related_ids: z
+        .object({ order_id: z.string().optional(), capture_id: z.string().optional() })
+        .optional(),
+    })
+    .optional(),
+  links: z.array(z.object({ href: z.string(), rel: z.string() })).optional(),
+});
+
+/**
+ * For PAYMENT.CAPTURE.REFUNDED / REVERSED: where the resource is a refund, its own ID is the
+ * refund ID, and the capture/order it belongs to come from `related_ids` or the `up` link. Only
+ * used to find our payment; refund amounts are re-read from PayPal.
+ */
+export function extractRefundRefs(resource: Record<string, unknown>) {
+  const parsed = refundResourceSchema.safeParse(resource);
+  if (!parsed.success) return null;
+  const related = parsed.data.supplementary_data?.related_ids;
+  const up = parsed.data.links?.find((l) => l.rel === 'up')?.href;
+  const captureFromLink = up?.match(/\/v2\/payments\/captures\/([^/?#]+)/)?.[1];
+  return {
+    resourceId: parsed.data.id,
+    captureId: related?.capture_id ?? captureFromLink,
+    paypalOrderId: related?.order_id,
     customId: parsed.data.custom_id,
   };
 }

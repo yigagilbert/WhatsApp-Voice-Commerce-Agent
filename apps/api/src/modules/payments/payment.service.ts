@@ -21,8 +21,12 @@ import {
 import { payPalErrorIssues, type PayPalApi, type PayPalOrder } from '@vca/paypal';
 import { branded } from '../agent/copy';
 import type { NotificationService } from '../notifications/notification.service';
+import type { OpsAlerts } from '../ops/ops-alerts';
 
 type OrderWithDetails = Awaited<ReturnType<OrderService['getByReference']>>;
+
+/** Capture states where the money was taken (later refunds don't undo that it was paid). */
+const CAPTURED = new Set(['COMPLETED', 'PARTIALLY_REFUNDED', 'REFUNDED']);
 
 /**
  * - completed: this call moved the payment to COMPLETED
@@ -38,6 +42,16 @@ export interface PaymentServiceOptions {
   publicBaseUrl: string;
   brandName: string;
   policy: PaymentPolicyConfig;
+  /** Hours an order may wait for payment before it is cancelled (0 = never). */
+  unpaidOrderExpiryHours?: number;
+  /** Operator alert when PayPal refuses or fails to create a payment link. */
+  alerts?: Pick<OpsAlerts, 'alert'>;
+}
+
+/** Captured money as PayPal reports it (major-unit string), to check against what we asked for. */
+export interface CapturedAmount {
+  value: string;
+  currency: string;
 }
 
 /**
@@ -161,7 +175,25 @@ export class PaymentService {
             providerStatus: paypalOrder.status,
           },
         });
-        if (!renewedFrom) await this.orders.transition(order.id, 'DRAFT', 'AWAITING_PAYMENT', tx);
+        // The order may have been cancelled (expiry, customer) since it was loaded: then the link
+        // must not be issued. Throwing rolls this back; the PayPal order is never shown and expires.
+        const stillOpen = renewedFrom
+          ? (await tx.order.count({ where: { id: order.id, status: 'AWAITING_PAYMENT' } })) === 1
+          : await this.orders.transition(order.id, 'DRAFT', 'AWAITING_PAYMENT', tx);
+        if (!stillOpen)
+          throw new ConflictError(
+            `Order ${order.reference} was cancelled or changed meanwhile, so no payment link was sent.`,
+          );
+        // A new link (or a renewed one the merchant asked for) gets a full payment window.
+        const dueAt = this.paymentDueAt();
+        if (dueAt)
+          await tx.order.updateMany({
+            where: {
+              id: order.id,
+              OR: [{ paymentDueAt: null }, { paymentDueAt: { lt: dueAt } }],
+            },
+            data: { paymentDueAt: dueAt },
+          });
         await this.audit.record(
           {
             merchantId: order.merchantId,
@@ -193,8 +225,21 @@ export class PaymentService {
         entityId: payment.id,
         data: { error: error instanceof Error ? error.message : String(error) },
       });
+      // Policy refusals and conflicts are expected business outcomes; provider failures need a look.
+      if (!(error instanceof PolicyViolationError) && !(error instanceof ConflictError))
+        await this.options.alerts?.alert(
+          'paypal-checkout-failed',
+          'PayPal payment link failed',
+          `A payment link for order ${order.reference} could not be created: ${(error instanceof Error ? error.message : String(error)).slice(0, 300)}\nThe customer/merchant can retry; check PayPal status and credentials if this repeats.`,
+        );
       throw error;
     }
+  }
+
+  /** When an order sent for payment now must be paid by (null when expiry is off). */
+  paymentDueAt(now = new Date()): Date | null {
+    const hours = this.options.unpaidOrderExpiryHours ?? 0;
+    return hours > 0 ? new Date(now.getTime() + hours * 3_600_000) : null;
   }
 
   /**
@@ -219,7 +264,17 @@ export class PaymentService {
       try {
         result = await this.paypal.captureOrder(paypalOrderId, `capture-${payment.id}`);
       } catch (error) {
-        if (!payPalErrorIssues(error).includes('ORDER_ALREADY_CAPTURED')) throw error;
+        if (!payPalErrorIssues(error).includes('ORDER_ALREADY_CAPTURED')) {
+          // The buyer approved but PayPal won't take the money (e.g. a seller-account restriction):
+          // every payment may be stuck, so the operator must hear about it.
+          const issues = payPalErrorIssues(error);
+          await this.options.alerts?.alert(
+            'paypal-capture-failed',
+            'PayPal capture failed',
+            `An approved payment (PayPal order ${paypalOrderId}) could not be captured${issues.length ? `: ${issues.join(', ')}` : ''}. The order stays unpaid and is retried; if this repeats, check the PayPal seller account.`,
+          );
+          throw error;
+        }
         this.logger.info({ paypalOrderId }, 'order already captured at PayPal; syncing status');
         result = await this.paypal.getOrder(paypalOrderId);
       }
@@ -239,8 +294,13 @@ export class PaymentService {
         'paypal capture result',
       );
 
-      if (capture?.status === 'COMPLETED') {
-        return (await this.markCompleted(payment.id, capture.id)) ? 'completed' : 'already_handled';
+      if (capture && CAPTURED.has(capture.status)) {
+        const amount = capture.amount
+          ? { value: capture.amount.value, currency: capture.amount.currency_code }
+          : undefined;
+        return (await this.markCompleted(payment.id, capture.id, amount))
+          ? 'completed'
+          : 'already_handled';
       }
       if (capture?.status === 'DECLINED' || capture?.status === 'FAILED') {
         await this.applyStatus(payment, 'FAILED');
@@ -271,12 +331,25 @@ export class PaymentService {
   /**
    * Marks a payment COMPLETED and its order PAID exactly once, then notifies the merchant.
    * Safe to call repeatedly (webhook redelivery, return URL + webhook racing).
+   *
+   * Money that arrives for a CANCELLED payment (a capture that raced a cancellation, or an old,
+   * superseded link) is still recorded: a cancelled order is reinstated as PAID, and a second
+   * payment for an already-paid order is flagged to the admins for a refund.
    */
-  async markCompleted(paymentId: string, captureId: string | undefined): Promise<boolean> {
+  async markCompleted(
+    paymentId: string,
+    captureId: string | undefined,
+    captured?: CapturedAmount,
+  ): Promise<boolean> {
     let stockAlerts: StockAlert[] = [];
+    // Set inside the transaction callback (a plain annotation would be narrowed to 'paid').
+    let outcome = 'paid' as 'paid' | 'reinstated' | 'duplicate';
     const firstTime = await this.db.$transaction(async (tx) => {
+      // Lock the order row first, like cancellation does, so the two can't deadlock (a deadlock
+      // victim here would mean money captured but not recorded).
+      await tx.$queryRaw`SELECT o.id FROM orders o JOIN payments p ON p."orderId" = o.id WHERE p.id = ${paymentId} FOR UPDATE OF o`;
       const { count } = await tx.payment.updateMany({
-        where: { id: paymentId, status: { in: ['CREATED', 'APPROVED'] } },
+        where: { id: paymentId, status: { in: ['CREATED', 'APPROVED', 'CANCELLED'] } },
         data: {
           status: 'COMPLETED',
           providerStatus: 'COMPLETED',
@@ -289,11 +362,46 @@ export class PaymentService {
         where: { id: paymentId },
         include: { order: true },
       });
-      if (payment.order.status === 'AWAITING_PAYMENT') {
-        await this.orders.transition(payment.orderId, 'AWAITING_PAYMENT', 'PAID', tx);
+      const order = payment.order;
+      if (order.status === 'AWAITING_PAYMENT') {
+        await this.orders.transition(order.id, 'AWAITING_PAYMENT', 'PAID', tx);
+      } else if (order.status === 'CANCELLED') {
+        await this.orders.transition(order.id, 'CANCELLED', 'PAID', tx);
+        // Its stock was released at cancellation and may have been sold since: flag it so it
+        // can't be shipped until an owner has checked stock (or refunded it).
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            cancelledAt: null,
+            cancelReason: null,
+            attention: 'PAID_AFTER_CANCEL',
+            attentionAt: new Date(),
+          },
+        });
+        outcome = 'reinstated';
+        await this.audit.record(
+          {
+            merchantId: payment.merchantId,
+            actor: 'PROVIDER',
+            type: 'order.reinstated',
+            entityType: 'order',
+            entityId: order.id,
+            data: { reference: order.reference, cancelReason: order.cancelReason },
+          },
+          tx,
+        );
+      } else {
+        outcome = 'duplicate';
+        await tx.order.update({
+          where: { id: order.id },
+          data: { attention: 'DUPLICATE_PAYMENT', attentionAt: new Date() },
+        });
+        await tx.payment.update({ where: { id: payment.id }, data: { duplicate: true } });
       }
       // A paid order reduces stock once (ledgered); alerts are sent after the commit.
-      if (this.inventory) stockAlerts = await this.inventory.recordSale(payment.orderId, tx);
+      if (this.inventory && outcome !== 'duplicate')
+        stockAlerts = await this.inventory.recordSale(order.id, tx);
+      const mismatch = captured && !this.matches(payment, captured);
       await this.audit.record(
         {
           merchantId: payment.merchantId,
@@ -301,18 +409,69 @@ export class PaymentService {
           type: 'payment.completed',
           entityType: 'payment',
           entityId: payment.id,
-          data: { orderReference: payment.order.reference, captureId: captureId ?? null },
+          data: {
+            orderReference: order.reference,
+            captureId: captureId ?? null,
+            ...(outcome !== 'paid' ? { note: outcome } : {}),
+            ...(mismatch
+              ? { capturedAmount: captured.value, capturedCurrency: captured.currency }
+              : {}),
+          },
         },
         tx,
       );
+      if (mismatch)
+        await this.audit.record(
+          {
+            merchantId: payment.merchantId,
+            actor: 'PROVIDER',
+            type: 'payment.amount_mismatch',
+            entityType: 'payment',
+            entityId: payment.id,
+            data: {
+              expected: toMajorString(payment.amountMinor, payment.currency),
+              expectedCurrency: payment.currency,
+              captured: captured.value,
+              capturedCurrency: captured.currency,
+            },
+          },
+          tx,
+        );
       return true;
     });
 
     if (firstTime) {
-      await this.notifyPaymentReceived(paymentId);
+      if (outcome === 'duplicate') await this.notifyDuplicatePayment(paymentId);
+      else await this.notifyPaymentReceived(paymentId, outcome === 'reinstated');
       if (stockAlerts.length) await this.notifyStockAlerts(paymentId, stockAlerts);
     }
     return firstTime;
+  }
+
+  /**
+   * A cancelled link is never captured by Katale, but a capture already in flight when it was
+   * cancelled can still complete at PayPal. Records such money (asking PayPal, never capturing).
+   * Returns true if a payment was recorded now.
+   */
+  async recordLateCapture(payment: Payment): Promise<boolean> {
+    if (payment.status !== 'CANCELLED' || !payment.externalId) return false;
+    const paypalOrder = await this.paypal.getOrder(payment.externalId);
+    const capture = paypalOrder.purchase_units?.[0]?.payments?.captures?.[0];
+    if (paypalOrder.status !== 'COMPLETED' || !capture || !CAPTURED.has(capture.status))
+      return false;
+    const amount = capture.amount
+      ? { value: capture.amount.value, currency: capture.amount.currency_code }
+      : undefined;
+    return this.inTransactionTrace(payment, () =>
+      this.markCompleted(payment.id, capture.id, amount),
+    );
+  }
+
+  private matches(payment: Pick<Payment, 'amountMinor' | 'currency'>, captured: CapturedAmount) {
+    return (
+      captured.currency === payment.currency &&
+      captured.value === toMajorString(payment.amountMinor, payment.currency)
+    );
   }
 
   /** Applies a non-completion status change if the state machine allows it. */
@@ -370,6 +529,10 @@ export class PaymentService {
     };
   }
 
+  findByCaptureId(captureId: string) {
+    return this.db.payment.findFirst({ where: { provider: 'PAYPAL', captureId } });
+  }
+
   findByProviderRefs(refs: { paypalOrderId?: string | undefined; customId?: string | undefined }) {
     if (refs.paypalOrderId) {
       return this.db.payment.findUnique({
@@ -397,11 +560,42 @@ export class PaymentService {
       await this.notifications.toConversation(payment.order.conversationId, text);
   }
 
-  private async notifyPaymentReceived(paymentId: string): Promise<void> {
+  private async notifyDuplicatePayment(paymentId: string): Promise<void> {
     const payment = await this.db.payment.findUniqueOrThrow({
       where: { id: paymentId },
       include: { order: { include: { customer: true } } },
     });
+    await this.notifications.toAdmins(
+      payment.merchantId,
+      branded(
+        [
+          '⚠️ *Second payment received*',
+          '',
+          `Order ${payment.order.reference} (${payment.order.customer.name}) was already paid, and another ${formatMoney(payment.amountMinor, payment.currency)} arrived through an older payment link.`,
+          'Please refund the extra payment in PayPal.',
+        ].join('\n'),
+      ),
+    );
+  }
+
+  private async notifyPaymentReceived(paymentId: string, reinstated = false): Promise<void> {
+    const payment = await this.db.payment.findUniqueOrThrow({
+      where: { id: paymentId },
+      include: {
+        order: {
+          include: {
+            customer: true,
+            items: { include: { product: { select: { name: true, stockQuantity: true } } } },
+          },
+        },
+      },
+    });
+    // After a reinstatement the sale may have taken stock below zero: name what is short.
+    const short = reinstated
+      ? payment.order.items
+          .filter((i) => i.product?.stockQuantity != null && i.product.stockQuantity < 0)
+          .map((i) => `${i.product!.name} (${i.product!.stockQuantity})`)
+      : [];
     // Built only from trusted payment state; sent once (markCompleted's conditional update).
     const text = branded(
       [
@@ -411,7 +605,15 @@ export class PaymentService {
         `Customer: ${payment.order.customer.name}`,
         `Amount: ${formatMoney(payment.amountMinor, payment.currency)}`,
         '',
-        'The order is now marked as paid.',
+        ...(reinstated
+          ? [
+              '⚠️ This order had been cancelled, but the payment went through, so it is marked as paid again.',
+              short.length
+                ? `Stock is now short: ${short.join(', ')}. Restock or refund it in PayPal.`
+                : 'Check you can still fulfil it, or refund it in PayPal.',
+              'Shipping is blocked until you mark it reviewed in the dashboard (Orders).',
+            ]
+          : ['The order is now marked as paid.']),
       ].join('\n'),
     );
     if (payment.order.placedBy === 'CUSTOMER') {
@@ -423,9 +625,12 @@ export class PaymentService {
             `✅ *Payment received — thank you!*`,
             '',
             `Order ${payment.order.reference} · ${formatMoney(payment.amountMinor, payment.currency)} is paid.`,
-            payment.order.deliveryMethod === 'PICKUP'
-              ? "We'll let you know when it's ready to pick up."
-              : "We're preparing it now. Reply *orders* any time to check its status.",
+            // A reinstated order isn't promised yet: the shop checks stock first.
+            reinstated
+              ? 'Your order had been cancelled just before the payment arrived, so the shop will check availability and confirm it with you shortly.'
+              : payment.order.deliveryMethod === 'PICKUP'
+                ? "We'll let you know when it's ready to pick up."
+                : "We're preparing it now. Reply *orders* any time to check its status.",
           ].join('\n'),
         );
       await this.notifications.toAdmins(payment.merchantId, text);
@@ -434,6 +639,9 @@ export class PaymentService {
     if (payment.order.conversationId) {
       await this.notifications.toConversation(payment.order.conversationId, text);
     }
+    // A reinstated order needs a decision (fulfil or refund): make sure the admins see it.
+    if (reinstated && !payment.order.conversationId)
+      await this.notifications.toAdmins(payment.merchantId, text);
   }
 }
 

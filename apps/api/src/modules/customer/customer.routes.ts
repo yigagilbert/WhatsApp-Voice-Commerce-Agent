@@ -3,6 +3,7 @@ import { toMajorString, toMinorUnits } from '@vca/commerce';
 import { HEADERS, NotFoundError, ValidationError } from '@vca/shared';
 import { z } from 'zod';
 import type { Container } from '../../container';
+import { ownerOnly } from '../../http/merchant-scope';
 import { parse } from '../../http/validation';
 
 export const MAX_PHOTO_BYTES = 1_000_000;
@@ -96,7 +97,7 @@ export async function customerCommerceRoutes(
     };
   });
 
-  app.post('/api/whatsapp/account/connect', async (request, reply) => {
+  app.post('/api/whatsapp/account/connect', { preHandler: ownerOnly }, async (request, reply) => {
     const bot = await currentBot();
     if (!bot)
       return reply.status(409).send({ error: { message: 'The WhatsApp bot is not connected.' } });
@@ -104,7 +105,7 @@ export async function customerCommerceRoutes(
     return { id: account.id, number: masked(account.wid) };
   });
 
-  app.put('/api/whatsapp/account/:id', async (request) => {
+  app.put('/api/whatsapp/account/:id', { preHandler: ownerOnly }, async (request) => {
     const { id } = parse(idParams, request.params);
     const { deliveryFee, ...body } = parse(accountPatch, request.body);
     const settings = {

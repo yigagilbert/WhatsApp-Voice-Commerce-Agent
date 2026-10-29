@@ -2,7 +2,8 @@ import type { Database, Merchant, Prisma } from '@vca/database';
 import type { SalesPeriod } from '../commands';
 import { aggregatePaidOrders, sourceLabel, type PaidOrderFact } from '../insights';
 import { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '../state';
-import { formatMoney } from '../money';
+import { formatMoney, toMajorNumber } from '../money';
+import { NOT_OPEN_CART } from './order.service';
 import { previousPeriod, resolvePeriod } from '../periods';
 
 export interface CurrencyAmount {
@@ -16,12 +17,18 @@ export interface CurrencyAmount {
 const toCurrencyAmounts = (
   rows: {
     currency: string;
-    _sum: { amountMinor?: number | null; totalMinor?: number | null };
+    _sum: {
+      amountMinor?: number | null;
+      totalMinor?: number | null;
+      /** Subtracted when present: revenue is net of refunds. */
+      refundedMinor?: number | null;
+    };
     _count: { _all: number };
   }[],
 ): CurrencyAmount[] =>
   rows.map((r) => {
-    const amountMinor = r._sum.amountMinor ?? r._sum.totalMinor ?? 0;
+    const amountMinor =
+      (r._sum.amountMinor ?? r._sum.totalMinor ?? 0) - (r._sum.refundedMinor ?? 0);
     return {
       currency: r.currency,
       amountMinor,
@@ -65,7 +72,7 @@ export class AnalyticsService {
       source: p.order.source,
       inputMode: p.order.inputMode,
       currency: p.currency,
-      amountMinor: p.amountMinor,
+      amountMinor: p.amountMinor - p.refundedMinor,
       items: p.order.items,
     }));
   }
@@ -94,7 +101,7 @@ export class AnalyticsService {
         .groupBy({
           by: ['currency'],
           where: { merchantId: merchant.id, status: 'COMPLETED', completedAt },
-          _sum: { amountMinor: true },
+          _sum: { amountMinor: true, refundedMinor: true },
           _count: { _all: true },
         })
         .then(toCurrencyAmounts),
@@ -109,13 +116,13 @@ export class AnalyticsService {
       from: range.start?.toISOString() ?? null,
       to: range.end.toISOString(),
       timezone: merchant.timezone,
-      /** Completed PayPal payments in the period. */
+      /** Completed PayPal payments in the period, net of refunds. */
       revenue,
       /** All orders currently awaiting payment (not limited to the period). */
       outstanding,
       ...breakdown,
       notes:
-        'Revenue = completed PayPal payments. Product revenue excludes shipping and tax. Outstanding = orders awaiting payment now.',
+        'Revenue = completed PayPal payments minus refunds (fully refunded orders are excluded). Product revenue excludes shipping and tax. Outstanding = orders awaiting payment now.',
     };
   }
 
@@ -128,7 +135,7 @@ export class AnalyticsService {
         status: 'COMPLETED',
         completedAt: { ...(start ? { gte: start } : {}), lt: end },
       },
-      _sum: { amountMinor: true },
+      _sum: { amountMinor: true, refundedMinor: true },
       _count: { _all: true },
     });
     return toCurrencyAmounts(rows);
@@ -179,7 +186,7 @@ export class AnalyticsService {
     const start = new Date(now.getTime() - days * 86_400_000);
     const payments = await this.db.payment.findMany({
       where: { merchantId: merchant.id, status: 'COMPLETED', completedAt: { gte: start, lt: now } },
-      select: { amountMinor: true, currency: true, completedAt: true },
+      select: { amountMinor: true, refundedMinor: true, currency: true, completedAt: true },
       take: MAX_FACTS,
     });
     const dayKey = (d: Date) =>
@@ -192,7 +199,8 @@ export class AnalyticsService {
     for (const p of payments) {
       if (p.currency !== currency) continue; // single-currency chart; others reported separately
       const key = dayKey(p.completedAt!);
-      if (totals.has(key)) totals.set(key, (totals.get(key) ?? 0) + p.amountMinor);
+      if (totals.has(key))
+        totals.set(key, (totals.get(key) ?? 0) + p.amountMinor - p.refundedMinor);
     }
     return {
       currency,
@@ -268,15 +276,25 @@ export class AnalyticsService {
       this.db.customer.findMany({
         where: { merchantId },
         include: {
-          _count: { select: { orders: true } },
-          orders: { select: { createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+          _count: { select: { orders: { where: NOT_OPEN_CART } } },
+          orders: {
+            where: NOT_OPEN_CART,
+            select: { createdAt: true },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
         },
         orderBy: { name: 'asc' },
         take: 1000,
       }),
       this.db.payment.findMany({
         where: { merchantId, status: 'COMPLETED' },
-        select: { amountMinor: true, currency: true, order: { select: { customerId: true } } },
+        select: {
+          amountMinor: true,
+          refundedMinor: true,
+          currency: true,
+          order: { select: { customerId: true } },
+        },
         take: MAX_FACTS,
       }),
     ]);
@@ -285,7 +303,7 @@ export class AnalyticsService {
       const currency = mine[0]?.currency ?? c.preferredCurrency ?? null;
       const revenueMinor = mine
         .filter((p) => p.currency === currency)
-        .reduce((sum, p) => sum + p.amountMinor, 0);
+        .reduce((sum, p) => sum + p.amountMinor - p.refundedMinor, 0);
       return {
         id: c.id,
         name: c.name,
@@ -338,7 +356,7 @@ export class AnalyticsService {
     const merchantId = merchant.id;
     const [orders, payments, customers, products, shipments, disputes] = await Promise.all([
       this.db.order.findMany({
-        where: { merchantId },
+        where: { merchantId, ...NOT_OPEN_CART },
         include: {
           customer: { select: { id: true, name: true } },
           items: true,
@@ -366,7 +384,8 @@ export class AnalyticsService {
         take: MAX_FACTS,
       }),
     ]);
-    const major = (minor: number) => minor / 100;
+    // Exponent-aware: UGX/JPY amounts are stored without a minor unit.
+    const major = toMajorNumber;
     return {
       orders: orders.map((o) => ({
         orderId: o.reference,
@@ -377,9 +396,10 @@ export class AnalyticsService {
         source: sourceLabel(o.source, o.inputMode),
         status: ORDER_STATUS_LABELS[o.status],
         currency: o.currency,
-        subtotal: major(o.subtotalMinor),
-        shipping: major(o.shippingMinor),
-        total: major(o.totalMinor),
+        subtotal: major(o.subtotalMinor, o.currency),
+        shipping: major(o.shippingMinor, o.currency),
+        total: major(o.totalMinor, o.currency),
+        refunded: major(o.refundedMinor, o.currency),
         itemCount: o.items.reduce((sum, i) => sum + i.quantity, 0),
         createdAt: o.createdAt.toISOString(),
         paidAt: o.payments[0]?.completedAt?.toISOString() ?? null,
@@ -398,7 +418,7 @@ export class AnalyticsService {
         orderId: d.order?.reference ?? null,
         reason: d.reason,
         status: d.status,
-        amount: d.amountMinor !== null ? major(d.amountMinor) : null,
+        amount: d.amountMinor !== null && d.currency ? major(d.amountMinor, d.currency) : null,
         currency: d.currency,
         openedAt: d.openedAt?.toISOString() ?? null,
         responseDue: d.sellerResponseDueAt?.toISOString() ?? null,
@@ -410,8 +430,8 @@ export class AnalyticsService {
           product: i.description,
           inCatalog: i.productId !== null,
           quantity: i.quantity,
-          unitPrice: major(i.unitPriceMinor),
-          lineTotal: major(i.lineTotalMinor),
+          unitPrice: major(i.unitPriceMinor, o.currency),
+          lineTotal: major(i.lineTotalMinor, o.currency),
           orderStatus: ORDER_STATUS_LABELS[o.status],
         })),
       ),
@@ -421,7 +441,8 @@ export class AnalyticsService {
         customerId: p.order.customerId,
         provider: 'PayPal',
         status: PAYMENT_STATUS_LABELS[p.status],
-        amount: major(p.amountMinor),
+        amount: major(p.amountMinor, p.currency),
+        refunded: major(p.refundedMinor, p.currency),
         currency: p.currency,
         createdAt: p.createdAt.toISOString(),
         completedAt: p.completedAt?.toISOString() ?? null,
@@ -435,7 +456,7 @@ export class AnalyticsService {
       products: products.map((p) => ({
         sku: p.sku,
         product: p.name,
-        price: major(p.unitPriceMinor),
+        price: major(p.unitPriceMinor, p.currency),
         currency: p.currency,
         stock: p.stockQuantity,
         active: p.active,
@@ -456,16 +477,17 @@ export class AnalyticsService {
     ] = await Promise.all([
       this.salesSummary(merchant, 'all_time'),
       this.salesSummary(merchant, 'this_week'),
+      // Open customer carts are not orders yet.
       this.db.order.groupBy({
         by: ['status'],
-        where: { merchantId: merchant.id },
+        where: { merchantId: merchant.id, ...NOT_OPEN_CART },
         _count: { _all: true },
       }),
       this.db.customer.count({ where: { merchantId: merchant.id } }),
       this.db.product.count({ where: { merchantId: merchant.id, active: true } }),
       this.operations(merchant.id),
       this.db.order.findMany({
-        where: { merchantId: merchant.id },
+        where: { merchantId: merchant.id, ...NOT_OPEN_CART },
         include: { customer: { select: { name: true } } },
         orderBy: { createdAt: 'desc' },
         take: 5,
@@ -508,7 +530,9 @@ export class AnalyticsService {
       this.db.order.count({
         where: { merchantId, status: 'PAID', fulfillmentStatus: 'NOT_SHIPPED' },
       }),
-      this.db.order.count({ where: { merchantId, fulfillmentStatus: 'SHIPPED' } }),
+      this.db.order.count({
+        where: { merchantId, status: 'PAID', fulfillmentStatus: 'SHIPPED' },
+      }),
       this.db.dispute.count({ where: { merchantId, status: active } }),
       this.db.dispute.count({ where: { merchantId, status: 'WAITING_FOR_SELLER_RESPONSE' } }),
       this.db.dispute.groupBy({

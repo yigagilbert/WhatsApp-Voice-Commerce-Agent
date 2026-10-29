@@ -49,6 +49,40 @@ export async function paypalRoutes(app: FastifyInstance, { container }: { contai
     const view = await container.payments.buyerView(token);
     if (!view) return notFound(reply);
 
+    // A cancelled link is never captured by us, whatever the buyer approved. But a capture that
+    // was already in flight may have completed at PayPal: ask before saying nothing was taken.
+    if (view.status === 'CANCELLED') {
+      try {
+        const payment = await container.payments.findByProviderRefs({ paypalOrderId: token });
+        if (payment && (await container.payments.recordLateCapture(payment))) {
+          const after = (await container.payments.buyerView(token)) ?? view;
+          return send(reply, {
+            tone: 'success',
+            title: 'Payment received',
+            message: `Your payment was received. The merchant will confirm your order shortly. ${CLOSE}`,
+            details: after.details,
+          });
+        }
+      } catch (error) {
+        request.log.error({ err: error }, 'late capture check failed');
+        return send(reply, {
+          tone: 'pending',
+          title: 'Checking your payment',
+          message: `We couldn't confirm this payment with PayPal just now. If money was taken, the merchant will be notified automatically. ${CLOSE}`,
+          details: view.details,
+        });
+      }
+    }
+    if (view.status === 'CANCELLED')
+      return send(reply, {
+        tone: 'neutral',
+        title: view.orderStatus === 'CANCELLED' ? 'Order cancelled' : 'Link replaced',
+        message:
+          view.orderStatus === 'CANCELLED'
+            ? `This order was cancelled, so no payment was taken. Please contact the merchant if you still want it. ${CLOSE}`
+            : `No payment was taken: this link was replaced by a newer one. Please use the latest payment link the merchant sent you. ${CLOSE}`,
+        details: view.details,
+      });
     const processing = {
       tone: 'pending' as const,
       title: 'Payment processing',

@@ -103,6 +103,16 @@ export const commerceSchema = z.object({
     .default('UG'),
   /** Run the proactive report scheduler in this process (one API instance only). */
   REPORT_SCHEDULER_ENABLED: booleanString.default(true),
+  /**
+   * Unpaid orders (awaiting payment, or placed by a customer and awaiting approval) are cancelled
+   * this many hours after they were sent for payment / placed, releasing reserved stock.
+   * 0 turns expiry off. Runs on the report scheduler's tick.
+   */
+  UNPAID_ORDER_EXPIRY_HOURS: z.coerce
+    .number()
+    .min(0)
+    .max(24 * 60)
+    .default(72),
   /** Background re-check of open PayPal links (runs on the report scheduler's tick). */
   PAYMENT_RECONCILIATION_ENABLED: booleanString.default(true),
   /**
@@ -154,9 +164,34 @@ export const apiSchema = baseSchema
           .filter(Boolean),
       ),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
-    /** Trust X-Forwarded-* from a reverse proxy (true in production behind Nginx). */
-    TRUST_PROXY: booleanString,
+    /**
+     * Which proxies to trust for X-Forwarded-For (client IP for rate limits and logs): "false" (no
+     * proxy), or the proxy's addresses/CIDRs/ranges, e.g. "loopback,uniquelocal" for Nginx on a
+     * private Docker network (production). The client IP is then the right-most address added by
+     * that proxy, which clients can't spoof. "true" trusts the whole client-supplied chain: avoid.
+     * (Hop counts aren't accepted: Fastify 5 treats them as "trust nothing".)
+     */
+    TRUST_PROXY: z
+      .string()
+      .default('false')
+      .refine(
+        (v) =>
+          /^(true|false|1|0)$/.test(v) ||
+          (/^[A-Za-z0-9.:/,\s]+$/.test(v) && !/^\d+$/.test(v.trim())),
+        'TRUST_PROXY must be true, false or a list of proxy addresses/CIDRs (e.g. loopback,uniquelocal)',
+      )
+      // "1"/"0" keep their old meaning (true/false) so existing .env files still start.
+      .transform((v): boolean | string =>
+        v === 'true' || v === '1' ? true : v === 'false' || v === '0' ? false : v,
+      ),
     WHATSAPP_GATEWAY_URL: optionalString.pipe(z.string().url().optional()),
+    /**
+     * Operator alerts (failed webhooks, payment links, reports, background jobs; WhatsApp offline
+     * 5+ min) as a plain-text POST — e.g. an ntfy.sh topic URL. Not WhatsApp: it may be what's down.
+     */
+    ALERT_WEBHOOK_URL: optionalString.pipe(z.string().url().optional()),
+    /** Dead-man's switch (e.g. healthchecks.io): pinged at most every 5 min after healthy scheduler passes. */
+    HEARTBEAT_URL: optionalString.pipe(z.string().url().optional()),
   });
 
 export const whatsappSchema = baseSchema.extend({
@@ -194,10 +229,22 @@ export const webSchema = baseSchema.extend({
   /** Optional AG Studio licence key (removes the evaluation watermark). */
   AG_STUDIO_LICENSE_KEY: optionalString,
   API_AUTH_TOKEN: z.string().min(16),
-  /** Dashboard login (single operator account; grows into real accounts later). */
+  /**
+   * Bootstrap ("setup") login, accepted only while no dashboard account exists, so the first owner
+   * can be created from the dashboard. It stops working as soon as one account exists.
+   */
   DASHBOARD_USERNAME: z.string().min(1).default('admin'),
-  /** No default: without it the dashboard refuses every login (fails closed). */
+  /** No default: without it the setup login is refused (fails closed). */
   DASHBOARD_PASSWORD: optionalString.pipe(z.string().min(8).optional()),
+  /**
+   * Request header carrying the client IP, set by the reverse proxy (Nginx: X-Real-IP
+   * $remote_addr), for the login throttle. Never X-Forwarded-For's first value: clients control it.
+   */
+  DASHBOARD_CLIENT_IP_HEADER: z
+    .string()
+    .min(1)
+    .default('x-real-ip')
+    .transform((v) => v.toLowerCase()),
   /** Session lifetime in hours. */
   DASHBOARD_SESSION_HOURS: z.coerce
     .number()

@@ -1,0 +1,41 @@
+# Katale AI — OPTIONAL self-hosted Uptime Kuma for internal health checks.
+#
+# On the VM: /opt/apps/uptime-kuma/docker-compose.yml (separate project, so `docker compose down` in
+# katale-ai never touches it). Start the Katale stack first (it creates katale-ai-internal), then:
+#   cd /opt/apps/uptime-kuma && docker compose up -d
+#
+# No host ports are published. Expose it through Nginx Proxy Manager as a proxy host
+# (https://<STATUS_DOMAIN> → uptime-kuma:3001, Websockets Support ON, Force SSL) protected by an NPM
+# Access List, in addition to Kuma's own admin login. Monitors to create:
+# docs/deployment/backups-and-monitoring.md.
+#
+# It sits on katale-ai-internal so it can reach http://api:4000 and http://whatsapp:4100. That
+# network also carries Postgres: keep Kuma updated and its admin account strong.
+# Remove: docker compose down (add -v to delete its data as well).
+name: uptime-kuma
+
+services:
+  uptime-kuma:
+    # Pinned 1.23.x; review the release notes before bumping.
+    image: louislam/uptime-kuma:1.23.16
+    container_name: uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - uptime-kuma-data:/app/data
+    networks:
+      - katale-internal
+      - proxy
+    logging:
+      driver: json-file
+      options: { max-size: '10m', max-file: '3' }
+
+volumes:
+  uptime-kuma-data:
+
+networks:
+  katale-internal:
+    external: true
+    name: katale-ai-internal
+  proxy:
+    external: true
+    name: ${KATALE_PROXY_NETWORK:-nginxproxymanager_network}

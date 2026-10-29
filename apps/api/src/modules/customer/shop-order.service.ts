@@ -596,9 +596,14 @@ export class ShopOrderService {
           };
         const fee = order.deliveryMethod === 'DELIVERY' ? account.deliveryFeeMinor : 0;
         await this.recompute(tx, order.id, fee, new Date());
+        // Placed: the cart no longer expires; the order now has a payment due time instead.
         const claimed = await tx.order.updateMany({
           where: { id: order.id, status: 'DRAFT', customerConfirmedAt: null },
-          data: { customerConfirmedAt: new Date(), expiresAt: null },
+          data: {
+            customerConfirmedAt: new Date(),
+            expiresAt: null,
+            paymentDueAt: this.payments.paymentDueAt(),
+          },
         });
         if (claimed.count !== 1) return { status: 'expired' };
         await this.audit.record(
@@ -700,7 +705,10 @@ export class ShopOrderService {
       };
     } catch (error) {
       if (error instanceof PolicyViolationError) {
-        await this.db.order.update({ where: { id: orderId }, data: { customerConfirmedAt: null } });
+        await this.db.order.update({
+          where: { id: orderId },
+          data: { customerConfirmedAt: null, paymentDueAt: null },
+        });
         return {
           status: 'refused',
           reason:
@@ -780,13 +788,18 @@ export class ShopOrderService {
               : o.status === 'PAID'
                 ? shipment
                   ? `paid ✅ · shipped 🚚 ${carrierDisplay(shipment)} ${shipment.trackingNumber}`
-                  : 'paid ✅ · being prepared'
+                  : o.attention === 'PAID_AFTER_CANCEL'
+                    ? 'paid ✅ · the shop is confirming availability'
+                    : `paid ✅ · being prepared${o.refundedMinor > 0 ? ` · ${formatMoney(o.refundedMinor, o.currency)} refunded` : ''}`
                 : o.status === 'REFUNDED'
                   ? 'refunded'
                   : o.status.toLowerCase();
         return `• ${o.reference} · ${total} · ${status}`;
       }),
       '',
+      ...(orders.some((o) => o.status === 'DRAFT' || o.status === 'AWAITING_PAYMENT')
+        ? ['To cancel an unpaid order, reply *cancel* and its number, e.g. *cancel ORD-ABC123*.']
+        : []),
       'Questions about an order? Reply *4* to talk to a person.',
     ].join('\n');
   }

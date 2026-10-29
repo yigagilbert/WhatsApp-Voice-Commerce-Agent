@@ -12,6 +12,7 @@ import {
   type OutboundMedia,
 } from '@vca/shared';
 import type { NotificationService } from '../notifications/notification.service';
+import type { OrderLifecycleService } from '../orders/order-lifecycle.service';
 import { CustomerCatalog } from './catalog';
 import { ShopOrderService, type CheckoutStep, type ShopActor } from './shop-order.service';
 import { buildCustomerPrompt } from './customer-prompt';
@@ -36,6 +37,8 @@ const CHECKOUT = /^(check ?out|place (my |an )?order|buy now|pay now)[\s!.]*$/i;
 /** "add", "add 2", "add 2 of 3", "add 2 x product 3". */
 const ADD =
   /^add(?:\s+(\d{1,2}))?(?:\s*(?:x|×|of|pcs?|pieces?)?\s*(?:product|item|number|no\.?|#)?\s*(\d{1,3}))?(?:\s+to (?:my )?cart)?[\s!.]*$/i;
+/** "cancel ORD-ABC123" / "cancel order ORD-ABC123": the customer cancels their own unpaid order. */
+const CANCEL_ORDER = /^cancel\s+(?:my\s+)?(?:order\s+)?(ORD-[A-Z0-9]{6})[\s!.]*$/i;
 /** "remove 2" (cart line) or "remove this item". */
 const REMOVE = /^(?:remove|delete)\s+(?:(\d{1,2})|this(?: item| one)?|it)[\s!.]*$/i;
 
@@ -60,6 +63,8 @@ export interface CustomerConversationDeps {
   chatModel: ChatModel | null;
   notifications: NotificationService;
   shop: ShopOrderService;
+  /** Customer cancellation of their own unpaid orders (optional). */
+  lifecycle?: Pick<OrderLifecycleService, 'cancel'>;
   logger: Logger;
   /** Messages per customer per minute before the bot slows them down (default 15). */
   perMinute?: number;
@@ -179,6 +184,9 @@ export class CustomerConversationService {
     }
 
     try {
+      const cancelOrder = CANCEL_ORDER.exec(text);
+      if (cancelOrder) return await this.cancelOrder(conversation, actor, cancelOrder[1]!);
+
       // ── Checkout: ORDER places it; answers fill in name / delivery / address ──
       if (ORDER_WORD.test(text)) {
         if (state?.checkout?.step === 'confirm')
@@ -291,6 +299,62 @@ export class CustomerConversationService {
     }
 
     return this.runAgent(account, conversation, customer, text, state);
+  }
+
+  /** The customer cancels one of their own unpaid orders. */
+  private async cancelOrder(conversation: Conversation, actor: ShopActor, reference: string) {
+    if (!this.deps.lifecycle)
+      return this.reply(conversation, 'Please reply *4* to ask the shop to cancel an order.');
+    let outcome;
+    try {
+      outcome = await this.deps.lifecycle.cancel({
+        merchantId: actor.merchant.id,
+        reference,
+        by: 'CUSTOMER',
+        customerId: actor.customer.id,
+      });
+    } catch (error) {
+      if (!isAppError(error)) throw error;
+      if (error.code === 'CONFLICT')
+        return this.reply(
+          conversation,
+          'Your payment for this order is being processed right now, so it was not cancelled. Reply *orders* in a few minutes to see its status.',
+        );
+      if (!error.code.startsWith('PROVIDER')) throw error;
+      return this.reply(
+        conversation,
+        "I couldn't check that order's payment with PayPal just now. Please try again in a few minutes.",
+      );
+    }
+    const ref = reference.toUpperCase();
+    if (!outcome)
+      return this.reply(
+        conversation,
+        `I couldn't find order ${ref}. Reply *orders* to see your orders.`,
+      );
+    switch (outcome.status) {
+      case 'cancelled':
+        return this.reply(
+          conversation,
+          `✅ Order ${ref} is cancelled. No money was taken. Reply *1* to keep shopping.`,
+        );
+      case 'already_cancelled':
+        return this.reply(conversation, `Order ${ref} is already cancelled.`);
+      case 'paid':
+        return this.reply(
+          conversation,
+          `Order ${ref} has already been paid, so it can't be cancelled here. Reply *4* to talk to the shop.`,
+        );
+      case 'not_cancellable':
+        return this.reply(
+          conversation,
+          outcome.order.status === 'PAID' || outcome.order.status === 'REFUNDED'
+            ? `Order ${ref} has already been paid, so it can't be cancelled here. Reply *4* to talk to the shop.`
+            : outcome.order.placedBy === 'CUSTOMER'
+              ? `${outcome.reason} Reply *cart* to change it.`
+              : `${outcome.reason} Reply *4* to talk to the shop.`,
+        );
+    }
   }
 
   private async showCart(conversation: Conversation, actor: ShopActor, state: ShopState | null) {

@@ -4,21 +4,27 @@ import { revalidatePath } from 'next/cache';
 import { apiPost, apiPut } from '@/lib/api';
 import { requireUser } from '@/lib/auth';
 
+export type ShopActionState = { ok: boolean; message: string } | null;
+
 /** Restarts the WhatsApp Web session (keeps the linked device). */
-export async function reconnectWhatsApp(): Promise<void> {
+export async function reconnectWhatsApp(): Promise<ShopActionState> {
   await requireUser();
-  await apiPost('/api/whatsapp/session/reconnect', {});
+  const result = await apiPost('/api/whatsapp/session/reconnect', {});
   revalidatePath('/whatsapp');
+  return result.ok
+    ? { ok: true, message: 'Reconnecting… this page updates on its own.' }
+    : { ok: false, message: result.error };
 }
 
 /** Unlinks the bot's device from WhatsApp; a new QR appears for pairing. */
-export async function logoutWhatsApp(): Promise<void> {
+export async function logoutWhatsApp(): Promise<ShopActionState> {
   await requireUser();
-  await apiPost('/api/whatsapp/session/logout', {});
+  const result = await apiPost('/api/whatsapp/session/logout', {});
   revalidatePath('/whatsapp');
+  return result.ok
+    ? { ok: true, message: 'Unlinking… a new QR code will appear for pairing.' }
+    : { ok: false, message: result.error };
 }
-
-export type ShopActionState = { ok: boolean; message: string } | null;
 
 /** Connects the currently linked bot number to this business. */
 export async function connectShopNumber(): Promise<ShopActionState> {

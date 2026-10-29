@@ -43,7 +43,10 @@ services:
       NODE_ENV: production
       API_HOST: 0.0.0.0
       API_PORT: '4000'
-      TRUST_PROXY: 'true'
+      # Trust only Nginx on the private Docker network: the client IP is the address Nginx saw
+      # (appended last), not the client-supplied X-Forwarded-For values. Rolling back to an image
+      # older than this setting: use 'true'.
+      TRUST_PROXY: 'loopback,uniquelocal'
       WHATSAPP_GATEWAY_URL: http://whatsapp:4100
     depends_on:
       postgres: { condition: service_healthy }

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { HEADERS, getCorrelationId } from '@vca/shared';
 import type { Container } from '../../container';
+import { actorLabel, ownerOnly } from '../../http/merchant-scope';
 
 /**
  * The dashboard's view of the WhatsApp connection (status, pairing QR, reconnect, unlink),
@@ -48,12 +49,14 @@ export async function whatsappSessionRoutes(
   });
 
   for (const action of ['reconnect', 'logout'] as const) {
-    app.post(`/api/whatsapp/session/${action}`, async (request, reply) => {
+    // Unlinking the device takes the shop offline: owners only. Reconnecting is harmless.
+    const guard = action === 'logout' ? { preHandler: ownerOnly } : {};
+    app.post(`/api/whatsapp/session/${action}`, guard, async (request, reply) => {
       await container.audit.record({
         merchantId: request.merchant.id,
         actor: 'MERCHANT',
         type: `whatsapp.${action}_requested`,
-        data: { via: 'dashboard' },
+        data: { via: actorLabel(request) },
       });
       const { status, body } = await call('POST', `/internal/session/${action}`);
       return reply.status(status).send(body);

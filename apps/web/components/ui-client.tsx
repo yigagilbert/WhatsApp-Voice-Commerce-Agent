@@ -12,7 +12,11 @@ const TONES: Record<string, string> = {
   FAILED: 'bg-rose-50 text-rose-700 ring-rose-600/20',
   CANCELLED: 'bg-slate-100 text-slate-500 ring-slate-500/20',
   REFUNDED: 'bg-violet-50 text-violet-700 ring-violet-600/20',
+  PARTIALLY_REFUNDED: 'bg-violet-50 text-violet-700 ring-violet-600/20',
 };
+
+/** Display-only states derived from refund amounts (not stored statuses). */
+const DERIVED_LABELS: Record<string, string> = { PARTIALLY_REFUNDED: 'Partly refunded' };
 
 /** Order or payment status as a readable badge ("Awaiting payment", "Awaiting buyer"). */
 export function StatusPill({
@@ -28,7 +32,7 @@ export function StatusPill({
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium leading-5 ring-1 ring-inset ${TONES[status] ?? TONES.DRAFT}`}
     >
-      {labels[status] ?? status}
+      {labels[status] ?? DERIVED_LABELS[status] ?? status}
     </span>
   );
 }

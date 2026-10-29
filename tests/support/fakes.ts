@@ -7,6 +7,7 @@ import type {
   PayPalApi,
   PayPalDispute,
   PayPalOrder,
+  PayPalRefund,
 } from '@vca/paypal';
 
 /** In-memory PayPal double that records calls and mimics idempotency by request ID. */
@@ -43,11 +44,33 @@ export class FakePayPal implements PayPalApi {
   /** Orders already captured at "PayPal" outside our app (e.g. a racing callback). */
   readonly capturedElsewhere = new Set<string>();
 
+  /** Refunds made at "PayPal" (by the merchant in their PayPal account), per PayPal order. */
+  readonly refunds = new Map<string, PayPalRefund[]>();
+  /** Captures reversed at "PayPal" (e.g. a chargeback), per PayPal order. */
+  readonly reversed = new Set<string>();
+
   private completed(orderId: string): PayPalOrder {
+    const refunds = this.refunds.get(orderId);
     return {
       id: orderId,
       status: 'COMPLETED',
-      purchase_units: [{ payments: { captures: [{ id: `CAP-${orderId}`, status: 'COMPLETED' }] } }],
+      purchase_units: [
+        {
+          payments: {
+            captures: [
+              {
+                id: `CAP-${orderId}`,
+                status: this.reversed.has(orderId)
+                  ? 'REVERSED'
+                  : refunds?.length
+                    ? 'PARTIALLY_REFUNDED'
+                    : 'COMPLETED',
+              },
+            ],
+            ...(refunds ? { refunds } : {}),
+          },
+        },
+      ],
     };
   }
   /** Status overrides for getOrder (e.g. PAYER_ACTION_REQUIRED, VOIDED). */

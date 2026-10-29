@@ -27,7 +27,14 @@ describe('state machines', () => {
     expect(canTransitionOrder('DRAFT', 'AWAITING_PAYMENT')).toBe(true);
     expect(canTransitionOrder('AWAITING_PAYMENT', 'PAID')).toBe(true);
     expect(canTransitionOrder('PAID', 'DRAFT')).toBe(false);
-    expect(() => assertOrderTransition('CANCELLED', 'PAID')).toThrow(/cannot move/);
+    expect(() => assertOrderTransition('REFUNDED', 'PAID')).toThrow(/cannot move/);
+    expect(() => assertOrderTransition('CANCELLED', 'AWAITING_PAYMENT')).toThrow(/cannot move/);
+  });
+
+  it('reinstates a cancelled order only when its payment completes late', () => {
+    expect(canTransitionOrder('CANCELLED', 'PAID')).toBe(true);
+    expect(canTransitionPayment('CANCELLED', 'COMPLETED')).toBe(true);
+    expect(canTransitionPayment('CANCELLED', 'APPROVED')).toBe(false);
   });
 
   it('ignores stale or duplicate payment events', () => {

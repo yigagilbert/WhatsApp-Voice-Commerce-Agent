@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import type { ColDef } from 'ag-grid-community';
 import { CommerceGrid, formatMinor } from '@/components/grid/commerce-grid';
 import type { ProductStat } from '@/lib/types';
+import { toMajorNumber } from '@vca/commerce/money';
 
 type Row = ProductStat & { price: number; revenue: number; activeLabel: string };
 
@@ -14,8 +15,8 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
     () =>
       products.map((p) => ({
         ...p,
-        price: p.unitPriceMinor / 100,
-        revenue: p.revenueMinor / 100,
+        price: toMajorNumber(p.unitPriceMinor, p.currency),
+        revenue: toMajorNumber(p.revenueMinor, p.currency),
         activeLabel: p.active ? 'Active' : 'Inactive',
       })),
     [products],

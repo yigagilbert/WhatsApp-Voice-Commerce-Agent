@@ -1,11 +1,23 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useMemo, useState, useTransition } from 'react';
 import type { ColDef } from 'ag-grid-community';
 import { CommerceGrid, formatDate, formatMinor } from '@/components/grid/commerce-grid';
 import { InputModePill, StatusPill } from '@/components/ui-client';
 import type { Order } from '@/lib/types';
+import { toMajorNumber } from '@vca/commerce/money';
+import { cancelOrder, markOrderReviewed } from './actions';
+
+const CANCEL_REASONS: Record<NonNullable<Order['cancelReason']>, string> = {
+  PAYMENT_EXPIRED: 'not paid in time',
+  MERCHANT: 'by the shop',
+  CUSTOMER: 'by the customer',
+};
+
+/** Orders that can still be cancelled: nothing has been paid. */
+const cancellable = (o: Order) => o.status === 'DRAFT' || o.status === 'AWAITING_PAYMENT';
 
 interface OrderRow {
   id: string;
@@ -37,18 +49,20 @@ export function OrdersGrid({ orders }: { orders: Order[] }) {
         channel: CHANNELS[o.source] ?? o.source,
         inputMode: o.inputMode,
         items: (o.items ?? []).map((i) => `${i.quantity} × ${i.description}`).join(', '),
-        amount: o.totalMinor / 100,
+        amount: toMajorNumber(o.totalMinor, o.currency),
         totalMinor: o.totalMinor,
         currency: o.currency,
         status: o.status,
         paymentStatus: o.payments?.[0]?.status ?? '',
-        fulfillment: (o.disputes ?? []).some((d) => d.status !== 'RESOLVED')
-          ? 'Disputed'
-          : o.fulfillmentStatus === 'SHIPPED'
-            ? 'Shipped'
-            : o.status === 'PAID'
-              ? 'To ship'
-              : '',
+        fulfillment: o.attention
+          ? 'Needs review'
+          : (o.disputes ?? []).some((d) => d.status !== 'RESOLVED')
+            ? 'Disputed'
+            : o.fulfillmentStatus === 'SHIPPED'
+              ? 'Shipped'
+              : o.status === 'PAID'
+                ? 'To ship'
+                : '',
         createdAt: new Date(o.createdAt),
         order: o,
       })),
@@ -112,7 +126,7 @@ export function OrdersGrid({ orders }: { orders: Order[] }) {
               className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium leading-5 ring-1 ring-inset ${
                 p.value === 'Shipped'
                   ? 'bg-teal-50 text-teal-700 ring-teal-600/20'
-                  : p.value === 'Disputed'
+                  : p.value === 'Disputed' || p.value === 'Needs review'
                     ? 'bg-rose-50 text-rose-700 ring-rose-600/20'
                     : 'bg-amber-50 text-amber-800 ring-amber-600/20'
               }`}
@@ -145,13 +159,19 @@ export function OrdersGrid({ orders }: { orders: Order[] }) {
           { label: 'Paid', value: 'PAID' },
           { label: 'Draft', value: 'DRAFT' },
           { label: 'Cancelled', value: 'CANCELLED' },
+          { label: 'Refunded', value: 'REFUNDED' },
         ]}
         summarize={(visible) => {
-          const currencies = [...new Set(visible.map((r) => r.currency))];
+          // Money in hand only: paid orders, net of partial refunds (not drafts or cancelled).
+          const paid = visible.filter((r) => r.status === 'PAID');
+          const currencies = [...new Set(paid.map((r) => r.currency))];
           const one = currencies.length === 1 ? currencies[0]! : '';
           return {
             reference: `${visible.length} orders`,
-            totalMinor: one ? visible.reduce((sum, r) => sum + r.totalMinor, 0) : undefined,
+            items: paid.length ? `${paid.length} paid · total net of refunds` : '',
+            totalMinor: one
+              ? paid.reduce((sum, r) => sum + r.totalMinor - (r.order.refundedMinor ?? 0), 0)
+              : undefined,
             currency: one,
           } as Partial<OrderRow>;
         }}
@@ -160,14 +180,93 @@ export function OrdersGrid({ orders }: { orders: Order[] }) {
         searchPlaceholder="Search orders, customers, items…"
         emptyMessage="No orders yet. Send Katale AI an order on WhatsApp or in the Agent console."
       />
-      {selected && <OrderDetail order={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <OrderDetail
+          key={selected.id}
+          // Follow the refreshed data (e.g. after cancelling) while the drawer stays open.
+          order={orders.find((o) => o.id === selected.id) ?? selected}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </>
+  );
+}
+
+type Outcome = { ok: boolean; text: string } | null;
+
+function CancelOrderButton({
+  order,
+  onResult,
+}: {
+  order: Order;
+  onResult: (outcome: Outcome) => void;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  return (
+    <div className="mt-6 rounded-lg border border-slate-200 p-3">
+      <p className="text-sm text-slate-600">
+        Not paid yet. Cancelling releases its reserved stock and stops the PayPal link from working
+        {order.placedBy === 'CUSTOMER' ? '; the customer is told on WhatsApp' : ''}.
+      </p>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          if (!window.confirm(`Cancel order ${order.reference}? This can't be undone.`)) return;
+          start(async () => {
+            const result = await cancelOrder(order.reference);
+            onResult({ ok: result.ok, text: result.message });
+            // The grid behind the drawer updates; the drawer stays open to show the outcome.
+            router.refresh();
+          });
+        }}
+        className="mt-2 rounded-md border border-rose-200 px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+      >
+        {pending ? 'Cancelling…' : 'Cancel order'}
+      </button>
+    </div>
+  );
+}
+
+const ATTENTION: Record<NonNullable<Order['attention']>, string> = {
+  PAID_AFTER_CANCEL:
+    'Paid after it had been cancelled. Its stock may have been sold to someone else meanwhile: check stock (or refund it in PayPal). Shipping is blocked until an owner marks it reviewed.',
+  DUPLICATE_PAYMENT:
+    'A second payment arrived for this order through an older payment link. Refund the extra payment in PayPal, then mark it reviewed.',
+};
+
+function ReviewPanel({ order, onResult }: { order: Order; onResult: (outcome: Outcome) => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  if (!order.attention) return null;
+  return (
+    <div role="alert" className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
+      <p className="text-sm font-medium text-amber-900">Needs review</p>
+      <p className="mt-1 text-sm text-amber-900">{ATTENTION[order.attention]}</p>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            const result = await markOrderReviewed(order.reference);
+            onResult({ ok: result.ok, text: result.message });
+            router.refresh();
+          })
+        }
+        className="mt-2 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+      >
+        {pending ? 'Saving…' : 'Mark reviewed'}
+      </button>
+    </div>
   );
 }
 
 function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) {
   const m = (minor: number) => formatMinor(minor, order.currency);
   const payment = order.payments?.[0];
+  const refunded = order.refundedMinor ?? 0;
+  const [outcome, setOutcome] = useState<Outcome>(null);
   return (
     <div
       className="fixed inset-0 z-40 flex justify-end"
@@ -206,6 +305,51 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
           </span>
         </div>
 
+        <ReviewPanel order={order} onResult={setOutcome} />
+        {order.status === 'CANCELLED' && (
+          <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            Cancelled
+            {order.cancelReason ? ` ${CANCEL_REASONS[order.cancelReason]}` : ''}
+            {order.cancelledAt ? ` · ${formatDate(order.cancelledAt)}` : ''}. No money was taken.
+          </p>
+        )}
+        {cancellable(order) && order.paymentDueAt && (
+          <p className="mt-4 text-sm text-slate-600">
+            Payment due by <strong>{formatDate(order.paymentDueAt)}</strong>; cancelled
+            automatically if unpaid.
+          </p>
+        )}
+
+        <h3 className="mt-6 text-sm font-semibold text-slate-700">Customer</h3>
+        <dl className="mt-2 space-y-1 text-sm">
+          <div className="flex justify-between gap-4">
+            <dt className="text-slate-600">Name</dt>
+            <dd className="text-right">{order.contactName ?? order.customer.name}</dd>
+          </div>
+          {order.customer.phone && (
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-600">Phone</dt>
+              <dd className="text-right">{order.customer.phone}</dd>
+            </div>
+          )}
+          {order.deliveryMethod && (
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-600">Delivery</dt>
+              <dd className="text-right">
+                {order.deliveryMethod === 'PICKUP'
+                  ? 'Pick up'
+                  : `Deliver to ${order.deliveryAddress ?? '(no address)'}`}
+              </dd>
+            </div>
+          )}
+          {order.notes && (
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-600">Notes</dt>
+              <dd className="text-right">{order.notes}</dd>
+            </div>
+          )}
+        </dl>
+
         <h3 className="mt-6 text-sm font-semibold text-slate-700">Items</h3>
         <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
           {(order.items ?? []).map((i) => (
@@ -238,6 +382,12 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
             <dt>Total</dt>
             <dd className="tabular-nums">{m(order.totalMinor)}</dd>
           </div>
+          {refunded > 0 && (
+            <div className="flex justify-between text-rose-700">
+              <dt>{refunded >= order.totalMinor ? 'Refunded (full)' : 'Refunded (partial)'}</dt>
+              <dd className="tabular-nums">−{m(refunded)}</dd>
+            </div>
+          )}
         </dl>
         <p className="mt-2 text-xs text-slate-500">
           Calculated by the backend from catalog prices and the merchant&apos;s stated prices —
@@ -330,6 +480,16 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
           >
             This order has a PayPal dispute →
           </Link>
+        )}
+
+        {cancellable(order) && <CancelOrderButton order={order} onResult={setOutcome} />}
+        {outcome && (
+          <p
+            role="status"
+            className={`mt-3 text-sm ${outcome.ok ? 'text-emerald-700' : 'text-rose-700'}`}
+          >
+            {outcome.text}
+          </p>
         )}
 
         {payment?.correlationId && (

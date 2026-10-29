@@ -8,6 +8,7 @@ import {
   AuditService,
   ConfirmationService,
   CustomerService,
+  DashboardUserService,
   OrderService,
   ProductService,
   type PaymentPolicyConfig,
@@ -31,6 +32,9 @@ import { createCommerceTools } from './modules/agent/tools';
 import { ChannelRegistry, HttpWhatsAppSender } from './modules/notifications/channel-registry';
 import { NotificationService } from './modules/notifications/notification.service';
 import { PaymentService } from './modules/payments/payment.service';
+import { RefundService } from './modules/payments/refund.service';
+import { OrderLifecycleService } from './modules/orders/order-lifecycle.service';
+import { OpsAlerts } from './modules/ops/ops-alerts';
 import { PaymentReminderService } from './modules/payments/reminder.service';
 import { PaymentReconciler } from './modules/payments/reconciliation.service';
 import { WhatsAppConnectionMonitor } from './modules/whatsapp/connection-monitor';
@@ -51,6 +55,7 @@ export interface ContainerOverrides {
   chatModel?: ChatModel | null;
   speech?: SpeechPipeline | null;
   channels?: ChannelRegistry;
+  alerts?: OpsAlerts;
 }
 
 function createChatModel(config: ApiConfig): ChatModel | null {
@@ -132,6 +137,14 @@ export function createContainer(
   const speech =
     overrides.speech !== undefined ? overrides.speech : createSpeechPipeline(config, logger);
 
+  const alerts =
+    overrides.alerts ??
+    new OpsAlerts({
+      webhookUrl: config.ALERT_WEBHOOK_URL,
+      heartbeatUrl: config.HEARTBEAT_URL,
+      logger: logger.child({ component: 'ops-alerts' }),
+    });
+
   const channels = overrides.channels ?? new ChannelRegistry();
   if (!overrides.channels && config.WHATSAPP_GATEWAY_URL) {
     channels.register(
@@ -151,6 +164,7 @@ export function createContainer(
   const analytics = new AnalyticsService(db);
   const inventory = new InventoryService(db, audit);
   const admins = new AdminService(db, audit, config.DEFAULT_PHONE_REGION);
+  const dashboardUsers = new DashboardUserService(db, audit);
   const reports = new ReportService(analytics, inventory);
   const notifications = new NotificationService(
     db,
@@ -169,8 +183,26 @@ export function createContainer(
       publicBaseUrl: config.API_PUBLIC_URL.replace(/\/$/, ''),
       brandName: config.PAYPAL_BRAND_NAME,
       policy,
+      unpaidOrderExpiryHours: config.UNPAID_ORDER_EXPIRY_HOURS,
+      alerts,
     },
     inventory,
+  );
+  const refunds = new RefundService(
+    db,
+    paypal,
+    audit,
+    notifications,
+    logger.child({ component: 'refunds' }),
+    payments,
+  );
+  const orderLifecycle = new OrderLifecycleService(
+    db,
+    paypal,
+    payments,
+    notifications,
+    audit,
+    logger.child({ component: 'order-lifecycle' }),
   );
   const shipments = new ShipmentService(
     db,
@@ -196,7 +228,9 @@ export function createContainer(
       webhookId: config.PAYPAL_WEBHOOK_ID,
       skipVerification:
         config.PAYPAL_WEBHOOK_SKIP_VERIFICATION && config.NODE_ENV === 'development',
+      alerts,
     },
+    refunds,
   );
   const reminders = new PaymentReminderService(
     db,
@@ -241,6 +275,7 @@ export function createContainer(
     tools: createCustomerTools(customerCatalog, shopOrders),
     chatModel,
     notifications,
+    lifecycle: orderLifecycle,
     logger: logger.child({ component: 'customer-chat' }),
   });
   const tools = createCommerceTools({
@@ -274,6 +309,16 @@ export function createContainer(
     audit,
     logger.child({ component: 'reports' }),
     config.PAYMENT_RECONCILIATION_ENABLED ? reconciler : undefined,
+    [
+      {
+        name: 'order-expiry',
+        run: async (now) => {
+          const expired = await orderLifecycle.expireDue(config.UNPAID_ORDER_EXPIRY_HOURS, now);
+          if (expired.length) logger.info({ orders: expired }, 'unpaid orders expired');
+        },
+      },
+    ],
+    alerts,
   );
   const whatsappMonitor = new WhatsAppConnectionMonitor(
     db,
@@ -281,6 +326,8 @@ export function createContainer(
     config.WHATSAPP_GATEWAY_URL,
     config.INTERNAL_SERVICE_TOKEN,
     logger.child({ component: 'whatsapp-monitor' }),
+    fetch,
+    alerts,
   );
   const inbound = new InboundMessageService({
     db,
@@ -322,9 +369,12 @@ export function createContainer(
     confirmations,
     analytics,
     admins,
+    dashboardUsers,
     inventory,
     notifications,
     payments,
+    refunds,
+    orderLifecycle,
     reminders,
     reconciler,
     whatsappAccounts,
@@ -338,6 +388,7 @@ export function createContainer(
     inbound,
     reportScheduler,
     whatsappMonitor,
+    alerts,
     close: async () => {
       reportScheduler.stop();
       whatsappMonitor.stop();

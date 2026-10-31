@@ -194,12 +194,15 @@ export class AdminService {
     merchantId?: string,
   ): Promise<AuthorizeResult> {
     const phone = senderPhone ?? (channel === 'whatsapp' ? chatIdToPhone(senderId) : null);
+    // One person can match several rows (an old row keyed by their linked ID, a newer one by
+    // phone). An active row wins, so a deactivated duplicate never locks a working admin out.
     const operator = await this.db.merchantOperator.findFirst({
       where: {
         channel,
         ...(merchantId ? { merchantId } : {}),
         OR: [{ externalId: senderId }, { whatsappLid: senderId }, ...(phone ? [{ phone }] : [])],
       },
+      orderBy: [{ active: 'desc' }, { createdAt: 'asc' }],
       include: { merchant: true },
     });
     if (!operator) return { ok: false, reason: 'unknown' };

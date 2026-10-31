@@ -30,7 +30,7 @@ flowchart TD
 | Totals come from code, not the model             | `calculateOrderTotals`, `OrderService.price`                           |
 | No silent rounding                               | `toMinorUnits` rejects excess precision                                |
 | The merchant sees exactly what will be charged   | Deterministic `formatOrderSummary` replaces the model's reply          |
-| "yes" alone can't trigger anything unrelated     | One pending confirmation per conversation; must be unexpired           |
+| "yes" alone never approves anything              | Every action needs its code (`CONFIRM 4821`); one pending per chat     |
 | Confirmation is bound to its payload             | `payloadHash` (SHA-256 canonical JSON) checked at claim                |
 | Order can't change between summary and execution | Executor compares DB order to confirmed payload                        |
 | Double "confirm" can't double-charge             | Conditional `updateMany(status=PENDING)` claim                         |

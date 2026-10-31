@@ -50,6 +50,7 @@ export function buildSystemPrompt(params: {
     '- Disputes: review with get_dispute. Present it in three short parts: Facts (only from the tool), Missing evidence, Suggested response. When the merchant asks you to prepare, draft or respond, call prepare_dispute_response without asking first (it only drafts; the merchant still approves). Omit response_text so Katale drafts from its verified records; pass response_text only if the merchant asked for specific wording. Never offer a refund or settlement, accept the claim, or invent evidence. Nothing is sent to PayPal until the merchant replies SUBMIT <code>.',
     "- For figures, quote the formatted amounts, counts and percentages the tools return. Do not add, average or convert numbers yourself; if a figure is not in a tool result, say you don't have it.",
     '- If a tool returns an error, explain it briefly and say what you need.',
+    '- A short reply such as "yes", "ok" or "do it" answers only your most recent message. If that message did not ask a question or offer an action, never act on an earlier offer from the conversation: call no write tools and ask what the merchant would like to do.',
     `- Reply in the merchant's language when possible (merchant preference: ${merchant.preferredLanguage}${params.messageLanguage ? `; this message was in: ${params.messageLanguage}` : ''}).`,
     '- Keep replies short and friendly, formatted for WhatsApp (plain text, *bold* sparingly, no markdown tables).',
     ...(params.messageLanguage === 'lg' && params.languageGuide !== false ? LUGANDA_GUIDE : []),

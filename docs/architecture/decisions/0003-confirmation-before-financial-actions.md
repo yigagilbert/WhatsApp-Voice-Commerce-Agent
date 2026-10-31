@@ -14,8 +14,9 @@ money must never be the direct result of a model output.
 - A `propose` tool creates an `ActionConfirmation` bound to **merchant + conversation + action +
   payload (SHA-256 of canonical JSON) + expiry + 4-digit code**. Only one can be pending per
   conversation; a new proposal supersedes the old one.
-- Confirm/cancel replies are recognised by **deterministic code**, not the LLM. "yes" without a
-  matching pending action does nothing.
+- Confirm/cancel replies are recognised by **deterministic code**, not the LLM. Every action needs
+  its code (`CONFIRM 4821`, `SHIP 4821`, …); a bare "yes" is answered with the exact reply to type
+  (since 2026-10-31 this includes payment requests, which previously accepted a bare "yes").
 - Claiming is atomic (`PENDING → CONFIRMED` conditional update), so duplicates cannot double-execute.
 - Before execution the executor re-loads the order, checks it still matches the confirmed
   payload, and re-runs policy checks.

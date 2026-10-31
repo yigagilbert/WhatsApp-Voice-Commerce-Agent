@@ -77,9 +77,9 @@ const CANCEL_PHRASES = [
 ];
 
 /**
- * `verb` names the action a reply approves: CONFIRM (payment requests, and bare yes/ok),
- * SHIP (shipment tracking), SUBMIT (dispute responses) or REMIND (payment reminders to a
- * customer). SHIP, SUBMIT and REMIND always need the code.
+ * `verb` names the action a reply approves: CONFIRM (payment requests), SHIP (shipment
+ * tracking), SUBMIT (dispute responses) or REMIND (payment reminders to a customer). Every
+ * action needs its code: a bare "yes"/"ok" is answered with the exact reply to type.
  */
 export type ConfirmationVerb = 'confirm' | 'ship' | 'submit' | 'remind';
 export type ConfirmationReply = {
@@ -93,7 +93,7 @@ export const ACTION_VERBS: Record<
   ConfirmationAction,
   { verb: ConfirmationVerb; codeRequired: boolean }
 > = {
-  CREATE_PAYMENT_REQUEST: { verb: 'confirm', codeRequired: false },
+  CREATE_PAYMENT_REQUEST: { verb: 'confirm', codeRequired: true },
   ADD_SHIPMENT_TRACKING: { verb: 'ship', codeRequired: true },
   SUBMIT_DISPUTE_RESPONSE: { verb: 'submit', codeRequired: true },
   SEND_PAYMENT_REMINDER: { verb: 'remind', codeRequired: true },

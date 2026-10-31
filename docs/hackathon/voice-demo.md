@@ -10,7 +10,7 @@ Live at **https://kataleai.space** (dashboard login required). Architecture:
 ## Before the demo
 
 ```bash
-ssh deploy@217.65.145.220 'cd /opt/apps/katale-ai && docker compose ps && docker compose logs --tail=5 whatsapp'
+ssh <user>@<your-server> 'cd /opt/apps/katale-ai && docker compose ps && docker compose logs --tail=5 whatsapp'
 ```
 
 Check that every service is `healthy` and WhatsApp shows `client ready`. Then:

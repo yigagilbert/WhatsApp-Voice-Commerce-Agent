@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { apiGet } from '@/lib/api';
-import type { DashboardSummary } from '@/lib/types';
+import type { DashboardSummary, ProductStat } from '@/lib/types';
 
 interface Step {
   done: boolean;
@@ -15,9 +15,10 @@ interface Step {
  * Hidden once every step is done. A status that can't be read counts as not done.
  */
 export async function GettingStarted({ summary }: { summary: DashboardSummary }) {
-  const [session, admins] = await Promise.all([
+  const [session, admins, products] = await Promise.all([
     apiGet<{ state: string }>('/api/whatsapp/session'),
     apiGet<{ active: boolean }[]>('/api/admins'),
+    apiGet<ProductStat[]>('/api/products/stats'),
   ]);
   const steps: Step[] = [
     {
@@ -35,7 +36,7 @@ export async function GettingStarted({ summary }: { summary: DashboardSummary })
       action: 'Add admin',
     },
     {
-      done: summary.counts.products > 0,
+      done: products.ok && products.data.some((p) => p.active && !!p.imageVersion),
       title: 'Add a product with a photo',
       detail: 'Name, price, stock and a photo. Customers see the photo on WhatsApp.',
       href: '/products/new',

@@ -2,6 +2,16 @@
 
 _Last updated: 2026-10-29 — production runs **`v0.1.0-202610291327`** (product photos with Cloudflare R2, commit `1556e00` from PR #4 before merge, deployed 2026-10-29; previous release `v0.1.0-202610260553` kept for rollback). Customer shopping remains switched off. Audit: [docs/audits/2026-10-25-katale-ai-system-audit.md](docs/audits/2026-10-25-katale-ai-system-audit.md)._
 
+## End-to-end testing and fixes (2026-10-31, branch `claude/katale-ai-hackathon-testing-855308`)
+
+Local stack with the real LLM, Whisper and PayPal Sandbox (the owner's phone and Sandbox buyer were
+not available). 11 defects found and fixed, including: products without a description could not
+be created in the dashboard (P0); a bare "yes" approved payment requests; a stale "yes" made the
+agent act on an old offer; the customer assistant invented a cart after a refused quantity. New:
+in-place price/stock editing in the Products grid. Tests: 218 unit, 190 integration, 70 real-service.
+**Not deployed.** Details, blocked checks and the submission pack:
+[docs/hackathon/2026-10-31-e2e-testing-and-submission.md](docs/hackathon/2026-10-31-e2e-testing-and-submission.md).
+
 ## Product photos, R2 and hackathon readiness (2026-10-29, branch `feat/hackathon-mvp-r2-images`)
 
 | Capability                                                                                                 | Status                                                                                                |

@@ -109,7 +109,11 @@ flags discrepancies, persists a DRAFT order and proposes a confirmation.
 - With conversation history the model sometimes asks "should I proceed?" before drafting a repeated
   order. A bare "yes"/"no" is therefore only treated as a deterministic confirmation when the
   conversation has a pending action (or the reply quotes a code); otherwise it goes to the agent.
-  Nothing financial can execute either way.
+  Nothing financial can execute either way: a pending action still needs its code, and "no"
+  discards it.
+- A bare "yes" that reaches the agent answers only the agent's most recent message. In end-to-end
+  testing (2026-10-31) the model acted on an offer made seven messages earlier ("deactivate it
+  instead?") after an unrelated answer; the system prompt now forbids acting on earlier offers.
 - Policy refusals (e.g. above `MAX_PAYMENT_REQUEST_AMOUNT`) reply with a backend-generated summary
   and reason, like proposals, so the model never restates amounts for financial actions.
 

@@ -115,7 +115,7 @@ VM's `katale-whatsapp` container, and buyers pay from any device. PayPal's webho
 even if the buyer closes the page. Before demoing:
 
 ```bash
-ssh deploy@217.65.145.220 'cd /opt/apps/katale-ai && docker compose ps && docker compose logs --tail=20 whatsapp'
+ssh <user>@<your-server> 'cd /opt/apps/katale-ai && docker compose ps && docker compose logs --tail=20 whatsapp'
 ```
 
 Check that all services are `healthy` and WhatsApp shows `client ready`. The dashboard asks for the

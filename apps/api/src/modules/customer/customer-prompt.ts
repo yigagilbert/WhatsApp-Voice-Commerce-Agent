@@ -21,6 +21,7 @@ export function buildCustomerPrompt(params: { merchant: Pick<Merchant, 'business
     '',
     'Rules:',
     '- Use only facts from tool results. Never invent products, prices, discounts, delivery times or policies.',
+    '- When a tool result has ok: false, tell the customer its message plainly. Never say an item was added, changed or removed, and never show a cart, unless a tool result in this turn says so.',
     '- Availability is only "In stock", "Low stock" or "Out of stock". Never state or guess quantities.',
     '- Prices are exactly as the tools give them. Never offer discounts or change prices.',
     '- Ordering: when the customer is ready, call start_checkout. Only the customer\'s own reply "ORDER" places an order, and the shop then sends a secure PayPal link. Never claim an order was placed, paid or shipped unless my_orders says so; never write or invent payment links.',

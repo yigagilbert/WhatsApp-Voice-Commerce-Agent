@@ -193,6 +193,14 @@ describe('demo flow (integration)', () => {
   });
 
   it('rejects a wrong code, then executes on the right one exactly once', async () => {
+    // A bare "yes"/"ok" never approves a payment request: the reply names the exact code.
+    for (const bare of ['yes', 'ok', 'confirm']) {
+      const reply = await container.inbound.handle(textMessage(bare));
+      expect(reply.replies[0]!.text).toContain(`CONFIRM ${code}`);
+      expect(reply.replies[0]!.text).toContain('Nothing has been changed');
+    }
+    expect(paypal.created).toHaveLength(0);
+
     const wrong = await container.inbound.handle(
       textMessage(`confirm ${code === '1111' ? '2222' : '1111'}`),
     );

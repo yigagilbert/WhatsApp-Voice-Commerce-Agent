@@ -19,7 +19,8 @@ factual response, and submits it only after `SUBMIT 7312`.
 > against real PayPal Sandbox vs simulated. Local languages (Luganda) are experimental and frozen.
 > Guides: [deployment](docs/deployment/docker-hub-vm.md) · [final demo](docs/hackathon/final-demo-script.md) ·
 > [shipment & disputes](docs/hackathon/shipment-dispute-demo.md) · [AG Grid / AG Studio](docs/hackathon/ag-grid-integration.md) ·
-> [product photos & Cloudflare R2](docs/deployment/cloudflare-r2.md) · [hackathon readiness](docs/hackathon/2026-10-29-mvp-readiness.md).
+> [product photos & Cloudflare R2](docs/deployment/cloudflare-r2.md) · [hackathon readiness](docs/hackathon/2026-10-29-mvp-readiness.md) ·
+> [end-to-end testing & submission pack](docs/hackathon/2026-10-31-e2e-testing-and-submission.md).
 
 ---
 
@@ -230,7 +231,7 @@ KATALE_IMAGE_NAMESPACE=yigagilbert PLATFORMS=linux/amd64 ./scripts/release-image
 ```
 
 ```bash
-ssh deploy@217.65.145.220 'cd /opt/apps/katale-ai && ./deployment/vm-deploy.sh <tag>'
+ssh <user>@<your-server> 'cd /opt/apps/katale-ai && ./deployment/vm-deploy.sh <tag>'
 ```
 
 Full guide (env, migrations, NPM, webhook, backups, rollback): [docs/deployment/docker-hub-vm.md](docs/deployment/docker-hub-vm.md).

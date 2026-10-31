@@ -118,6 +118,19 @@ describe('product management and photos (integration)', () => {
         stockQuantity: 25,
         reorderLevel: 5,
       });
+      // Opening stock is in the ledger, as when a product is added by chat.
+      const opening = await container.db.stockMovement.findFirstOrThrow({ where: { productId } });
+      expect(opening).toMatchObject({ type: 'RESTOCK', quantity: 25, balanceAfter: 25 });
+    });
+
+    it('creates a product without a description (the editor sends null)', async () => {
+      const res = await api('POST', '/api/products', {
+        name: 'Sisal Coaster',
+        unitPrice: '4',
+        description: null,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({ description: null, stockQuantity: null });
     });
 
     it('edits name, price and alert level, and records a stock count in the ledger', async () => {

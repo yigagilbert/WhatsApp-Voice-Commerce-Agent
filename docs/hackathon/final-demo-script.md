@@ -5,7 +5,7 @@ Language: English. Payments: PayPal Sandbox (test money only).
 
 ## Before you start
 
-1. Production is healthy: `ssh deploy@217.65.145.220 'cd /opt/apps/katale-ai && docker compose ps'`
+1. Production is healthy: `ssh <user>@<your-server> 'cd /opt/apps/katale-ai && docker compose ps'`
    shows every service `healthy`, and `docker compose logs --tail=5 whatsapp` shows `client ready`.
 2. Optional clean slate (deletes demo orders and payments, keeps everything else):
    `docker compose run --rm -e DEMO_RESET_ALLOWED=true api node dist/demo-reset.js --confirm kampala-crafts`.

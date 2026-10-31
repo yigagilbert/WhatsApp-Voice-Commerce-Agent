@@ -8,8 +8,9 @@ import {
   themeQuartz,
   type ColDef,
   type GridApi,
+  type CellClickedEvent,
+  type CellValueChangedEvent,
   type IRowNode,
-  type RowClickedEvent,
 } from 'ag-grid-community';
 import { formatMoney } from '@vca/commerce/money';
 
@@ -46,7 +47,10 @@ export interface CommerceGridProps<T> {
   statusOptions?: StatusOption[];
   /** Builds the pinned summary row from the rows currently passing all filters. */
   summarize?: (rows: T[]) => Partial<T>;
+  /** Opens a row; clicks on editable cells start editing instead. */
   onRowClick?: (row: T) => void;
+  /** Called after an editable cell (`editable` in its column) was changed in place. */
+  onCellEdit?: (event: CellValueChangedEvent<T>) => void;
   exportName: string;
   searchPlaceholder?: string;
   emptyMessage: string;
@@ -61,6 +65,7 @@ export function CommerceGrid<T>({
   statusOptions,
   summarize,
   onRowClick,
+  onCellEdit,
   exportName,
   searchPlaceholder = 'Search…',
   emptyMessage,
@@ -196,9 +201,13 @@ export function CommerceGrid<T>({
           onFilterChanged={refreshSummary}
           onRowDataUpdated={refreshSummary}
           rowClass={onRowClick ? 'cursor-pointer' : undefined}
-          onRowClicked={(e: RowClickedEvent<T>) => {
-            if (e.data && !e.rowPinned && onRowClick) onRowClick(e.data);
+          singleClickEdit
+          stopEditingWhenCellsLoseFocus
+          onCellClicked={(e: CellClickedEvent<T>) => {
+            if (!e.data || e.rowPinned || !onRowClick || e.column.isCellEditable(e.node)) return;
+            onRowClick(e.data);
           }}
+          onCellValueChanged={onCellEdit}
         />
       </div>
       <p className="text-xs text-slate-500">

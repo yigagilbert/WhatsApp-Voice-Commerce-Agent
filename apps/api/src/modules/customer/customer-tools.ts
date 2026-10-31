@@ -53,13 +53,17 @@ const actorOf = (ctx: CustomerAgentContext): ShopActor => ({
 });
 
 /** Cart rules (stock, limits) are explained to the customer, not thrown at the model. */
-async function friendly<T>(fn: () => Promise<T>): Promise<T | { ok: false; message: string }> {
+async function friendly<T>(
+  fn: () => Promise<T>,
+  /** For cart changes: the shop's refusal is the reply, so the model can't claim a change. */
+  cart?: CustomerAgentContext,
+): Promise<T | { ok: false; message: string }> {
   try {
     return await fn();
   } catch (error) {
-    if (error instanceof AppError && error.httpStatus < 500)
-      return { ok: false, message: error.message };
-    throw error;
+    if (!(error instanceof AppError) || error.httpStatus >= 500) throw error;
+    if (cart) cart.verbatim = error.message;
+    return { ok: false, message: error.message };
   }
 }
 
@@ -153,7 +157,9 @@ export function createCustomerTools(
           'Prices come from the shop; never state a price that the result doesn’t give.',
         input: z.object({
           product: z.string().trim().min(1).max(100),
-          quantity: z.number().int().min(1).max(20).default(1),
+          // Any size is accepted here so the shop's own limit message reaches the customer
+          // (a schema error made the model invent a capped cart instead).
+          quantity: z.number().int().min(1).max(100_000).default(1),
         }),
         async execute({ product, quantity }, ctx) {
           const found = await resolveProduct(catalog, ctx, product);
@@ -162,6 +168,8 @@ export function createCustomerTools(
           return friendly(async () => {
             const added = await shop.add(actorOf(ctx), found.id, quantity);
             ctx.lastProductId = found.id;
+            // The cart the customer sees is built by the backend, never retold by the model.
+            ctx.verbatim = `✅ Added: ${found.name} (now ${added.quantity} in your cart).\n\n${ShopOrderService.formatCart(added.cart)}`;
             return {
               ok: true,
               added: found.name,
@@ -169,7 +177,7 @@ export function createCustomerTools(
               cart: ShopOrderService.formatCart(added.cart),
               next: 'Show the cart text as is. The customer can reply *checkout* when ready.',
             };
-          });
+          }, ctx);
         },
       }),
     )
@@ -181,7 +189,7 @@ export function createCustomerTools(
           'Change the quantity of an item in the cart, or remove it (quantity 0). item: the cart line number, the product name, or "this".',
         input: z.object({
           item: z.string().trim().min(1).max(100),
-          quantity: z.number().int().min(0).max(20),
+          quantity: z.number().int().min(0).max(100_000),
         }),
         async execute({ item, quantity }, ctx) {
           return friendly(async () => {
@@ -194,8 +202,9 @@ export function createCustomerTools(
               line !== undefined ? { line } : { productId: product!.id },
               quantity,
             );
-            return { ok: true, cart: ShopOrderService.formatCart(result.cart) };
-          });
+            ctx.verbatim = ShopOrderService.formatCart(result.cart);
+            return { ok: true, cart: ctx.verbatim };
+          }, ctx);
         },
       }),
     )

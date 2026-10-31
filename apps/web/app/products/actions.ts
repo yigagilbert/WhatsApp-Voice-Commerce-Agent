@@ -88,3 +88,28 @@ export async function removeProductPhoto(id: string): Promise<ProductFormState> 
   revalidatePath(`/products/${id}`);
   return result.ok ? { ok: true, message: 'Photo removed.' } : { ok: false, message: result.error };
 }
+
+/**
+ * Saves one cell edited in the Products grid: a new price (major units) or a counted stock
+ * level. Same API as the editor, so prices are audited and stock counts go through the ledger.
+ */
+export async function saveProductCell(
+  id: string,
+  change: { price: string } | { stock: number },
+): Promise<ProductFormState> {
+  await requireUser();
+  if ('price' in change) {
+    if (!/^\d+(\.\d{1,2})?$/.test(change.price) || Number(change.price) <= 0)
+      return { ok: false, message: 'Enter a price such as 12 or 12.50.' };
+  } else if (!Number.isInteger(change.stock) || change.stock < 0) {
+    return { ok: false, message: 'Stock must be a whole number.' };
+  }
+  const result = await apiPatch(
+    `/api/products/${encodeURIComponent(id)}`,
+    'price' in change ? { unitPrice: change.price } : { stockQuantity: change.stock },
+  );
+  if (!result.ok) return { ok: false, message: result.error };
+  revalidatePath('/products');
+  revalidatePath(`/products/${id}`);
+  return { ok: true, message: 'Saved.' };
+}

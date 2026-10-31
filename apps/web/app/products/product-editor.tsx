@@ -1,7 +1,15 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useActionState, useEffect, useId, useRef, useState, useTransition } from 'react';
+import {
+  type FormEvent,
+  useActionState,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useTransition,
+} from 'react';
 import { toMajorString } from '@vca/commerce/money';
 import { PHOTO_TYPES, photoProblem, photoUrl } from '@/lib/photo';
 import type { ProductDetail } from '@/lib/types';
@@ -158,6 +166,14 @@ export function ProductEditor({
   currency: string;
 }) {
   const [state, action, pending] = useActionState<ProductFormState, FormData>(saveProduct, null);
+  const [, startSubmit] = useTransition();
+  // Submitted by hand: a `<form action>` resets every field after the action, so a rejected
+  // save would wipe what the merchant typed (and the chosen photo).
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    startSubmit(() => action(form));
+  };
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [trackStock, setTrackStock] = useState(product ? product.stockQuantity !== null : true);
   const editing = !!product;
@@ -169,7 +185,7 @@ export function ProductEditor({
   const notice = photoError ? { ok: false, message: photoError } : state;
 
   return (
-    <form action={action} className="space-y-5 rounded-lg border border-slate-200 bg-white p-5">
+    <form onSubmit={submit} className="space-y-5 rounded-lg border border-slate-200 bg-white p-5">
       {product && <input type="hidden" name="id" value={product.id} />}
       <PhotoField product={product} onError={setPhotoError} />
 

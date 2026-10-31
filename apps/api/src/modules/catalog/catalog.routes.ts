@@ -16,7 +16,7 @@ const createCustomerSchema = z.object({
 
 const createProductSchema = z.object({
   name: z.string().trim().min(1).max(200),
-  description: z.string().max(1000).optional(),
+  description: z.string().max(1000).nullable().optional(),
   sku: z.string().max(64).optional(),
   /** Major units, e.g. 12.5 */
   unitPrice: z.union([z.number().nonnegative(), z.string()]),
@@ -97,12 +97,21 @@ export async function catalogRoutes(app: FastifyInstance, { container }: { conta
       sku: body.sku ?? null,
       currency,
       unitPriceMinor: toMinorUnits(body.unitPrice, currency),
-      stockQuantity: body.stockQuantity ?? null,
+      stockQuantity: null,
       reorderLevel: body.reorderLevel ?? null,
       ...(body.visibleToCustomers !== undefined
         ? { visibleToCustomers: body.visibleToCustomers }
         : {}),
     });
-    return reply.status(201).send(product);
+    // Opening stock goes through the ledger, as when a product is added by chat.
+    if (body.stockQuantity === undefined) return reply.status(201).send(product);
+    await container.inventory.adjust({
+      merchantId: request.merchant.id,
+      product: product.name,
+      setTo: body.stockQuantity,
+      type: 'RESTOCK',
+      note: 'Opening stock',
+    });
+    return reply.status(201).send({ ...product, stockQuantity: body.stockQuantity });
   });
 }

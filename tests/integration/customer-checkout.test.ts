@@ -456,5 +456,51 @@ describe('customer checkout (integration)', () => {
         subtotalMinor: 3600,
       });
     });
+
+    it('a refused cart change is answered by the shop, never by an invented cart', async () => {
+      // Found in end-to-end testing: "add 500" failed and the model replied with a made-up
+      // capped cart and total.
+      const shopper = `25679${digits}3@c.us`;
+      await say(shopper, 'hi');
+      model.enqueue(
+        () => ({
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            { id: 'q1', name: 'add_to_cart', arguments: '{"product":"wallet","quantity":500}' },
+          ],
+        }),
+        () => ({ role: 'assistant', content: 'I added 20 wallets. Your cart: $360.00' }),
+      );
+      const reply = await say(shopper, 'I want 500 wallets');
+      expect(reply).toMatch(/between 1 and 20/);
+      expect(reply).not.toContain('$360');
+      expect(await ordersOf(shopper)).toHaveLength(0);
+    });
+
+    it('shows a product as out of stock once unpaid orders hold all of it', async () => {
+      const unpaid = await container.db.orderItem.findFirstOrThrow({
+        where: {
+          order: { merchantId: shop, status: 'AWAITING_PAYMENT' },
+          productId: { not: null },
+        },
+        include: { product: true },
+      });
+      const product = unpaid.product!;
+      const shopper = `25679${digits}4@c.us`;
+      const held = await container.db.orderItem.aggregate({
+        where: { productId: product.id, order: { status: 'AWAITING_PAYMENT' } },
+        _sum: { quantity: true },
+      });
+      expect(held._sum.quantity).toBeGreaterThan(0);
+      // Count the stock down to exactly what unpaid orders already hold: none left to sell.
+      await container.db.product.update({
+        where: { id: product.id },
+        data: { stockQuantity: held._sum.quantity },
+      });
+      await say(shopper, 'hi');
+      const list = await say(shopper, '1');
+      expect(list).toMatch(new RegExp(`${product.name} — \\$[\\d.]+ · Out of stock`));
+    });
   });
 });

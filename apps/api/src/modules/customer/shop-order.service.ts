@@ -58,7 +58,8 @@ export type PlaceResult =
   | { status: 'refused'; reason: string };
 
 /** Orders that hold stock until paid or cancelled: placed by the customer or awaiting payment. */
-const RESERVING = {
+/** Orders that hold stock: unpaid payment links and orders the customer has placed. */
+export const RESERVING = {
   OR: [
     { status: 'AWAITING_PAYMENT' as const },
     { status: 'DRAFT' as const, customerConfirmedAt: { not: null } },

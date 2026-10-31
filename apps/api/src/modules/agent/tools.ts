@@ -16,7 +16,12 @@ import {
   type ProductService,
 } from '@vca/commerce';
 import type { Conversation, Merchant, Prisma } from '@vca/database';
-import { PolicyViolationError, ValidationError, type OutboundMedia } from '@vca/shared';
+import {
+  PolicyViolationError,
+  ProviderError,
+  ValidationError,
+  type OutboundMedia,
+} from '@vca/shared';
 import { canApprove, toMinorUnits, normalizeCurrency } from '@vca/commerce';
 import { z } from 'zod';
 import type { PaymentService } from '../payments/payment.service';
@@ -649,7 +654,16 @@ export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> 
         }),
         async execute({ customer, message }, ctx) {
           const chat = await findCustomerChat(deps, ctx.merchant.id, customer);
-          await deps.customerChats!.replyAsTeam(ctx.merchant.id, chat.customer!.id, message);
+          try {
+            await deps.customerChats!.replyAsTeam(ctx.merchant.id, chat.customer!.id, message);
+          } catch (error) {
+            // A WhatsApp outage is not an AI outage: say what failed so the merchant can retry.
+            if (!(error instanceof ProviderError) || error.provider !== 'whatsapp-gateway')
+              throw error;
+            throw new ValidationError(
+              `The message to ${chat.customer!.name} could not be delivered: WhatsApp is not connected right now. Nothing was sent; check Dashboard → WhatsApp and try again.`,
+            );
+          }
           return { sent_to: chat.customer!.name, message };
         },
       }),

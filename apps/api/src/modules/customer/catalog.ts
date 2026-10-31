@@ -2,6 +2,7 @@ import { closestMatches, formatMoney, normalizeProductTokens, stockStatus } from
 import type { Database, Product } from '@vca/database';
 import type { OutboundMedia } from '@vca/shared';
 import type { ProductImageService } from '../images/product-image.service';
+import { RESERVING } from './shop-order.service';
 
 export type Availability = 'In stock' | 'Low stock' | 'Out of stock';
 
@@ -34,13 +35,30 @@ export class CustomerCatalog {
     private readonly images?: Pick<ProductImageService, 'read'>,
   ) {}
 
-  private visible(merchantId: string) {
-    return this.db.product.findMany({
-      where: { merchantId, active: true, visibleToCustomers: true },
-      include: { image: { select: { id: true } } },
-      orderBy: { name: 'asc' },
-      take: 500,
-    });
+  /**
+   * Visible products, with tracked stock reduced by unpaid orders: the same units the cart can
+   * still promise, so a product is never shown "In stock" and then refused.
+   */
+  private async visible(merchantId: string) {
+    const [products, reserved] = await Promise.all([
+      this.db.product.findMany({
+        where: { merchantId, active: true, visibleToCustomers: true },
+        include: { image: { select: { id: true } } },
+        orderBy: { name: 'asc' },
+        take: 500,
+      }),
+      this.db.orderItem.groupBy({
+        by: ['productId'],
+        where: { productId: { not: null }, order: { merchantId, ...RESERVING } },
+        _sum: { quantity: true },
+      }),
+    ]);
+    const held = new Map(reserved.map((r) => [r.productId, r._sum.quantity ?? 0]));
+    return products.map((p) =>
+      p.stockQuantity === null
+        ? p
+        : { ...p, stockQuantity: Math.max(0, p.stockQuantity - (held.get(p.id) ?? 0)) },
+    );
   }
 
   private view(p: Product & { image: { id: string } | null }): CustomerProduct {

@@ -39,10 +39,66 @@ index dd977e85b0c0c40d2625cd337264fc9ae3bed17b..95ea9eb3adc12daca3cfb0dfdd1ff13a
          if (!result) return undefined;
          return new MessageMedia(
 diff --git a/src/util/Injected/Utils.js b/src/util/Injected/Utils.js
-index 540078a9d07b3df07ccd51b030556a72af4cf650..2fc40846d2d614ca860cc97e85f1557fea6d4ee5 100644
+index 540078a9d07b3df07ccd51b030556a72af4cf650..752d053333c3317c5bb8440cb151130a41461d24 100644
 --- a/src/util/Injected/Utils.js
 +++ b/src/util/Injected/Utils.js
-@@ -546,9 +546,15 @@ exports.LoadUtils = () => {
+@@ -534,6 +534,55 @@ exports.LoadUtils = () => {
+             return msg;
+         }
+ 
++        if (isStatus && Object.keys(mediaOptions).length > 0) {
++            // [katale patch] Image/video Status (upstream wwebjs #201807, PR #201816 and the
++            // recipe confirmed in that thread). Since mid-2026 WhatsApp Web:
++            // - takes one { mediaMsgData, beforeSend, funnelContext } argument, not
++            //   (msg, mediaUpdate) ("reading 'id'" crash);
++            // - needs the account's LID identities (device LID as `from`, LID user as author and
++            //   key participant); phone-number IDs fail ("Data passed to getter must include an
++            //   id property").
++            // Nothing may throw after a successful send: Katale would retry and post it twice.
++            const MeUser = window.require('WAWebUserPrefsMeUser');
++            const MsgKey = window.require('WAWebMsgKey');
++            const statusFrom =
++                typeof MeUser.getMeDeviceLidOrThrow === 'function'
++                    ? MeUser.getMeDeviceLidOrThrow()
++                    : null;
++            const statusAuthor = MeUser.getMaybeMeLidUser();
++            if (!statusFrom || !statusAuthor)
++                throw new Error(
++                    'This WhatsApp account has no LID identity; image statuses need one',
++                );
++            const statusKey = new MsgKey({
++                fromMe: true,
++                remote: chat.id,
++                id: await MsgKey.newId(),
++                participant: statusAuthor,
++            });
++            const mediaMsgData = {
++                ...message,
++                id: statusKey,
++                from: statusFrom,
++                to: chat.id,
++                author: statusAuthor,
++                isViewOnce: false,
++            };
++            const result = await window
++                .require('WAWebSendStatusMsgAction')
++                .sendStatusMediaMsgAction({
++                    mediaMsgData,
++                    beforeSend: async () => {},
++                    funnelContext: undefined,
++                });
++            const sendResult = result && result.messageSendResult;
++            if (sendResult && sendResult !== 'OK')
++                throw new Error(`WhatsApp did not send the status (${sendResult})`);
++            // Sent. Returning no model keeps the caller's model serialisation (which could throw
++            // on this new message shape) out of the success path; sendMessage resolves undefined.
++            return undefined;
++        }
++
+         if (isStatus) {
+             const { backgroundColor, fontStyle } = extraOptions;
+             const isMedia = Object.keys(mediaOptions).length > 0;
+@@ -546,9 +595,15 @@ exports.LoadUtils = () => {
                      messageSecret: window.crypto.getRandomValues(
                          new Uint8Array(32),
                      ),
@@ -61,7 +117,7 @@ index 540078a9d07b3df07ccd51b030556a72af4cf650..2fc40846d2d614ca860cc97e85f1557f
                  },
              );
  
-@@ -562,15 +568,21 @@ exports.LoadUtils = () => {
+@@ -562,14 +617,11 @@ exports.LoadUtils = () => {
                  text: msg.body,
              };
  
@@ -73,22 +129,11 @@ index 540078a9d07b3df07ccd51b030556a72af4cf650..2fc40846d2d614ca860cc97e85f1557f
 -                        : 'sendStatusTextMsgAction'
 -                ](...(isMedia ? [msg, mediaUpdate] : [statusOptions]));
 -
--            return msg;
 +            const statusAction = window.require('WAWebSendStatusMsgAction');
 +            if (!isMedia) {
 +                await statusAction.sendStatusTextMsgAction(statusOptions);
 +                return msg;
 +            }
-+            // [katale patch] Since mid-2026 WhatsApp Web takes one { mediaMsgData, beforeSend,
-+            // funnelContext } argument instead of (msg, mediaUpdate); the old call crashed
-+            // with "reading 'id'" (upstream wwebjs #201807, fix from PR #201816).
-+            const mediaMsgData = { ...message, from, to: chat.id, author: from };
-+            await statusAction.sendStatusMediaMsgAction({
-+                mediaMsgData,
-+                beforeSend: async () => {},
-+                funnelContext: undefined,
-+            });
-+            return new (window.require('WAWebCollections').Msg.modelClass)(mediaMsgData);
+             return msg;
          }
  
-         const [msgPromise, sendMsgResultPromise] = window

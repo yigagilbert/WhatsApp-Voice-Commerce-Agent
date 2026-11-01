@@ -40,7 +40,11 @@ Formats with the shipped library on today's WhatsApp Web:
 (and `extra: { backgroundColor, fontStyle }` for text). The code path is in 1.34.7; what broke is
 the WhatsApp Web function it calls. **We now carry the fix from PR #201816 in our patch**
 (`patches/whatsapp-web.js@1.34.7.patch`): image and video Status posts use WhatsApp Web's new
-single-argument signature, and the missing gating helper no longer throws.
+single-argument signature, and the missing gating helper no longer throws. The message is built
+with the account's **LID identities** (device LID as sender, LID user as author), as reported working
+in the upstream thread: with phone-number IDs, WhatsApp Web fails with "Data passed to getter must
+include an id property" (seen in production on 1 Nov 2026). A send result other than `OK` is an
+error, and nothing after a successful send may throw, so a sent Status is never retried.
 
 The fix still depends on minified internal WhatsApp Web modules, which changed signature twice in 2026. The next WhatsApp Web rollout could break it again. In the reported failures, posts were
 either rejected with an error or reported as sent while nobody saw them, so a broken release would

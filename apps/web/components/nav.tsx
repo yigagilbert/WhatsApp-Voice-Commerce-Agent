@@ -14,6 +14,7 @@ const LINKS = [
   { href: '/activity', label: 'Activity' },
   { href: '/console', label: 'Agent console' },
   { href: '/reports', label: 'Reports' },
+  { href: '/status', label: 'Status ads' },
   { href: '/admins', label: 'Admins' },
   { href: '/whatsapp', label: 'WhatsApp' },
 ];

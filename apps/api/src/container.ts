@@ -50,6 +50,7 @@ import { ShipmentService } from './modules/shipments/shipment.service';
 import { ReportService } from './modules/reports/report.service';
 import { BusinessReportBuilder } from './modules/reports/business-report';
 import { ReportScheduler } from './modules/reports/report-scheduler';
+import { StatusAdService } from './modules/status-ads/status-ad.service';
 
 export interface ContainerOverrides {
   db?: Database;
@@ -326,6 +327,14 @@ export function createContainer(
     policy,
     confirmationTtlSeconds: config.CONFIRMATION_TTL_SECONDS,
   });
+  const statusAds = new StatusAdService(
+    db,
+    customerCatalog,
+    productImages,
+    audit,
+    chatModel,
+    logger.child({ component: 'status-ads' }),
+  );
   const reconciler = new PaymentReconciler(
     db,
     paypal,
@@ -349,6 +358,10 @@ export function createContainer(
           if (expired.length) logger.info({ orders: expired }, 'unpaid orders expired');
         },
       },
+      // Prepares Status adverts for merchants to post themselves; never sends anything.
+      ...(config.STATUS_ADS_ENABLED
+        ? [{ name: 'status-ads', run: (now: Date) => statusAds.tick(now) }]
+        : []),
     ],
     alerts,
   );
@@ -420,6 +433,7 @@ export function createContainer(
     tools,
     inbound,
     reportScheduler,
+    statusAds,
     whatsappMonitor,
     alerts,
     close: async () => {

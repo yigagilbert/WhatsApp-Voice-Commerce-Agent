@@ -2,9 +2,6 @@
 CREATE TYPE "StatusAdApproval" AS ENUM ('MANUAL', 'AUTO');
 
 -- CreateEnum
-CREATE TYPE "StatusAdPublish" AS ENUM ('PHONE', 'KATALE');
-
--- CreateEnum
 CREATE TYPE "StatusAdStatus" AS ENUM ('DRAFT', 'READY', 'POSTED', 'SKIPPED', 'FAILED');
 
 -- CreateTable
@@ -16,7 +13,6 @@ CREATE TABLE "status_ad_settings" (
     "times" TEXT[] DEFAULT ARRAY['09:00']::TEXT[],
     "timezone" TEXT,
     "approval" "StatusAdApproval" NOT NULL DEFAULT 'MANUAL',
-    "publish" "StatusAdPublish" NOT NULL DEFAULT 'PHONE',
     "productIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -45,12 +41,6 @@ CREATE TABLE "status_ads" (
     "approvedBy" TEXT,
     "postedAt" TIMESTAMP(3),
     "postedBy" TEXT,
-    "postedVia" TEXT,
-    "publishingAt" TIMESTAMP(3),
-    "publishAttempts" INTEGER NOT NULL DEFAULT 0,
-    "publishError" TEXT,
-    "nextPublishAt" TIMESTAMP(3),
-    "statusMessageId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

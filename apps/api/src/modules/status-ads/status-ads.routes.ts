@@ -26,6 +26,7 @@ const settingsBody = z.object({
     .max(MAX_TIMES),
   timezone: z.string().max(64).nullable(),
   approval: z.enum(['MANUAL', 'AUTO']),
+  publish: z.enum(['PHONE', 'KATALE']).default('PHONE'),
   productIds: z.array(z.string().min(1).max(64)).max(500),
 });
 /**
@@ -57,8 +58,8 @@ const editBody = z.object({
 
 /**
  * WhatsApp Status adverts (dashboard). Owners change settings; owners and staff prepare, edit,
- * approve and record posts. Every query is scoped to the signed-in merchant. Nothing here sends a
- * WhatsApp message: the merchant posts the advert from their phone.
+ * approve, post and record posts. Every query is scoped to the signed-in merchant. Posting goes
+ * only to the shop number's own Status, never to customers.
  */
 export async function statusAdRoutes(app: FastifyInstance, opts: { container: Container }) {
   const { container } = opts;
@@ -105,6 +106,12 @@ export async function statusAdRoutes(app: FastifyInstance, opts: { container: Co
       const { id } = parse(idParams, request.params);
       return run(request.merchant.id, id, actorLabel(request));
     });
+
+  /** Katale posts a ready advert to the shop number's Status now (STATUS_ADS_POSTING_ENABLED). */
+  app.post('/api/status-ads/:id/publish', { config: perPerson(6) }, async (request) => {
+    const { id } = parse(idParams, request.params);
+    return ads.publishNow(request.merchant.id, id, actorLabel(request));
+  });
 
   /** The advert image (1080 × 1920 JPEG), rendered from the live catalogue. */
   app.get('/api/status-ads/:id/image', { config: perPerson(60) }, async (request, reply) => {

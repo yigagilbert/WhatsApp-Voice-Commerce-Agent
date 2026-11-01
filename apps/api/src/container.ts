@@ -51,6 +51,7 @@ import { ReportService } from './modules/reports/report.service';
 import { BusinessReportBuilder } from './modules/reports/business-report';
 import { ReportScheduler } from './modules/reports/report-scheduler';
 import { StatusAdService } from './modules/status-ads/status-ad.service';
+import { HttpStatusPoster, type StatusPoster } from './modules/status-ads/status-poster';
 
 export interface ContainerOverrides {
   db?: Database;
@@ -59,6 +60,8 @@ export interface ContainerOverrides {
   speech?: SpeechPipeline | null;
   channels?: ChannelRegistry;
   alerts?: OpsAlerts;
+  /** Status posting through the WhatsApp worker; null turns it off. */
+  statusPoster?: StatusPoster | null;
   /** null = keep photos in the database. */
   objectStore?: ObjectStore | null;
 }
@@ -334,6 +337,11 @@ export function createContainer(
     audit,
     chatModel,
     logger.child({ component: 'status-ads' }),
+    overrides.statusPoster !== undefined
+      ? overrides.statusPoster
+      : config.STATUS_ADS_POSTING_ENABLED && config.WHATSAPP_GATEWAY_URL
+        ? new HttpStatusPoster(config.WHATSAPP_GATEWAY_URL, config.INTERNAL_SERVICE_TOKEN)
+        : null,
   );
   const reconciler = new PaymentReconciler(
     db,
@@ -358,7 +366,8 @@ export function createContainer(
           if (expired.length) logger.info({ orders: expired }, 'unpaid orders expired');
         },
       },
-      // Prepares Status adverts for merchants to post themselves; never sends anything.
+      // Prepares Status adverts; posts them to the shop's own Status only when the merchant chose
+      // that and STATUS_ADS_POSTING_ENABLED is on. Never messages customers.
       ...(config.STATUS_ADS_ENABLED
         ? [{ name: 'status-ads', run: (now: Date) => statusAds.tick(now) }]
         : []),

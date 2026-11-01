@@ -7,6 +7,8 @@ import type { WhatsAppMessageLike } from './message-mapper';
 
 const { Client, LocalAuth, MessageMedia } = wwebjs;
 
+const STATUS_CHAT_ID = 'status@broadcast';
+
 /** Connection lifecycle shown on the dashboard's WhatsApp page. */
 export type ConnectionState =
   'starting' | 'qr' | 'authenticated' | 'ready' | 'disconnected' | 'auth_failure';
@@ -62,6 +64,8 @@ export interface WhatsAppTransport {
   sendText(chatId: string, text: string): Promise<void>;
   /** Sends an image with a caption (charts). */
   sendImage(chatId: string, image: OutgoingImage, caption: string): Promise<void>;
+  /** Posts an image to this account's own WhatsApp Status. Returns the Status message ID. */
+  postStatus(image: OutgoingImage, caption: string): Promise<string | null>;
   isReady(): boolean;
   connection(): ConnectionStatus;
   /** Restarts the WhatsApp Web session (e.g. after a disconnect). Keeps the linked device. */
@@ -250,6 +254,19 @@ export class WhatsAppWebTransport implements WhatsAppTransport {
       () => this.client.sendMessage(to, media, { caption, sendMediaAsDocument: true }),
       this.log,
     );
+  }
+
+  async postStatus(image: OutgoingImage, caption: string): Promise<string | null> {
+    if (!this.ready) throw new Error('WhatsApp client is not ready');
+    const media = new MessageMedia(
+      image.mimeType,
+      image.dataBase64,
+      image.filename ?? 'status.jpg',
+    );
+    // No document fallback: WhatsApp refuses documents on Status. Audience is the phone's
+    // Status privacy setting (Settings › Privacy › Status), which a linked device can't change.
+    const msg = await this.client.sendMessage(STATUS_CHAT_ID, media, { caption });
+    return (msg as { id?: { _serialized?: string } } | undefined)?.id?._serialized ?? null;
   }
 
   onMessage(handler: (message: IncomingWhatsAppMessage) => Promise<void>): void {

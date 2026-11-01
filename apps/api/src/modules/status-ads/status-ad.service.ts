@@ -14,6 +14,7 @@ import {
   type AdCopy,
 } from './copy';
 import { renderStatusImage, THEMES } from './status-image';
+import type { StatusPoster } from './status-poster';
 
 /** Automatic retries of a failed advert: 5 and 30 minutes; after that, the dashboard's Retry. */
 const BACKOFF_MINUTES = [5, 30];
@@ -23,6 +24,15 @@ const CATCH_UP_MS = 3 * 60 * 60 * 1000;
 /** "Generate now" per merchant per local day. */
 export const MANUAL_DAILY_LIMIT = 20;
 export const MAX_TIMES = 3;
+/** Katale's automatic posting retries: 5 and 30 minutes; after that, the phone or "Post now". */
+const PUBLISH_BACKOFF_MINUTES = [5, 30];
+export const MAX_PUBLISH_ATTEMPTS = PUBLISH_BACKOFF_MINUTES.length + 1;
+/** Statuses Katale posts per merchant per local day: broadcast volume is what gets numbers banned. */
+export const KATALE_DAILY_LIMIT = 5;
+/** An advert approved longer ago than this is left for the phone instead of being posted late. */
+const PUBLISH_WINDOW_MS = 3 * 60 * 60 * 1000;
+/** A posting claim older than this (the API stopped mid-post) has an unknown outcome. */
+const PUBLISH_CLAIM_STALE_MS = 10 * 60_000;
 
 export const DEFAULT_SETTINGS = {
   enabled: false,
@@ -30,6 +40,7 @@ export const DEFAULT_SETTINGS = {
   times: ['09:00'],
   timezone: null as string | null,
   approval: 'MANUAL' as 'MANUAL' | 'AUTO',
+  publish: 'PHONE' as 'PHONE' | 'KATALE',
   productIds: [] as string[],
 };
 export type StatusAdSettingsInput = typeof DEFAULT_SETTINGS;
@@ -57,13 +68,15 @@ const INELIGIBLE_MESSAGE: Record<Ineligible, string> = {
 };
 
 /**
- * WhatsApp Status adverts, prepared for the merchant to post from their own phone.
+ * WhatsApp Status adverts. Katale picks in-stock, visible products with photos, writes guarded
+ * copy (AI optional, templates otherwise) and renders the image from the live catalogue on
+ * request, so a price is never invented and never stale.
  *
- * This service never sends anything on WhatsApp (it has no access to the notification service or
- * the gateway): automated Status publishing was assessed as unsupported and unsafe, see
- * docs/architecture/whatsapp-status-marketing.md. It picks in-stock, visible products with photos,
- * writes guarded copy (AI optional, templates otherwise) and renders the image from the live
- * catalogue on request, so a price is never invented and never stale.
+ * Who posts is the merchant's choice: they download the advert and post it from their phone, or
+ * Katale posts it to the shop number's own Status through the WhatsApp worker
+ * (STATUS_ADS_POSTING_ENABLED). This service never messages customers: it has no access to the
+ * notification service, and the worker's customer send route refuses the Status chat. See
+ * docs/architecture/whatsapp-status-marketing.md for the risks of automated posting.
  */
 export class StatusAdService {
   constructor(
@@ -73,6 +86,8 @@ export class StatusAdService {
     private readonly audit: AuditService,
     private readonly chatModel: ChatModel | null,
     private readonly logger: Logger,
+    /** Null while posting by Katale is off on this server: adverts are then posted from the phone. */
+    private readonly poster: StatusPoster | null = null,
   ) {}
 
   // ─── Settings ──────────────────────────────────────────────────────────
@@ -85,6 +100,13 @@ export class StatusAdService {
       merchantTimezone: merchant.timezone,
       nextAt: settings.enabled ? this.nextAt(settings, merchant.timezone, now) : null,
       aiCopy: !!this.chatModel,
+      posting: !!this.poster,
+      katalePostsToday: await this.katalePostsToday(
+        merchant.id,
+        settings.timezone ?? merchant.timezone,
+        now,
+      ),
+      kataleDailyLimit: KATALE_DAILY_LIMIT,
     };
   }
 
@@ -111,6 +133,10 @@ export class StatusAdService {
     if (times.length > MAX_TIMES)
       throw new ValidationError(`Choose at most ${MAX_TIMES} times a day.`);
     if (!input.weekdays.length) throw new ValidationError('Choose at least one day.');
+    if (input.publish === 'KATALE' && !this.poster)
+      throw new ValidationError(
+        'Posting by Katale is turned off on this server. Ask whoever runs Katale to set STATUS_ADS_POSTING_ENABLED=true.',
+      );
     // Only this merchant's products can be chosen.
     const owned = input.productIds.length
       ? await this.db.product.findMany({
@@ -126,6 +152,7 @@ export class StatusAdService {
       times,
       timezone: input.timezone,
       approval: input.approval,
+      publish: input.publish,
       productIds: owned.map((p) => p.id),
     };
     const saved = await this.db.statusAdSettings.upsert({
@@ -221,6 +248,7 @@ export class StatusAdService {
       take: 50,
     });
     for (const ad of due) await this.prepare(ad, now, 'SYSTEM');
+    if (this.poster) await this.publishDue(now);
   }
 
   /** "Generate now" in the dashboard (works while the schedule is off). */
@@ -415,6 +443,10 @@ export class StatusAdService {
     return ad;
   }
 
+  private assertNotPublishing(ad: StatusAd) {
+    if (ad.publishingAt) throw new ConflictError('Katale is posting this advert right now.');
+  }
+
   private async assertPromotable(ad: StatusAd) {
     const reason = await this.ineligible(ad.merchantId, ad.productId);
     if (reason) throw new ConflictError(`${INELIGIBLE_MESSAGE[reason]} This advert can’t be used.`);
@@ -430,6 +462,7 @@ export class StatusAdService {
     const ad = await this.get(merchantId, id);
     if (ad.status !== 'DRAFT' && ad.status !== 'READY')
       throw new ConflictError('Only drafts and adverts ready to post can be edited.');
+    this.assertNotPublishing(ad);
     if (!(CTAS as readonly string[]).includes(input.cta))
       throw new ValidationError('Choose one of the listed calls to action.');
     const settings = await this.db.statusAdSettings.findUnique({ where: { merchantId } });
@@ -442,6 +475,10 @@ export class StatusAdService {
         cta: input.cta,
         theme: input.theme % THEMES.length,
         source: 'edited',
+        // New wording: Katale's earlier posting failures no longer apply.
+        publishAttempts: 0,
+        publishError: null,
+        nextPublishAt: null,
         ...(reapprove ? { status: 'DRAFT', approvedAt: null, approvedBy: null } : {}),
       },
     });
@@ -463,18 +500,24 @@ export class StatusAdService {
     return this.transition(ad, { status: 'READY', approvedAt: new Date(), approvedBy: by }, by);
   }
 
-  /** Recorded by the merchant after posting it on their phone (Katale never posts it). */
+  /** Recorded by the merchant after posting it from their phone. */
   async markPosted(merchantId: string, id: string, by: string) {
     const ad = await this.get(merchantId, id);
     if (ad.status !== 'READY') throw new ConflictError('Approve the advert before posting it.');
+    this.assertNotPublishing(ad);
     await this.assertPromotable(ad);
-    return this.transition(ad, { status: 'POSTED', postedAt: new Date(), postedBy: by }, by);
+    return this.transition(
+      ad,
+      { status: 'POSTED', postedAt: new Date(), postedBy: by, postedVia: 'phone' },
+      by,
+    );
   }
 
   async skip(merchantId: string, id: string, by: string) {
     const ad = await this.get(merchantId, id);
     if (ad.status === 'POSTED' || ad.status === 'SKIPPED')
       throw new ConflictError('This advert is already closed.');
+    this.assertNotPublishing(ad);
     return this.transition(ad, { status: 'SKIPPED', nextAttemptAt: null }, by);
   }
 
@@ -505,6 +548,11 @@ export class StatusAdService {
       throw new ConflictError('This advert has no image yet.');
     // Posted/skipped adverts stay viewable in the history; open ones must still be promotable.
     if (ad.status === 'DRAFT' || ad.status === 'READY') await this.assertPromotable(ad);
+    return this.render(merchant, ad);
+  }
+
+  private async render(merchant: Pick<Merchant, 'id' | 'businessName'>, ad: StatusAd) {
+    if (!ad.productId) throw new ConflictError('This advert has no product.');
     const product = await this.db.product.findFirst({
       where: { id: ad.productId, merchantId: merchant.id },
     });
@@ -523,5 +571,172 @@ export class StatusAdService {
       bytes,
       version: `${ad.updatedAt.getTime()}-${product.updatedAt.getTime()}-${photo.version}`,
     };
+  }
+
+  // ─── Posting by Katale ─────────────────────────────────────────────────
+
+  private async katalePostsToday(merchantId: string, timeZone: string, now: Date) {
+    const today = localDate(now, timeZone);
+    const recent = await this.db.statusAd.findMany({
+      where: {
+        merchantId,
+        postedVia: 'katale',
+        postedAt: { gte: new Date(now.getTime() - 26 * 60 * 60 * 1000) },
+      },
+      select: { postedAt: true },
+    });
+    return recent.filter((a) => a.postedAt && localDate(a.postedAt, timeZone) === today).length;
+  }
+
+  /** "Post now" in the dashboard: works for any ready advert, whatever the posting setting. */
+  async publishNow(merchantId: string, id: string, by: string, now = new Date()) {
+    if (!this.poster) throw new ConflictError('Posting by Katale is turned off on this server.');
+    const ad = await this.get(merchantId, id);
+    if (ad.status !== 'READY') throw new ConflictError('Approve the advert before posting it.');
+    this.assertNotPublishing(ad);
+    return this.publish(ad, by, now);
+  }
+
+  /**
+   * Scheduler part: posts ready adverts of merchants who chose "Katale posts it", and settles
+   * posts interrupted by a restart (outcome unknown: never retried automatically).
+   */
+  private async publishDue(now: Date) {
+    const stale = await this.db.statusAd.findMany({
+      where: {
+        status: 'READY',
+        publishingAt: { lt: new Date(now.getTime() - PUBLISH_CLAIM_STALE_MS) },
+      },
+      take: 50,
+    });
+    for (const ad of stale)
+      await this.publishFailed(
+        ad,
+        'Katale stopped while posting this advert. Check the shop phone’s Status before posting it again.',
+        now,
+        true,
+      );
+    const due = await this.db.statusAd.findMany({
+      where: {
+        status: 'READY',
+        publishingAt: null,
+        publishAttempts: { lt: MAX_PUBLISH_ATTEMPTS },
+        approvedAt: { gte: new Date(now.getTime() - PUBLISH_WINDOW_MS) },
+        OR: [{ nextPublishAt: null }, { nextPublishAt: { lte: now } }],
+        merchant: { statusAdSettings: { is: { enabled: true, publish: 'KATALE' } } },
+      },
+      orderBy: { approvedAt: 'asc' },
+      take: 20,
+    });
+    for (const ad of due)
+      await this.publish(ad, 'SYSTEM', now).catch((error: unknown) =>
+        this.logger.error({ err: error, adId: ad.id }, 'status ad posting failed'),
+      );
+  }
+
+  /**
+   * Posts one ready advert to the shop number's Status. On failure the advert stays READY (the
+   * merchant can still post it from the phone) with the reason and the next automatic attempt.
+   */
+  private async publish(ad: StatusAd, by: string, now: Date): Promise<StatusAd> {
+    const merchant = await this.db.merchant.findUniqueOrThrow({ where: { id: ad.merchantId } });
+    const settings = await this.db.statusAdSettings.findUnique({
+      where: { merchantId: ad.merchantId },
+    });
+    const reason = await this.ineligible(ad.merchantId, ad.productId);
+    if (reason) return this.publishFailed(ad, INELIGIBLE_MESSAGE[reason], now, true);
+    const timeZone = settings?.timezone ?? merchant.timezone;
+    if ((await this.katalePostsToday(ad.merchantId, timeZone, now)) >= KATALE_DAILY_LIMIT)
+      return this.publishFailed(
+        ad,
+        `Katale already posted ${KATALE_DAILY_LIMIT} statuses today, the daily limit. Post this one from the phone, or tomorrow.`,
+        now,
+        true,
+      );
+    const accounts = await this.db.whatsAppAccount.findMany({
+      where: { merchantId: ad.merchantId },
+      select: { wid: true },
+    });
+    if (!accounts.length)
+      return this.publishFailed(
+        ad,
+        'This shop has no WhatsApp number connected to Katale. Connect it on the WhatsApp page.',
+        now,
+        true,
+      );
+    // Claim it, so overlapping ticks, a double click or a second instance never post it twice.
+    const claimed = await this.db.statusAd.updateMany({
+      where: { id: ad.id, status: 'READY', publishingAt: null },
+      data: { publishingAt: now },
+    });
+    if (!claimed.count)
+      throw new ConflictError('This advert is already being posted or is no longer ready.');
+    let image: { bytes: Buffer };
+    try {
+      image = await this.render(merchant, ad);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.publishFailed(ad, message, now, false);
+    }
+    const result = await this.poster!.post({
+      botIds: accounts.map((a) => a.wid),
+      media: {
+        mimeType: 'image/jpeg',
+        dataBase64: image.bytes.toString('base64'),
+        filename: 'status.jpg',
+      },
+      caption: ad.caption,
+    });
+    if (result.outcome !== 'posted')
+      return this.publishFailed(ad, result.reason, now, result.outcome === 'unknown');
+    const posted = await this.db.statusAd.update({
+      where: { id: ad.id },
+      data: {
+        status: 'POSTED',
+        postedAt: now,
+        postedBy: by === 'SYSTEM' ? 'Katale' : by,
+        postedVia: 'katale',
+        statusMessageId: result.messageId,
+        publishingAt: null,
+        publishAttempts: ad.publishAttempts + 1,
+        publishError: null,
+        nextPublishAt: null,
+      },
+    });
+    await this.audit.record({
+      merchantId: ad.merchantId,
+      actor: by === 'SYSTEM' ? 'SYSTEM' : 'MERCHANT',
+      type: 'status_ad.posted',
+      entityType: 'status_ad',
+      entityId: ad.id,
+      data: { from: 'READY', via: 'katale', by },
+    });
+    this.logger.info({ merchantId: ad.merchantId, adId: ad.id }, 'status ad posted by Katale');
+    return posted;
+  }
+
+  /** `final`: no automatic retry (the outcome is unknown, or retrying can't help). */
+  private async publishFailed(ad: StatusAd, reason: string, now: Date, final: boolean) {
+    const attempts = ad.publishAttempts + 1;
+    const wait = final ? undefined : PUBLISH_BACKOFF_MINUTES[attempts - 1];
+    this.logger.warn({ adId: ad.id, attempts, reason }, 'status ad not posted by Katale');
+    const updated = await this.db.statusAd.update({
+      where: { id: ad.id },
+      data: {
+        publishingAt: null,
+        publishAttempts: final ? Math.max(attempts, MAX_PUBLISH_ATTEMPTS) : attempts,
+        publishError: reason.slice(0, 300),
+        nextPublishAt: wait === undefined ? null : new Date(now.getTime() + wait * 60_000),
+      },
+    });
+    await this.audit.record({
+      merchantId: ad.merchantId,
+      actor: 'SYSTEM',
+      type: 'status_ad.post_failed',
+      entityType: 'status_ad',
+      entityId: ad.id,
+      data: { error: reason.slice(0, 300), attempts, final },
+    });
+    return updated;
   }
 }

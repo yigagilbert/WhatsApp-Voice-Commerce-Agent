@@ -11,6 +11,8 @@ describe('WhatsApp outbound gateway', () => {
   let ready = true;
   let reconnects = 0;
   let logouts = 0;
+  let statusFails: string | null = null;
+  const statuses: { caption: string; mimeType: string }[] = [];
   const transport: WhatsAppTransport = {
     start: async () => undefined,
     stop: async () => undefined,
@@ -22,6 +24,11 @@ describe('WhatsApp outbound gateway', () => {
     },
     sendImage: async (chatId, image, caption) => {
       sent.push({ chatId, text: caption, image: image.mimeType });
+    },
+    postStatus: async (image, caption) => {
+      if (statusFails) throw new Error(`${statusFails}\n    at puppeteer frame`);
+      statuses.push({ caption, mimeType: image.mimeType });
+      return 'true_status@broadcast_3EB0ABC';
     },
     connection: () => ({
       state: 'qr',
@@ -38,7 +45,7 @@ describe('WhatsApp outbound gateway', () => {
       logouts++;
     },
     resolvePhone: async () => null,
-    botId: () => null,
+    botId: () => '256700000001@c.us',
   };
   const server = createGatewayServer({
     transport,
@@ -101,6 +108,69 @@ describe('WhatsApp outbound gateway', () => {
     expect(
       (await post({ ...message, media: { ...image, mimeType: 'text/html' } }, TOKEN)).status,
     ).toBe(400);
+  });
+
+  it('never sends a reply to the Status chat', async () => {
+    const before = sent.length;
+    const toStatus = { ...message, externalChatId: 'status@broadcast' };
+    expect((await post(toStatus, TOKEN)).status).toBe(400);
+    expect(sent).toHaveLength(before);
+    expect(statuses).toHaveLength(0);
+  });
+
+  describe('status posts', () => {
+    const image = { mimeType: 'image/jpeg', dataBase64: '/9j/4AAQ', filename: 'status.jpg' };
+    const botIds = ['256700000001@c.us'];
+    const postStatus = (body: unknown, token?: string) =>
+      fetch(`${base}/internal/status`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { 'x-internal-token': token } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+
+    it('needs the internal token and a valid image', async () => {
+      expect((await postStatus({ botIds, media: image, caption: 'Hi' })).status).toBe(401);
+      expect((await postStatus({ botIds, caption: 'Hi' }, TOKEN)).status).toBe(400);
+      expect(statuses).toHaveLength(0);
+    });
+
+    it('posts to the Status and returns its ID', async () => {
+      const res = await postStatus({ botIds, media: image, caption: 'Fresh mangoes' }, TOKEN);
+      expect(res.status).toBe(202);
+      expect(await res.json()).toEqual({
+        posted: true,
+        messageId: 'true_status@broadcast_3EB0ABC',
+      });
+      expect(statuses).toEqual([{ caption: 'Fresh mangoes', mimeType: 'image/jpeg' }]);
+    });
+
+    it('refuses when another shop’s number is connected', async () => {
+      const res = await postStatus(
+        { botIds: ['256700000999@c.us'], media: image, caption: 'x' },
+        TOKEN,
+      );
+      expect(res.status).toBe(409);
+      expect(statuses).toHaveLength(1);
+    });
+
+    it('reports 503 while WhatsApp is not ready', async () => {
+      ready = false;
+      expect((await postStatus({ botIds, media: image, caption: 'x' }, TOKEN)).status).toBe(503);
+      ready = true;
+    });
+
+    it('returns the first line of a WhatsApp failure', async () => {
+      statusFails = "Cannot read properties of undefined (reading 'id')";
+      const res = await postStatus({ botIds, media: image, caption: 'x' }, TOKEN);
+      statusFails = null;
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({
+        error: "WhatsApp refused the status: Cannot read properties of undefined (reading 'id')",
+      });
+    });
   });
 
   it('exposes the connection (with QR) only with the internal token', async () => {

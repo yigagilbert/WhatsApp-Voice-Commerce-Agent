@@ -162,28 +162,29 @@ The seed is idempotent upserts, never a reset.
 
 See [`deploy/.env.production.example`](../../deploy/.env.production.example). Key production values:
 
-| Variable                                              | Value                                                                                                                                  |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `KATALE_IMAGE_NAMESPACE` / `KATALE_TAG`               | `yigagilbert` / immutable tag                                                                                                          |
-| `API_PUBLIC_URL`, `CORS_ORIGINS`                      | `https://kataleai.space`; PayPal return/cancel URLs derive from it                                                                     |
-| `DATABASE_URL`                                        | `postgresql://katale:<pw>@postgres:5432/katale` (internal host `postgres`)                                                             |
-| `PAYPAL_ENV` / `PAYPAL_WEBHOOK_ID`                    | `sandbox` / ID from `pnpm paypal:webhook register …` (events: `pnpm paypal:webhook sync …`)                                            |
-| `PAYPAL_CAPTURE_ON_RETURN`                            | `true`; set `false` to force webhook-only capture (testing)                                                                            |
-| `VOICE_NOTES_ENABLED`                                 | `true` (since v0.1.0-202610060910); worker and API share it                                                                            |
-| `STT_API_KEY` / `STT_MODEL`                           | OpenAI key / `whisper-1` (English)                                                                                                     |
-| `SUNBIRD_API_KEY`                                     | Sunbird AI token: enables the Luganda speech-to-text cascade                                                                           |
-| `VOICE_MAX_DURATION_SECONDS` / `VOICE_MIN_CONFIDENCE` | `60` / `0.5`                                                                                                                           |
-| `TRANSLATION_PROVIDER` / `VOICE_TRANSLATE_LANGUAGES`  | `sunbird` / `""` (LLM reads Luganda directly; `lg` = translate first)                                                                  |
-| `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`           | Dashboard login. No password = every login refused. Use a long random password                                                         |
-| `WHATSAPP_CLIENT_ID`                                  | `katale-prod`; changing it starts a new session (QR)                                                                                   |
-| `WHATSAPP_PRINT_QR` / `WHATSAPP_REJECT_CALLS`         | `false` recommended (pair from the dashboard) / `true` (decline calls, suggest voice notes)                                            |
-| `DEFAULT_PHONE_REGION`                                | `UG`: country for local admin numbers (`0772…` → `+256772…`)                                                                           |
-| `REPORT_SCHEDULER_ENABLED`                            | `true` (default) on the single API container; `false` on any extra replica. Also runs the PayPal sweep and the WhatsApp outage monitor |
-| `UNAUTHORIZED_REPLY_COOLDOWN_HOURS`                   | `24`: one generic welcome per unregistered number per period                                                                           |
-| `PAYMENT_RECONCILIATION_ENABLED`                      | `true`: re-check open PayPal links every 6 h in the background                                                                         |
-| `CUSTOMER_COMMERCE_ENABLED`                           | `false` until customer shopping is approved; then also enable it per number in the dashboard                                           |
-| `STATUS_ADS_ENABLED`                                  | `false` until Status adverts are approved; then each shop turns them on in the dashboard (Status ads). Nothing is posted automatically |
-| `CUSTOMER_COMMERCE_PILOT_NUMBERS`                     | E.164 test numbers that may shop while the switch is off (controlled testing). Never admin numbers of the shop                         |
+| Variable                                              | Value                                                                                                                                   |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `KATALE_IMAGE_NAMESPACE` / `KATALE_TAG`               | `yigagilbert` / immutable tag                                                                                                           |
+| `API_PUBLIC_URL`, `CORS_ORIGINS`                      | `https://kataleai.space`; PayPal return/cancel URLs derive from it                                                                      |
+| `DATABASE_URL`                                        | `postgresql://katale:<pw>@postgres:5432/katale` (internal host `postgres`)                                                              |
+| `PAYPAL_ENV` / `PAYPAL_WEBHOOK_ID`                    | `sandbox` / ID from `pnpm paypal:webhook register …` (events: `pnpm paypal:webhook sync …`)                                             |
+| `PAYPAL_CAPTURE_ON_RETURN`                            | `true`; set `false` to force webhook-only capture (testing)                                                                             |
+| `VOICE_NOTES_ENABLED`                                 | `true` (since v0.1.0-202610060910); worker and API share it                                                                             |
+| `STT_API_KEY` / `STT_MODEL`                           | OpenAI key / `whisper-1` (English)                                                                                                      |
+| `SUNBIRD_API_KEY`                                     | Sunbird AI token: enables the Luganda speech-to-text cascade                                                                            |
+| `VOICE_MAX_DURATION_SECONDS` / `VOICE_MIN_CONFIDENCE` | `60` / `0.5`                                                                                                                            |
+| `TRANSLATION_PROVIDER` / `VOICE_TRANSLATE_LANGUAGES`  | `sunbird` / `""` (LLM reads Luganda directly; `lg` = translate first)                                                                   |
+| `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`           | Dashboard login. No password = every login refused. Use a long random password                                                          |
+| `WHATSAPP_CLIENT_ID`                                  | `katale-prod`; changing it starts a new session (QR)                                                                                    |
+| `WHATSAPP_PRINT_QR` / `WHATSAPP_REJECT_CALLS`         | `false` recommended (pair from the dashboard) / `true` (decline calls, suggest voice notes)                                             |
+| `DEFAULT_PHONE_REGION`                                | `UG`: country for local admin numbers (`0772…` → `+256772…`)                                                                            |
+| `REPORT_SCHEDULER_ENABLED`                            | `true` (default) on the single API container; `false` on any extra replica. Also runs the PayPal sweep and the WhatsApp outage monitor  |
+| `UNAUTHORIZED_REPLY_COOLDOWN_HOURS`                   | `24`: one generic welcome per unregistered number per period                                                                            |
+| `PAYMENT_RECONCILIATION_ENABLED`                      | `true`: re-check open PayPal links every 6 h in the background                                                                          |
+| `CUSTOMER_COMMERCE_ENABLED`                           | `false` until customer shopping is approved; then also enable it per number in the dashboard                                            |
+| `STATUS_ADS_ENABLED`                                  | `false` until Status adverts are approved; then each shop turns them on in the dashboard (Status ads). Shops post them from their phone |
+| `STATUS_ADS_POSTING_ENABLED`                          | `false` until Katale posting is tested on the owner's test phone; then shops may choose "Katale posts it". Needs `WHATSAPP_GATEWAY_URL` |
+| `CUSTOMER_COMMERCE_PILOT_NUMBERS`                     | E.164 test numbers that may shop while the switch is off (controlled testing). Never admin numbers of the shop                          |
 
 Compose sets the in-container values (`TRUST_PROXY=loopback,uniquelocal`, internal URLs, session path).
 

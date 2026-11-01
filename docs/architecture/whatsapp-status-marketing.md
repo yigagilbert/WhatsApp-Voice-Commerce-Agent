@@ -1,8 +1,16 @@
 # WhatsApp Status marketing ("Status ads")
 
-Katale can prepare daily WhatsApp Status adverts for a shop's products. **It does not publish
-them automatically.** The merchant downloads the generated image, copies the caption and posts it
-from their own phone. This page explains why, and how the feature works.
+Katale can prepare daily WhatsApp Status adverts for a shop's products. Each shop chooses who
+posts them:
+
+- **From the phone** (default): the merchant downloads the generated image, copies the caption
+  and posts it from the shop phone.
+- **Katale posts it**: Katale posts the advert to the connected shop number's own Status through
+  the WhatsApp worker. This is behind a second server switch, `STATUS_ADS_POSTING_ENABLED`, which is
+  off by default, because it relies on WhatsApp Web internals (section 1).
+
+This page covers the feasibility evidence, the risks of automated posting, and how both options
+work.
 
 Assessed on 2026-11-01 against the `whatsapp-web.js` we ship (1.34.7, with our patch in
 `patches/`).
@@ -28,10 +36,16 @@ Formats with the shipped library on today's WhatsApp Web:
 - Image or video with a caption: **broken** in 1.34.7.
 - Links: plain text only. Link previews are not built for Status.
 
-Fixing images would mean copying the unmerged PR into our patch. That ties us to minified internal
-WhatsApp Web modules, which changed signature twice in 2026. The next WhatsApp Web rollout could
-break the fix again. In the reported failures, posts were either rejected with an error or reported
-as sent while nobody saw them, so a broken release would not reliably raise an alert.
+`client.sendMessage('status@broadcast', media, { caption })` is the documented way to post
+(and `extra: { backgroundColor, fontStyle }` for text). The code path is in 1.34.7; what broke is
+the WhatsApp Web function it calls. **We now carry the fix from PR #201816 in our patch**
+(`patches/whatsapp-web.js@1.34.7.patch`): image and video Status posts use WhatsApp Web's new
+single-argument signature, and the missing gating helper no longer throws.
+
+The fix still depends on minified internal WhatsApp Web modules, which changed signature twice in 2026. The next WhatsApp Web rollout could break it again. In the reported failures, posts were
+either rejected with an error or reported as sent while nobody saw them, so a broken release would
+not reliably raise an alert. This is why phone posting stays the default and Katale posting has
+its own server switch.
 
 ### 1.2 Who sees a Status?
 
@@ -77,15 +91,19 @@ the same risks.
 
 ### 1.6 Verdict
 
-**Automated publishing is unsupported and too risky for merchant accounts.** Image Status posts
-are broken in the version we ship. The only fix depends on internal APIs, visibility depends on an
-address book we must not edit, failures can be silent, and the ban risk falls on the shop's sales
-number. Following the brief, we built the alternative: the agent writes Status adverts and renders
-the images, and the merchant posts them from their phone, where WhatsApp's own app handles privacy
-and audience.
+**Phone posting is the safe default; Katale posting is an opt-in with known risks.** Image Status
+posts only work with our patch, which depends on internal APIs. Visibility depends on an address
+book we must not edit, failures can be silent, and the ban risk falls on the shop's sales number.
+So:
 
-No status was posted during this work, from any number. A real-phone test needs the owner's linked
-test phone and is not needed for the manual design.
+- Phone posting is always available. WhatsApp's own app handles privacy and audience.
+- Katale posting is off until the operator sets `STATUS_ADS_POSTING_ENABLED=true`, and then each
+  shop must choose it. It is limited to 5 posts per shop per day. A failure leaves the advert ready
+  for the phone.
+
+No status was posted during this work, from any number. **Before turning Katale posting on in
+production, test it from the owner's linked test phone, and check from a second phone (one that
+has saved the shop number and is saved in the shop phone) that the Status actually appears.**
 
 ## 2. Architecture
 
@@ -96,13 +114,17 @@ test phone and is not needed for the manual design.
  API /api/status-ads/*  ──►  StatusAdService ──► CustomerCatalog rules (visible, active, in stock)
    │  owner/staff, merchant-scoped           ├─► ProductImageService.read (R2 or Postgres)
    │  404 while STATUS_ADS_ENABLED=false     ├─► ChatModel (optional, copy only, validated)
-   ▼                                         └─► status-image.ts (SVG + resvg + sharp → 1080×1920 JPEG)
+   ▼                                         ├─► status-image.ts (SVG + resvg + sharp → 1080×1920 JPEG)
+                                             └─► HttpStatusPoster ──► worker POST /internal/status
+                                                 (STATUS_ADS_POSTING_ENABLED)  └─► sendMessage('status@broadcast')
  ReportScheduler tick (1 min) ──► job "status-ads" ──► StatusAdService.tick(now)
 ```
 
-- **Module**: `apps/api/src/modules/status-ads/`. Nothing in it can send a WhatsApp message. It
-  does not import the notification service or the gateway, and an integration test checks that no
-  message goes out.
+- **Module**: `apps/api/src/modules/status-ads/`. It never messages customers: it does not import
+  the notification service, and integration tests check that no customer message goes out. Its only
+  WhatsApp output is the worker's `/internal/status` route, which posts to the shop number's own
+  Status. The worker's customer send route (`/internal/send`) refuses the Status chat, so a reply
+  can never become a Status.
 - **Data**: `StatusAdSettings` (one row per merchant) and `StatusAd` (one row per generated
   advert). `@@unique([merchantId, slotKey])` makes each scheduled slot idempotent across overlapping
   ticks, restarts or a second instance, the same as report runs.
@@ -128,8 +150,28 @@ test phone and is not needed for the manual design.
   is checked again. An advert whose product went out of stock or was hidden can't be approved,
   downloaded or marked posted.
 - **Approval**: _Manual_ mode creates drafts that an admin edits and approves. _Auto-ready_ mode
-  creates adverts that are ready to post straight away. In both modes **a person posts them**.
-  Afterwards the admin marks the advert _Posted_ (or _Skipped_) for the history.
+  creates adverts that are ready to post straight away.
+- **Posting from the phone**: the admin downloads the image, copies the caption, posts it, then
+  marks the advert _Posted_ (or _Skipped_) for the history.
+- **Posting by Katale** (when the server allows it):
+  - _Post to my Status now_ on any ready advert, whatever the shop's setting. With _Katale posts
+    it_ chosen, the scheduler also posts ready adverts approved in the last 3 hours, so a manual
+    approval goes out within a minute.
+  - **Right number only.** The API sends the shop's own WhatsApp account IDs with the post. The
+    worker posts only if one of them is the connected number. One worker session can be linked to
+    any shop, so this stops one shop's advert going out from another shop's number. A shop with no
+    connected number can't use it.
+  - **Never twice.** The advert is claimed (`publishingAt`) with a conditional update before the
+    post, so overlapping ticks, double clicks or a second instance can't post it twice. While it is
+    claimed, it can't be edited, skipped or marked posted.
+  - **Failures.** The advert stays _Ready_ with the reason, so the merchant can still post it from
+    the phone. Clear failures (WhatsApp not connected, WhatsApp refused it) retry after 5 and 30
+    minutes. If the outcome is unknown (the worker timed out, or the API stopped mid-post), the
+    advert is **not retried automatically**, because it may already be on the Status: the dashboard
+    asks the merchant to check the phone.
+  - **Limit.** At most 5 Katale posts per shop per local day.
+  - **Audit.** `status_ad.posted` (with `via: katale`) and `status_ad.post_failed`. The WhatsApp
+    Status ID is stored for later removal.
 - **Failures**: no eligible product, or a photo that can't be read, gives `FAILED` with the
   reason. Failures retry automatically after 5 and 30 minutes, then can be retried from the
   dashboard.
@@ -139,9 +181,12 @@ test phone and is not needed for the manual design.
 - **Access**: every query is scoped to the signed-in account's merchant. Owners change settings.
   Owners and staff generate, edit, approve and record posts. Actions are written to the audit log
   (`status_ad.*`).
-- **Feature flag**: `STATUS_ADS_ENABLED` (default `false`). While it is off, the routes return 404,
-  the scheduler job is not registered and the dashboard explains that the feature is off. Each
-  merchant also has its own on/off switch, which defaults to off.
+- **Feature flags**: `STATUS_ADS_ENABLED` (default `false`). While it is off, the routes return 404,
+  the scheduler job is not registered and the dashboard explains that the feature is off.
+  `STATUS_ADS_POSTING_ENABLED` (default `false`) additionally allows Katale posting. While it is
+  off, _Post now_ returns 409 and shops can't choose _Katale posts it_. Each merchant also has its
+  own on/off switch, which defaults to off, and its own choice of who posts, which defaults to the
+  phone.
 
 ## 3. Configuration and deployment
 
@@ -153,6 +198,14 @@ test phone and is not needed for the manual design.
    mode, and turn the shop's switch on.
 4. Optional: with `AI_API_KEY` set, the copy is AI-written and checked by the guard. Without it,
    the built-in templates are used.
+5. Optional, Katale posting:
+   1. Deploy a WhatsApp worker image built from this release; it contains the patched library.
+   2. With the owner's linked test phone connected, set `STATUS_ADS_POSTING_ENABLED=true` on the API
+      and use _Post to my Status now_ once.
+   3. Confirm on a second phone that the Status shows the image and the caption.
+   4. Only then let shops choose _Katale posts it_.
+   5. After any WhatsApp Web change, re-check: a broken internal API shows up as _Katale could not
+      post it_ on the advert, which stays ready for the phone.
 
 ## 4. Future work
 
@@ -160,8 +213,7 @@ test phone and is not needed for the manual design.
   delivers Status replies as normal messages that quote the Status, so the worker could detect the
   quote and attribute the chat. A per-advert view count typed in by the merchant, who can see
   viewers on the phone.
-- Re-assess automated publishing if WhatsApp offers an official Status API, or if whatsapp-web.js
-  releases a fix that stays stable across several WhatsApp Web updates. That would still need a
-  test from the owner's linked test phone, and a visibility check from a second phone that has
-  saved the shop number.
+- Drop our Status patch once whatsapp-web.js releases the fix (PR #201816 or similar), and move to
+  an official Status API if WhatsApp ever offers one.
+- Delete a Katale-posted Status from the dashboard (`revokeStatusMessage` with the stored ID).
 - Short product videos for Status, and more layouts.

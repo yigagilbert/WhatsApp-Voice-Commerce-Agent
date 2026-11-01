@@ -420,6 +420,7 @@ export function OpenAdCard({
           ad.publishError && (
             <p className="text-sm text-rose-700">
               Katale could not post it: {ad.publishError}
+              {/[.!?]$/.test(ad.publishError) ? '' : '.'}
               {ad.nextPublishAt ? ` It tries again ${dateTime(ad.nextPublishAt)}.` : ''}
             </p>
           )

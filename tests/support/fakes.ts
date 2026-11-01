@@ -148,8 +148,23 @@ export class FakePayPal implements PayPalApi {
         details: { status: 422, name: 'UNPROCESSABLE_ENTITY', issues: ['NOT_AUTHORIZED'] },
       });
     }
+    // Seen in Sandbox: an "item not received" case refuses notes-only (OTHER) evidence.
+    if (
+      d.reason === 'MERCHANDISE_OR_SERVICE_NOT_RECEIVED' &&
+      evidences.every((e) => e.evidence_type === 'OTHER')
+    ) {
+      throw new ProviderError('paypal', 'INVALID_REQUEST', {
+        details: { status: 400, name: 'INVALID_REQUEST', issues: ['EVIDENCE_TYPE_IS_NOT_ALLOWED'] },
+      });
+    }
     this.evidenceCalls.push({ disputeId, evidences });
     this.disputes.set(disputeId, { ...d, status: 'UNDER_REVIEW' });
+  }
+
+  readonly messageCalls: { disputeId: string; message: string }[] = [];
+  async sendDisputeMessage(disputeId: string, message: string) {
+    await this.getDispute(disputeId);
+    this.messageCalls.push({ disputeId, message });
   }
 
   async createDraftInvoice(): Promise<never> {

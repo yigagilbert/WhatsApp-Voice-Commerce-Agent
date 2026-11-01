@@ -311,6 +311,24 @@ export class PayPalClient implements PayPalApi {
     );
   }
 
+  /** Disputes v1 send-message (multipart, like provide-evidence): the seller's message on the case. */
+  async sendDisputeMessage(disputeId: string, message: string): Promise<void> {
+    const form = new FormData();
+    form.append(
+      'input',
+      new Blob([JSON.stringify({ message })], { type: 'application/json' }),
+      'input.json',
+    );
+    await this.send(
+      `${this.baseUrl}/v1/customer/disputes/${encodeURIComponent(disputeId)}/send-message`,
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${await this.accessToken()}` },
+        body: form,
+      },
+    );
+  }
+
   /** SANDBOX ONLY: moves an UNDER_REVIEW dispute to WAITING_FOR_SELLER_RESPONSE (test tooling). */
   async sandboxRequireSellerEvidence(disputeId: string): Promise<void> {
     if (this.options.environment !== 'sandbox')

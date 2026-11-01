@@ -7,6 +7,7 @@ import {
   type PaymentPolicyConfig,
 } from '@vca/commerce';
 import type { ActionConfirmation, ConfirmationAction, Merchant } from '@vca/database';
+import { payPalErrorStatus } from '@vca/paypal';
 import {
   AppError,
   ConflictError,
@@ -122,11 +123,17 @@ export class ConfirmationExecutor {
           return copy.paymentRequestFailed(reference);
         if (confirmation.action === 'ADD_SHIPMENT_TRACKING' && reference)
           return copy.shipmentFailed(reference);
-        if (confirmation.action === 'SUBMIT_DISPUTE_RESPONSE')
+        if (confirmation.action === 'SUBMIT_DISPUTE_RESPONSE') {
+          // A 4xx (other than rate limiting) is PayPal refusing this response: retrying won't help.
+          const status = payPalErrorStatus(error);
+          const refused = status !== undefined && status >= 400 && status < 500 && status !== 429;
           return copy.disputeSubmitFailed(
             disputeIdOf(confirmation) ?? '',
-            'PayPal could not accept it right now. Please try again later.',
+            refused
+              ? "PayPal refused this response, so trying again won't change it. Open the case in PayPal's Resolution Center to see what it accepts."
+              : 'PayPal could not accept it right now. Please try again later.',
           );
+        }
       }
       const explain =
         error instanceof AppError &&
@@ -205,16 +212,19 @@ export class ConfirmationExecutor {
 
   private async submitDisputeResponse(confirmation: ActionConfirmation, merchant: Merchant) {
     const payload = disputeResponsePayloadSchema.parse(confirmation.payload);
-    const { response } = await this.deps.disputes.submit(payload, confirmation.id, merchant);
+    const { response, via } = await this.deps.disputes.submit(payload, confirmation.id, merchant);
     await this.deps.confirmations.markExecuted(confirmation.id, { disputeResponseId: response.id });
     const dispute = await this.deps.disputes.find(merchant.id, payload.paypalDisputeId);
-    return copy.disputeSubmitted(
-      [
-        `Dispute: ${payload.paypalDisputeId}`,
-        ...(dispute.order ? [`Order: ${dispute.order.reference}`] : []),
-      ],
-      payload.evidence.map((e) => e.label),
-    );
+    const lines = [
+      `Dispute: ${payload.paypalDisputeId}`,
+      ...(dispute.order ? [`Order: ${dispute.order.reference}`] : []),
+    ];
+    return via === 'message'
+      ? copy.disputeMessageSent(lines)
+      : copy.disputeSubmitted(
+          lines,
+          payload.evidence.map((e) => e.label),
+        );
   }
 
   private async createPaymentRequest(

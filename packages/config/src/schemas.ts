@@ -121,6 +121,11 @@ export const commerceSchema = z.object({
    */
   CUSTOMER_COMMERCE_ENABLED: booleanString.default(false),
   /**
+   * WhatsApp Status adverts (off by default): Katale prepares Status images and captions for the
+   * merchant to post from their phone. Nothing is ever posted or sent automatically.
+   */
+  STATUS_ADS_ENABLED: booleanString.default(false),
+  /**
    * Comma-separated E.164 numbers (e.g. "+256700000000") that may use customer shopping on a
    * connected shop number while it is off for everyone else: controlled end-to-end testing.
    * Admin numbers of that shop always get the admin assistant instead.

@@ -61,6 +61,11 @@ export class CustomerCatalog {
     );
   }
 
+  /** Visible products a customer could order right now (untracked stock counts as available). */
+  async purchasable(merchantId: string) {
+    return (await this.visible(merchantId)).filter((p) => availability(p) !== 'Out of stock');
+  }
+
   private view(p: Product & { image: { id: string } | null }): CustomerProduct {
     return {
       id: p.id,

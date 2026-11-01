@@ -23,6 +23,7 @@ import { customerCommerceRoutes } from './modules/customer/customer.routes';
 import { adminRoutes } from './modules/admin/admin.routes';
 import { authRoutes } from './modules/auth/auth.routes';
 import { dashboardUserRoutes } from './modules/auth/dashboard-users.routes';
+import { statusAdRoutes } from './modules/status-ads/status-ads.routes';
 
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 
@@ -87,6 +88,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
     await scope.register(adminRoutes, { container });
     await scope.register(customerCommerceRoutes, { container });
     await scope.register(dashboardUserRoutes, { container });
+    await scope.register(statusAdRoutes, { container });
   });
 
   return app;

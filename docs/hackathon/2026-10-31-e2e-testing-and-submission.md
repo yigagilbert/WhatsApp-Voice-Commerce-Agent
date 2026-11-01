@@ -21,20 +21,20 @@ Whisper** and **real PayPal Sandbox**. WhatsApp traffic used the worker's own AP
 
 ## 1. Results at a glance
 
-| Area                                                         | Result                                                                                                                                                                 |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Automated tests                                              | 218 unit · 191 Postgres integration · 70 real-service (LLM, Whisper, PayPal Sandbox) — all pass                                                                        |
-| Lint, format, typecheck, production build                    | Pass                                                                                                                                                                   |
-| Production `kataleai.space`                                  | `/api/health` ok; login required; forged webhook refused. Pages behind login not re-checked                                                                            |
-| Dashboard: products, photos, stock, grid editing             | VERIFIED (local) after fixes (section 2)                                                                                                                               |
-| Admin assistant: 11 natural-language requests                | VERIFIED (local, real LLM) — every answer matched the database                                                                                                         |
-| Order → `CONFIRM` code → PayPal Sandbox checkout link        | VERIFIED (real Sandbox): link created once; repeats idempotent; wrong code refused                                                                                     |
-| English voice notes (5 clips, real Whisper + model)          | VERIFIED (real services, synthetic clips); real-phone voice notes BLOCKED                                                                                              |
-| Customer journey: greet → browse → ask → cart → ORDER → link | VERIFIED (local, real LLM + Sandbox) after fixes                                                                                                                       |
-| Sandbox buyer approval → capture → stock → notifications     | VERIFIED (production, real WhatsApp + real Sandbox buyer, 1 Nov): ORD-2PWEA5 $49 paid; admin told; stock 190→188 and 120→119                                           |
-| Production admin WhatsApp: questions, order, approval code   | VERIFIED (1 Nov): product count and low-stock answers match the dashboard; bare "yes" and wrong code refused; `CONFIRM` created the link once; repeat made nothing new |
-| Refunds, disputes in Sandbox                                 | TESTED (simulated); Sandbox account has 0 disputes; real ones need a buyer (section 7)                                                                                 |
-| WhatsApp QR, reconnect, real-device delivery                 | Production: admin locked out (defect 12, fixed on branch); 29-hour disconnect alert seen                                                                               |
+| Area                                                         | Result                                                                                                                                                                              |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Automated tests                                              | 218 unit · 191 Postgres integration · 70 real-service (LLM, Whisper, PayPal Sandbox) — all pass                                                                                     |
+| Lint, format, typecheck, production build                    | Pass                                                                                                                                                                                |
+| Production `kataleai.space`                                  | `/api/health` ok; login required; forged webhook refused. Pages behind login not re-checked                                                                                         |
+| Dashboard: products, photos, stock, grid editing             | VERIFIED (local) after fixes (section 2)                                                                                                                                            |
+| Admin assistant: 11 natural-language requests                | VERIFIED (local, real LLM) — every answer matched the database                                                                                                                      |
+| Order → `CONFIRM` code → PayPal Sandbox checkout link        | VERIFIED (real Sandbox): link created once; repeats idempotent; wrong code refused                                                                                                  |
+| English voice notes (5 clips, real Whisper + model)          | VERIFIED (synthetic clips) and in production 1 Nov: a 10-second real-phone note was transcribed word for word; after "YES" the product list, prices and stock matched the dashboard |
+| Customer journey: greet → browse → ask → cart → ORDER → link | VERIFIED (local, real LLM + Sandbox) after fixes                                                                                                                                    |
+| Sandbox buyer approval → capture → stock → notifications     | VERIFIED (production, real WhatsApp + real Sandbox buyer, 1 Nov): ORD-2PWEA5 $49 paid; admin told; stock 190→188 and 120→119                                                        |
+| Production admin WhatsApp: questions, order, approval code   | VERIFIED (1 Nov): product count and low-stock answers match the dashboard; bare "yes" and wrong code refused; `CONFIRM` created the link once; repeat made nothing new              |
+| Refunds, disputes in Sandbox                                 | TESTED (simulated); Sandbox account has 0 disputes; real ones need a buyer (section 7)                                                                                              |
+| WhatsApp QR, reconnect, real-device delivery                 | Production: admin locked out (defect 12, fixed on branch); 29-hour disconnect alert seen                                                                                            |
 
 ---
 

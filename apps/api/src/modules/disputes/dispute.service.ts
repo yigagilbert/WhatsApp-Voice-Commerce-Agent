@@ -8,6 +8,7 @@ import {
 import type { Database, Dispute, Merchant, Prisma } from '@vca/database';
 import {
   disputeCarrierName,
+  payPalErrorIssues,
   type DisputeEvidence,
   type PayPalApi,
   type PayPalDispute,
@@ -523,7 +524,8 @@ export class DisputeService {
     merchant: Pick<Merchant, 'id'>,
   ) {
     const existing = await this.db.disputeResponse.findUnique({ where: { confirmationId } });
-    if (existing?.status === 'SUBMITTED') return { response: existing, alreadySubmitted: true };
+    if (existing?.status === 'SUBMITTED')
+      return { response: existing, alreadySubmitted: true, via: null };
 
     const local = await this.db.dispute.findFirst({
       where: { id: payload.disputeId, merchantId: merchant.id },
@@ -551,11 +553,22 @@ export class DisputeService {
         status: 'PENDING',
       },
     });
+    let via: 'evidence' | 'message' = 'evidence';
     try {
-      await this.paypal.provideDisputeEvidence(
-        payload.paypalDisputeId,
-        payload.paypalEvidences as unknown as DisputeEvidence[],
-      );
+      try {
+        await this.paypal.provideDisputeEvidence(
+          payload.paypalDisputeId,
+          payload.paypalEvidences as unknown as DisputeEvidence[],
+        );
+      } catch (error) {
+        // An "item not received" case without proof of shipment refuses notes-only evidence.
+        // The approved text then goes on the case as the seller's message, when PayPal allows it.
+        const canMessage = (current.links ?? []).some((l) => l.rel === 'send_message');
+        if (!canMessage || !payPalErrorIssues(error).includes('EVIDENCE_TYPE_IS_NOT_ALLOWED'))
+          throw error;
+        await this.paypal.sendDisputeMessage(payload.paypalDisputeId, payload.responseText);
+        via = 'message';
+      }
     } catch (error) {
       await this.db.disputeResponse.update({
         where: { id: response.id },
@@ -579,11 +592,12 @@ export class DisputeService {
       data: {
         paypalDisputeId: payload.paypalDisputeId,
         evidence: payload.evidence.map((e) => e.label),
+        via,
       },
     });
     await this.sync(payload.paypalDisputeId, { notify: false }).catch((error: unknown) =>
       this.logger.warn({ err: error }, 'dispute refresh after submission failed'),
     );
-    return { response: submitted, alreadySubmitted: false };
+    return { response: submitted, alreadySubmitted: false, via };
   }
 }

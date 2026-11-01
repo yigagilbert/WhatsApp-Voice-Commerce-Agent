@@ -140,6 +140,19 @@ export const copy = {
         "I'll keep monitoring the dispute status.",
       ].join('\n'),
     ),
+  disputeMessageSent: (lines: string[]) =>
+    branded(
+      [
+        '✅ *Dispute response sent*',
+        '',
+        ...lines,
+        '',
+        'PayPal accepts evidence on an "item not received" case only with proof of shipment, so your response was posted on the case as a message instead.',
+        'Add tracking as soon as the order ships: it is the strongest evidence.',
+        '',
+        "I'll keep monitoring the dispute status.",
+      ].join('\n'),
+    ),
   disputeSubmitFailed: (disputeId: string, reason: string) =>
     branded(
       `❌ I couldn't submit the response for dispute ${disputeId}: ${reason}\n\nNothing was sent to PayPal.`,

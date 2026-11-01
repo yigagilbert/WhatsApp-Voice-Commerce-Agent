@@ -401,6 +401,29 @@ describe('admins and proactive reports (integration)', () => {
       expect((await send(chatOf(former.phone), 'hi')).replies[0]?.text).toContain('Welcome back.');
       await container.admins.update(merchantId, former.id, { active: false });
     });
+
+    it('a deactivated row keyed by the same linked ID never locks out the active admin', async () => {
+      // Production: an early admin row was created from the owner's linked ID (no phone), later
+      // deactivated, and the owner re-added by phone. Their messages arrive from that linked ID.
+      const lid = `8${run.replace(/\D/g, '')}54321@lid`;
+      await container.db.merchantOperator.create({
+        data: {
+          merchantId,
+          name: 'Old owner row',
+          channel: 'whatsapp',
+          externalId: lid,
+          active: false,
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      });
+      model.enqueue(() => ({ role: 'assistant', content: 'Hello owner.' }));
+      expect((await send(lid, 'how many products do I have?', owner.phone)).replies[0]?.text).toBe(
+        'Hello owner.',
+      );
+      // Still works once the phone can't be resolved (the linked ID was learned on the active row).
+      model.enqueue(() => ({ role: 'assistant', content: 'Still the owner.' }));
+      expect((await send(lid, 'hi')).replies[0]?.text).toBe('Still the owner.');
+    });
   });
 
   describe('owner and staff roles', () => {

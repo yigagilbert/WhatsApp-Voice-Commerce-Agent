@@ -538,6 +538,49 @@ describe('shipments and disputes (integration)', () => {
     expect(paypal.evidenceCalls).toHaveLength(1);
   });
 
+  it('without tracking, an "item not received" response goes on the case as a message', async () => {
+    // Production Sandbox (1 Nov): notes-only evidence was refused with EVIDENCE_TYPE_IS_NOT_ALLOWED
+    // and the merchant was told to "try again later", which could never work.
+    const responseText = `Order ${unshippedPaidRef} was paid through PayPal; we are preparing the shipment.`;
+    const d = paypal.disputes.get(unlinkedDisputeId)!;
+    const propose = async () => {
+      scriptTool('prepare_dispute_response', {
+        dispute: unlinkedDisputeId,
+        response_text: responseText,
+      });
+      return codeOf(await text('Respond to the other dispute.'), 'SUBMIT');
+    };
+
+    // PayPal doesn't allow messages on this case: the refusal is explained, nothing is sent.
+    paypal.disputes.set(unlinkedDisputeId, { ...d, status: 'WAITING_FOR_SELLER_RESPONSE' });
+    const refused = await text(`SUBMIT ${await propose()}`);
+    expect(refused).toContain("PayPal refused this response, so trying again won't change it.");
+    expect(refused).toContain('Nothing was sent to PayPal.');
+    expect(paypal.messageCalls).toHaveLength(0);
+
+    paypal.disputes.set(unlinkedDisputeId, {
+      ...d,
+      status: 'WAITING_FOR_SELLER_RESPONSE',
+      links: [{ rel: 'provide_evidence' }, { rel: 'send_message' }],
+    } as typeof d);
+    const code = await propose();
+    const reply = await text(`SUBMIT ${code}`);
+    expect(reply).toContain('✅ *Dispute response sent*');
+    expect(reply).toContain('posted on the case as a message');
+    expect(paypal.evidenceCalls).toHaveLength(1); // the refused evidence was never recorded
+    expect(paypal.messageCalls).toEqual([{ disputeId: unlinkedDisputeId, message: responseText }]);
+    const local = await container.db.dispute.findUniqueOrThrow({
+      where: { paypalDisputeId: unlinkedDisputeId },
+    });
+    expect(
+      await container.db.disputeResponse.findFirst({
+        where: { disputeId: local.id, status: 'SUBMITTED' },
+      }),
+    ).toMatchObject({ responseText });
+    expect(await text(`SUBMIT ${code}`)).toContain('already submitted');
+    expect(paypal.messageCalls).toHaveLength(1);
+  });
+
   it('serves disputes to the dashboard with evidence and history', async () => {
     const list = await app.inject({ method: 'GET', url: '/api/disputes', headers: dashboard });
     const body = list.json() as {

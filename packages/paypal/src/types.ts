@@ -184,6 +184,8 @@ export interface PayPalApi {
   getDispute(disputeId: string): Promise<PayPalDispute>;
   /** Disputes v1 provide-evidence (seller). Only valid while the dispute awaits the seller. */
   provideDisputeEvidence(disputeId: string, evidences: DisputeEvidence[]): Promise<void>;
+  /** Disputes v1 send-message: posts the seller's message on the case (no evidence attached). */
+  sendDisputeMessage(disputeId: string, message: string): Promise<void>;
   verifyWebhookSignature(params: {
     headers: WebhookSignatureHeaders;
     rawBody: string;

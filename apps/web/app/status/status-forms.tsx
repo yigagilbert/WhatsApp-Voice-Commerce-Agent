@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState, useTransition } from 'react';
+import { dateTime } from '@/lib/format';
 import {
   editStatusAd,
   generateStatusAd,
@@ -15,10 +16,15 @@ export interface StatusSettings {
   times: string[];
   timezone: string | null;
   approval: 'MANUAL' | 'AUTO';
+  publish: 'PHONE' | 'KATALE';
   productIds: string[];
   merchantTimezone: string;
   nextAt: string | null;
   aiCopy: boolean;
+  /** Posting by Katale is allowed on this server (STATUS_ADS_POSTING_ENABLED). */
+  posting: boolean;
+  katalePostsToday: number;
+  kataleDailyLimit: number;
   products: { id: string; name: string; eligible: boolean }[];
   ctas: string[];
   themes: string[];
@@ -40,6 +46,10 @@ export interface StatusAd {
   approvedBy: string | null;
   postedAt: string | null;
   postedBy: string | null;
+  postedVia: 'phone' | 'katale' | null;
+  publishingAt: string | null;
+  publishError: string | null;
+  nextPublishAt: string | null;
   createdAt: string;
   updatedAt: string;
   product: { id: string; name: string } | null;
@@ -136,9 +146,43 @@ export function SettingsForm({ settings }: { settings: StatusSettings }) {
               defaultChecked={settings.approval === 'AUTO'}
               className="mt-0.5"
             />
-            <span>Mark it ready to post straight away (you still post it from your phone)</span>
+            <span>Mark it ready to post straight away</span>
           </label>
         </div>
+      </fieldset>
+      <fieldset>
+        <legend className="mb-2 text-sm font-medium text-slate-700">Who posts it</legend>
+        <div className="space-y-1.5 text-sm text-slate-700">
+          <label className="flex items-start gap-2">
+            <input
+              type="radio"
+              name="publish"
+              value="PHONE"
+              defaultChecked={settings.publish === 'PHONE'}
+              className="mt-0.5"
+            />
+            <span>I download it and post it from the shop phone</span>
+          </label>
+          <label className="flex items-start gap-2">
+            <input
+              type="radio"
+              name="publish"
+              value="KATALE"
+              defaultChecked={settings.publish === 'KATALE'}
+              disabled={!settings.posting}
+              className="mt-0.5"
+            />
+            <span className={settings.posting ? '' : 'text-slate-400'}>
+              Katale posts it to the shop number’s WhatsApp Status once it is ready
+              {!settings.posting && ' (turned off on this server)'}
+            </span>
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          Katale posts at most {settings.kataleDailyLimit} statuses a day and only from this shop’s
+          connected number. Posting uses WhatsApp Web, which WhatsApp does not officially support:
+          if it fails, the advert stays here for you to post from the phone.
+        </p>
       </fieldset>
       <fieldset>
         <legend className="mb-2 text-sm font-medium text-slate-700">Products to promote</legend>
@@ -267,15 +311,20 @@ function ActionButton({
   );
 }
 
-/** An open advert (draft or ready): preview, edit, approve, download, copy, record as posted. */
+/**
+ * An open advert (draft or ready): preview, edit, approve, then download, copy and record as
+ * posted, or have Katale post it.
+ */
 export function OpenAdCard({
   ad,
   ctas,
   themes,
+  posting,
 }: {
   ad: StatusAd;
   ctas: string[];
   themes: string[];
+  posting: boolean;
 }) {
   const [state, setState] = useState<ActionState>(null);
   const [editState, editAction, saving] = useActionState<ActionState, FormData>(
@@ -365,13 +414,32 @@ export function OpenAdCard({
         <p className="text-xs text-slate-500">
           The price on the image always comes from your catalogue.
         </p>
+        {ad.publishingAt ? (
+          <p className="text-sm text-slate-600">Katale is posting this advert…</p>
+        ) : (
+          ad.publishError && (
+            <p className="text-sm text-rose-700">
+              Katale could not post it: {ad.publishError}
+              {ad.nextPublishAt ? ` It tries again ${dateTime(ad.nextPublishAt)}.` : ''}
+            </p>
+          )
+        )}
         <div className="flex flex-wrap items-center gap-2">
           {ad.status === 'DRAFT' && (
             <ActionButton id={ad.id} action="approve" label="Approve" primary onDone={setState} />
           )}
-          {ad.status === 'READY' && (
+          {ad.status === 'READY' && !ad.publishingAt && (
             <>
-              <a href={`${src}&download=1`} className={primary}>
+              {posting && (
+                <ActionButton
+                  id={ad.id}
+                  action="publish"
+                  label="Post to my Status now"
+                  primary
+                  onDone={setState}
+                />
+              )}
+              <a href={`${src}&download=1`} className={posting ? secondary : primary}>
                 Download image
               </a>
               <button
@@ -386,9 +454,12 @@ export function OpenAdCard({
               <ActionButton id={ad.id} action="posted" label="I posted it" onDone={setState} />
             </>
           )}
-          <ActionButton id={ad.id} action="skip" label="Skip" onDone={setState} />
+          {!ad.publishingAt && (
+            <ActionButton id={ad.id} action="skip" label="Skip" onDone={setState} />
+          )}
         </div>
-        <Notice state={state} />
+        {/* A posting failure is already shown above, from the advert itself. */}
+        <Notice state={state && !state.ok && state.message === ad.publishError ? null : state} />
       </div>
     </li>
   );

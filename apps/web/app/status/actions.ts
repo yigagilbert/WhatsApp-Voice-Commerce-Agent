@@ -18,6 +18,7 @@ export async function saveStatusSettings(_prev: ActionState, form: FormData): Pr
       .filter((t) => t),
     timezone: timezone || null,
     approval: form.get('approval') === 'AUTO' ? 'AUTO' : 'MANUAL',
+    publish: form.get('publish') === 'KATALE' ? 'KATALE' : 'PHONE',
     productIds: form.get('scope') === 'chosen' ? form.getAll('productIds').map(String) : [],
   });
   revalidatePath('/status');
@@ -60,6 +61,7 @@ const MESSAGES = {
   posted: 'Recorded as posted.',
   skip: 'Skipped.',
   retry: 'Tried again.',
+  publish: 'Posted to your WhatsApp Status.',
 } as const;
 
 export async function statusAdAction(
@@ -67,13 +69,16 @@ export async function statusAdAction(
   action: keyof typeof MESSAGES,
 ): Promise<ActionState> {
   await requireUser();
-  const result = await apiPost<{ status: string; lastError: string | null }>(
-    `/api/status-ads/${encodeURIComponent(id)}/${action}`,
-    {},
-  );
+  const result = await apiPost<{
+    status: string;
+    lastError: string | null;
+    publishError: string | null;
+  }>(`/api/status-ads/${encodeURIComponent(id)}/${action}`, {});
   revalidatePath('/status');
   if (!result.ok) return { ok: false, message: result.error };
   if (action === 'retry' && result.data.status === 'FAILED')
     return { ok: false, message: result.data.lastError ?? 'Still failing.' };
+  if (action === 'publish' && result.data.status !== 'POSTED')
+    return { ok: false, message: result.data.publishError ?? 'Katale could not post it.' };
   return { ok: true, message: MESSAGES[action] };
 }

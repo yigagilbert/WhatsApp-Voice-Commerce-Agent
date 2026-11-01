@@ -2,9 +2,11 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import {
   HEADERS,
+  isStatusChatId,
   newCorrelationId,
   outboundChannelMessageSchema,
   runWithContext,
+  statusPostSchema,
   type Logger,
 } from '@vca/shared';
 import type { WhatsAppTransport } from './whatsapp-adapter';
@@ -70,7 +72,12 @@ export function createGatewayServer(params: {
         }
         if (req.method === 'POST' && req.url === '/internal/send') {
           const parsed = outboundChannelMessageSchema.safeParse(JSON.parse(await readBody(req)));
-          if (!parsed.success || parsed.data.channel !== 'whatsapp')
+          // Statuses only go through /internal/status, so a reply can never become a Status.
+          if (
+            !parsed.success ||
+            parsed.data.channel !== 'whatsapp' ||
+            isStatusChatId(parsed.data.externalChatId)
+          )
             return send(400, { error: 'invalid message' });
           if (!transport.isReady()) return send(503, { error: 'whatsapp not ready' });
           const { externalChatId, text, media } = parsed.data;
@@ -78,6 +85,26 @@ export function createGatewayServer(params: {
           else await transport.sendText(externalChatId, text);
           logger.info({ media: !!media }, 'outbound message delivered');
           return send(202, { delivered: true });
+        }
+        if (req.method === 'POST' && req.url === '/internal/status') {
+          const parsed = statusPostSchema.safeParse(JSON.parse(await readBody(req)));
+          if (!parsed.success) return send(400, { error: 'invalid status' });
+          if (!transport.isReady()) return send(503, { error: 'WhatsApp is not connected' });
+          // One worker session can serve any shop: never post one shop's advert from another's number.
+          const bot = transport.botId();
+          if (!bot || !parsed.data.botIds.includes(bot))
+            return send(409, { error: 'The connected WhatsApp number is not this shop’s number' });
+          try {
+            const messageId = await transport.postStatus(parsed.data.media, parsed.data.caption);
+            logger.info({ messageId }, 'status posted');
+            return send(202, { posted: true, messageId });
+          } catch (error) {
+            logger.error({ err: error }, 'status post failed');
+            // WhatsApp Web errors are short; keep the first line for the dashboard.
+            const reason =
+              String(error instanceof Error ? error.message : error).split('\n')[0] ?? '';
+            return send(502, { error: `WhatsApp refused the status: ${reason.slice(0, 200)}` });
+          }
         }
         // Connection management for the dashboard (via the API, which enforces the dashboard login).
         if (req.method === 'GET' && req.url === '/internal/session') {

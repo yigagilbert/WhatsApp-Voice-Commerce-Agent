@@ -904,12 +904,20 @@ model ProductImage {
 enum StatusAdApproval {
   /// Drafts wait for an admin to review and approve them.
   MANUAL
-  /// Generated adverts are ready to post straight away (a person still posts them).
+  /// Generated adverts are ready to post straight away.
   AUTO
 }
 
-/// WhatsApp Status adverts: Katale prepares them, the merchant posts them from their phone.
-/// See docs/architecture/whatsapp-status-marketing.md for why posting is not automated.
+/// Who posts an advert once it is ready.
+enum StatusAdPublish {
+  /// The merchant downloads it and posts it from their phone.
+  PHONE
+  /// Katale posts it to the connected shop number's Status (STATUS_ADS_POSTING_ENABLED).
+  KATALE
+}
+
+/// WhatsApp Status adverts: Katale prepares them; the merchant posts them from their phone, or
+/// Katale posts them through the WhatsApp worker. See docs/architecture/whatsapp-status-marketing.md.
 model StatusAdSettings {
   id         String           @id @default(cuid())
   merchantId String           @unique
@@ -921,6 +929,7 @@ model StatusAdSettings {
   /// IANA time zone; null = the merchant's.
   timezone   String?
   approval   StatusAdApproval @default(MANUAL)
+  publish    StatusAdPublish  @default(PHONE)
   /// Products to promote; empty = every eligible product.
   productIds String[]         @default([])
   createdAt  DateTime         @default(now())
@@ -934,9 +943,9 @@ model StatusAdSettings {
 enum StatusAdStatus {
   /// Waiting for an admin to approve.
   DRAFT
-  /// Approved (or auto-approved): ready to download and post.
+  /// Approved (or auto-approved): ready to download and post, or for Katale to post.
   READY
-  /// The merchant posted it on WhatsApp.
+  /// Posted on WhatsApp (by the merchant, or by Katale).
   POSTED
   /// Dismissed by an admin.
   SKIPPED
@@ -945,31 +954,41 @@ enum StatusAdStatus {
 }
 
 model StatusAd {
-  id            String         @id @default(cuid())
-  merchantId    String
-  productId     String?
+  id              String         @id @default(cuid())
+  merchantId      String
+  productId       String?
   /// e.g. "SLOT:2026-11-01T09:00" (scheduled, local time) or "MANUAL:<timestamp>": unique per
   /// merchant, so a slot is never prepared twice.
-  slotKey       String
-  trigger       String
-  scheduledFor  DateTime
-  status        StatusAdStatus @default(DRAFT)
-  headline      String         @default("")
-  caption       String         @default("")
-  cta           String         @default("")
+  slotKey         String
+  trigger         String
+  scheduledFor    DateTime
+  status          StatusAdStatus @default(DRAFT)
+  headline        String         @default("")
+  caption         String         @default("")
+  cta             String         @default("")
   /// Colour theme index used for the image.
-  theme         Int            @default(0)
+  theme           Int            @default(0)
   /// "ai" or "template" (where the wording came from); "edited" once an admin changed it.
-  source        String         @default("template")
-  attempts      Int            @default(0)
-  lastError     String?
-  nextAttemptAt DateTime?
-  approvedAt    DateTime?
-  approvedBy    String?
-  postedAt      DateTime?
-  postedBy      String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  source          String         @default("template")
+  attempts        Int            @default(0)
+  lastError       String?
+  nextAttemptAt   DateTime?
+  approvedAt      DateTime?
+  approvedBy      String?
+  postedAt        DateTime?
+  postedBy        String?
+  /// "phone" (the merchant posted it) or "katale" (posted through the WhatsApp worker).
+  postedVia       String?
+  /// Set while Katale is posting it: a claim, so two ticks or instances never post it twice.
+  publishingAt    DateTime?
+  /// Katale's posting attempts; failures leave the advert READY for the phone.
+  publishAttempts Int            @default(0)
+  publishError    String?
+  nextPublishAt   DateTime?
+  /// WhatsApp's ID for the posted Status (Katale posts only).
+  statusMessageId String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   product  Product? @relation(fields: [productId], references: [id], onDelete: SetNull)

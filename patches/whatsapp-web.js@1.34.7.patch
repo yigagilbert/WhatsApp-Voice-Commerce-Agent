@@ -38,3 +38,57 @@ index dd977e85b0c0c40d2625cd337264fc9ae3bed17b..95ea9eb3adc12daca3cfb0dfdd1ff13a
  
          if (!result) return undefined;
          return new MessageMedia(
+diff --git a/src/util/Injected/Utils.js b/src/util/Injected/Utils.js
+index 540078a9d07b3df07ccd51b030556a72af4cf650..2fc40846d2d614ca860cc97e85f1557fea6d4ee5 100644
+--- a/src/util/Injected/Utils.js
++++ b/src/util/Injected/Utils.js
+@@ -546,9 +546,15 @@ exports.LoadUtils = () => {
+                     messageSecret: window.crypto.getRandomValues(
+                         new Uint8Array(32),
+                     ),
+-                    cannotBeRanked: window
+-                        .require('WAWebStatusGatingUtils')
+-                        .canCheckStatusRankingPosterGating(),
++                    // [katale patch] This gating helper is missing from some WhatsApp Web
++                    // builds and threw while building the model (upstream wwebjs #201807).
++                    cannotBeRanked:
++                        typeof window.require('WAWebStatusGatingUtils')
++                            ?.canCheckStatusRankingPosterGating === 'function'
++                            ? window
++                                  .require('WAWebStatusGatingUtils')
++                                  .canCheckStatusRankingPosterGating()
++                            : false,
+                 },
+             );
+ 
+@@ -562,15 +568,21 @@ exports.LoadUtils = () => {
+                 text: msg.body,
+             };
+ 
+-            await window
+-                .require('WAWebSendStatusMsgAction')
+-                [
+-                    isMedia
+-                        ? 'sendStatusMediaMsgAction'
+-                        : 'sendStatusTextMsgAction'
+-                ](...(isMedia ? [msg, mediaUpdate] : [statusOptions]));
+-
+-            return msg;
++            const statusAction = window.require('WAWebSendStatusMsgAction');
++            if (!isMedia) {
++                await statusAction.sendStatusTextMsgAction(statusOptions);
++                return msg;
++            }
++            // [katale patch] Since mid-2026 WhatsApp Web takes one { mediaMsgData, beforeSend,
++            // funnelContext } argument instead of (msg, mediaUpdate); the old call crashed
++            // with "reading 'id'" (upstream wwebjs #201807, fix from PR #201816).
++            const mediaMsgData = { ...message, from, to: chat.id, author: from };
++            await statusAction.sendStatusMediaMsgAction({
++                mediaMsgData,
++                beforeSend: async () => {},
++                funnelContext: undefined,
++            });
++            return new (window.require('WAWebCollections').Msg.modelClass)(mediaMsgData);
+         }
+ 
+         const [msgPromise, sendMsgResultPromise] = window

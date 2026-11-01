@@ -13,7 +13,7 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-const HOW_TO = [
+const HOW_TO_PHONE = [
   'Download the image and copy the caption.',
   'On the shop phone, open WhatsApp › Updates › add a status, pick the image and paste the caption.',
   'Come back and press “I posted it” so the history stays accurate.',
@@ -27,7 +27,7 @@ export default async function StatusAdsPage() {
   const header = (
     <PageHeader
       title="Status ads"
-      description="Katale prepares WhatsApp Status adverts from your in-stock products, with your real photos and catalogue prices. You post them from your phone. Katale never posts statuses or messages customers for you."
+      description="Katale prepares WhatsApp Status adverts from your in-stock products, with your real photos and catalogue prices. Post them from your phone, or let Katale post them to your shop number’s Status. Katale never messages customers about them."
     />
   );
   if (!settings.ok)
@@ -54,8 +54,16 @@ export default async function StatusAdsPage() {
       <div className="max-w-4xl space-y-6">
         <Section title="How posting works">
           <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
+            {s.posting && (
+              <p className="mb-2">
+                <span className="font-medium">Katale posts it:</span> press “Post to my Status now”,
+                or choose “Katale posts it” below and ready adverts go out on schedule (at most{' '}
+                {s.kataleDailyLimit} a day; {s.katalePostsToday} posted today).
+              </p>
+            )}
+            {s.posting && <p className="mb-1 font-medium">From your phone:</p>}
             <ol className="list-decimal space-y-1 pl-5">
-              {HOW_TO.map((step) => (
+              {HOW_TO_PHONE.map((step) => (
                 <li key={step}>{step}</li>
               ))}
             </ol>
@@ -89,7 +97,13 @@ export default async function StatusAdsPage() {
           ) : (
             <ul className="space-y-4">
               {open.map((ad) => (
-                <OpenAdCard key={ad.id} ad={ad} ctas={s.ctas} themes={s.themes} />
+                <OpenAdCard
+                  key={ad.id}
+                  ad={ad}
+                  ctas={s.ctas}
+                  themes={s.themes}
+                  posting={s.posting}
+                />
               ))}
             </ul>
           )}
@@ -107,7 +121,7 @@ export default async function StatusAdsPage() {
                   </span>
                   <span className="text-slate-500">
                     {ad.status === 'POSTED'
-                      ? `posted ${dateTime(ad.postedAt)}${ad.postedBy ? ` by ${ad.postedBy}` : ''}`
+                      ? `posted ${dateTime(ad.postedAt)}${ad.postedBy ? ` by ${ad.postedBy}` : ''}${ad.postedVia === 'katale' && ad.postedBy !== 'Katale' ? ' via Katale' : ''}`
                       : dateTime(ad.createdAt)}
                   </span>
                   {ad.status === 'POSTED' && ad.headline && (

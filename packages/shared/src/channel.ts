@@ -85,6 +85,18 @@ export const outboundChannelMessageSchema = z.object({
 });
 export type OutboundChannelMessage = z.infer<typeof outboundChannelMessageSchema>;
 
+/** WhatsApp's Status ("stories") chat. Customer sends must never target it. */
+export const isStatusChatId = (chatId: string) => /@\w*broadcast\b/.test(chatId);
+
+/** A Status advert the WhatsApp worker posts to the shop's own Status. */
+export const statusPostSchema = z.object({
+  /** The shop's own bot numbers: the worker posts only while one of them is connected. */
+  botIds: z.array(z.string().min(1).max(255)).min(1).max(20),
+  media: outboundMediaSchema,
+  caption: z.string().max(700),
+});
+export type StatusPost = z.infer<typeof statusPostSchema>;
+
 /** Response returned to a channel adapter after the core processed an inbound message. */
 export interface InboundProcessingResult {
   status: 'processed' | 'duplicate' | 'ignored';

@@ -1,0 +1,170 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+      }
+      .wrap {
+        position: absolute;
+        inset: 0;
+        padding: 100px 110px;
+        display: flex;
+        flex-direction: column;
+      }
+      .brand {
+        font-size: 32px;
+      }
+      h1 {
+        font-size: 76px;
+        letter-spacing: -0.03em;
+        font-weight: 800;
+        margin: 40px 0 60px;
+      }
+      .flow {
+        display: flex;
+        align-items: stretch;
+        gap: 18px;
+      }
+      .step {
+        flex: 1;
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 34px 28px;
+        display: flex;
+        flex-direction: column;
+      }
+      .step.hl {
+        border-color: var(--green);
+        box-shadow: 0 0 0 2px rgba(10, 138, 58, 0.35);
+      }
+      .n {
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        background: rgba(95, 179, 138, 0.18);
+        color: var(--leaf);
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: 24px;
+        margin-bottom: 26px;
+      }
+      .step.hl .n {
+        background: rgba(10, 138, 58, 0.2);
+        color: var(--green);
+      }
+      h3 {
+        font-size: 34px;
+        letter-spacing: -0.01em;
+        margin-bottom: 14px;
+      }
+      p {
+        font-size: 24px;
+        line-height: 1.4;
+        color: var(--muted);
+        flex: 1;
+      }
+      .tag {
+        margin-top: 24px;
+        font-family: 'SF Mono', Menlo, monospace;
+        font-size: 20px;
+        color: var(--ink);
+        opacity: 0.8;
+      }
+      .step.hl .tag {
+        color: var(--green);
+        opacity: 1;
+      }
+      .arrow {
+        align-self: center;
+        font-size: 44px;
+        color: var(--muted);
+      }
+      .base {
+        margin-top: 34px;
+        display: flex;
+        gap: 18px;
+      }
+      .base div {
+        flex: 1;
+        border: 1px dashed var(--line);
+        border-radius: 18px;
+        padding: 24px 30px;
+        font-size: 26px;
+      }
+      .base b {
+        color: var(--leaf);
+      }
+      .foot {
+        margin-top: auto;
+        padding-top: 24px;
+        font-size: 26px;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="brand">
+        <img class="mark" src="logo-icon.png" alt="" /><span
+          >Katale <span class="accent">AI</span></span
+        >
+      </div>
+      <h1>The AI prepares. <span class="accent">Code handles the money.</span></h1>
+      <div class="flow">
+        <div class="step">
+          <div class="n">1</div>
+          <h3>WhatsApp</h3>
+          <p>Text and voice notes from merchants and customers</p>
+          <div class="tag">whatsapp-web.js worker</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="step">
+          <div class="n">2</div>
+          <h3>AI agent</h3>
+          <p>Understands the request and picks a typed tool</p>
+          <div class="tag">LLM + Whisper</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="step">
+          <div class="n">3</div>
+          <h3>Backend verifies</h3>
+          <p>Prices from the catalogue, stock, limits, permissions</p>
+          <div class="tag">Fastify · Postgres</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="step hl">
+          <div class="n">4</div>
+          <h3>Merchant approves</h3>
+          <p>One-time code bound to this exact action</p>
+          <div class="tag">CONFIRM 4821</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="step">
+          <div class="n">5</div>
+          <h3>PayPal executes</h3>
+          <p>Orders v2, verified webhooks, tracking, disputes</p>
+          <div class="tag">PayPal Sandbox</div>
+        </div>
+      </div>
+      <div class="base">
+        <div><b>Dashboard</b> · AG Grid for orders, products and payments; AG Studio analytics</div>
+        <div>
+          <b>Activity trace</b> · every message, AI decision, approval and PayPal event, one ID
+        </div>
+      </div>
+      <div class="foot">
+        <span>471 automated tests · 256 unit · 215 integration</span
+        ><span>Next.js · Fastify · Prisma · Docker</span>
+      </div>
+    </div>
+  </body>
+</html>

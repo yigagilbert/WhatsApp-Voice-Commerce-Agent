@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+      }
+      .chat {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        font-size: 26px;
+      }
+      .chat .draft {
+        max-width: 660px;
+      }
+      .chat .dur {
+        font-size: 20px;
+        opacity: 0.8;
+      }
+      .chat .bubble.out {
+        max-width: 420px;
+      }
+      .chat .link {
+        color: #1a6fc0;
+        font-size: 22px;
+      }
+      .wrap {
+        position: absolute;
+        inset: 0;
+        padding: 110px 130px;
+        display: grid;
+        grid-template-columns: 1.15fr 1fr;
+        gap: 90px;
+        align-items: center;
+      }
+      .brand {
+        font-size: 40px;
+        margin-bottom: 70px;
+      }
+      h1 {
+        font-size: 118px;
+        line-height: 1.02;
+        letter-spacing: -0.035em;
+        font-weight: 800;
+      }
+      .sub {
+        margin-top: 42px;
+        font-size: 36px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+      .foot {
+        position: absolute;
+        left: 130px;
+        right: 130px;
+        bottom: 80px;
+        display: flex;
+        justify-content: space-between;
+        font-size: 26px;
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+        padding-top: 28px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div>
+        <div class="brand">
+          <img class="mark" src="logo-icon.png" alt="" /><span
+            >Katale <span class="accent">AI</span></span
+          >
+        </div>
+        <h1>Run your shop<br />from <span class="accent">WhatsApp.</span></h1>
+        <p class="sub">
+          Voice and text orders, PayPal checkout,<br />tracking and disputes. The AI prepares;<br />money
+          moves only when the merchant approves.
+        </p>
+      </div>
+      <div class="chat">
+        <div class="bubble out voice">
+          <span class="play"></span
+          ><span class="wave"
+            ><i style="height: 16px"></i><i style="height: 12px"></i><i style="height: 20px"></i
+            ><i style="height: 30px"></i><i style="height: 8px"></i><i style="height: 8px"></i
+            ><i style="height: 34px"></i><i style="height: 26px"></i><i style="height: 8px"></i
+            ><i style="height: 16px"></i><i style="height: 26px"></i><i style="height: 8px"></i
+            ><i style="height: 26px"></i><i style="height: 12px"></i><i style="height: 8px"></i
+            ><i style="height: 8px"></i><i style="height: 20px"></i><i style="height: 20px"></i
+            ><i style="height: 8px"></i><i style="height: 12px"></i><i style="height: 8px"></i
+            ><i style="height: 26px"></i><i style="height: 20px"></i><i style="height: 8px"></i
+            ><i style="height: 34px"></i><i style="height: 26px"></i><i style="height: 8px"></i
+            ><i style="height: 12px"></i><i style="height: 30px"></i
+            ><i style="height: 30px"></i></span
+          ><span class="dur">0:06</span>
+        </div>
+        <div class="bubble in draft">
+          <b>Draft order · Sarah</b><br />
+          3 × Handmade Basket @ $12.00 — $36.00<br />
+          Delivery — $5.00<br />
+          <b>Total — $41.00</b><br />
+          <span class="muted">Reply</span> <span class="code">CONFIRM 4821</span>
+          <span class="muted">to send the PayPal link</span>
+        </div>
+        <div class="bubble out">CONFIRM 4821</div>
+        <div class="bubble in">
+          ✅ PayPal link sent to Sarah<br /><span class="link">paypal.com/checkoutnow?token=…</span>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <span>Built in Uganda for sellers across East Africa</span
+      ><span>PayPal AI Hackathon 2026</span>
+    </div>
+  </body>
+</html>

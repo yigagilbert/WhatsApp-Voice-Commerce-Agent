@@ -1,0 +1,152 @@
+1
+00:00:00,300 --> 00:00:03,933
+This is a voice note to a shop's WhatsApp.
+
+2
+00:00:03,983 --> 00:00:08,581
+Seconds later it's a priced
+order with a PayPal link,
+
+3
+00:00:08,631 --> 00:00:11,650
+and the AI never touched the money.
+
+4
+00:00:12,300 --> 00:00:16,719
+Across East Africa, small shops
+already sell in WhatsApp chats.
+
+5
+00:00:16,769 --> 00:00:19,485
+Orders come as voice notes, and totals,
+
+6
+00:00:19,535 --> 00:00:22,819
+payment links and stock
+are worked out by hand.
+
+7
+00:00:22,869 --> 00:00:26,650
+Katale AI turns that chat
+into the shop's back office.
+
+8
+00:00:27,300 --> 00:00:30,850
+The merchant just talks.
+
+9
+00:00:30,900 --> 00:00:35,500
+The AI understands the request,
+
+10
+00:00:35,550 --> 00:00:47,950
+but every price and total comes from the
+shop's catalogue, computed by the backend.
+
+11
+00:00:48,000 --> 00:00:59,650
+And yes isn't enough: money only moves
+on a one-time code bound to this order.
+
+12
+00:01:00,300 --> 00:01:07,179
+The customer pays on
+PayPal, here in Sandbox.
+
+13
+00:01:07,229 --> 00:01:19,650
+A verified webhook marks the order paid,
+tells the merchant, and the stock drops.
+
+14
+00:01:20,300 --> 00:01:28,071
+Customers shop on the same
+number: browse with photos,
+
+15
+00:01:28,121 --> 00:01:33,864
+add to a cart and check out with PayPal.
+
+16
+00:01:33,914 --> 00:01:43,133
+Ask for 500 baskets, and the shop's
+rules answer, not the model.
+
+17
+00:01:43,183 --> 00:01:49,650
+Every cart and total is
+built by the backend.
+
+18
+00:01:50,300 --> 00:01:53,512
+After the sale, the same rule.
+
+19
+00:01:53,562 --> 00:02:00,472
+The AI prepares the shipment, the
+merchant approves with a code,
+
+20
+00:02:00,522 --> 00:02:04,714
+and the tracking number goes to PayPal.
+
+21
+00:02:04,764 --> 00:02:07,650
+Disputes work the same way.
+
+22
+00:02:08,300 --> 00:02:12,216
+The dashboard runs on AG Grid.
+
+23
+00:02:12,266 --> 00:02:19,619
+Edit stock right in the grid,
+ask AG Studio for a chart,
+
+24
+00:02:19,669 --> 00:02:23,850
+and open the trace of any order:
+
+25
+00:02:23,900 --> 00:02:31,650
+the voice note, the AI's decision,
+the approval and PayPal.
+
+26
+00:02:32,300 --> 00:02:36,918
+Under the hood: a WhatsApp worker,
+an AI agent with typed tools,
+
+27
+00:02:36,968 --> 00:02:39,471
+a backend that checks every number,
+
+28
+00:02:39,521 --> 00:02:43,191
+and PayPal orders, webhooks,
+tracking and disputes.
+
+29
+00:02:43,241 --> 00:02:44,650
+471 automated tests.
+
+30
+00:02:45,300 --> 00:02:45,845
+AI prepares.
+
+31
+00:02:45,895 --> 00:02:46,887
+The backend verifies.
+
+32
+00:02:46,937 --> 00:02:47,979
+The merchant approves.
+
+33
+00:02:48,029 --> 00:02:48,772
+PayPal executes.
+
+34
+00:02:48,822 --> 00:02:51,650
+Katale AI, built in Uganda for
+sellers across East Africa.

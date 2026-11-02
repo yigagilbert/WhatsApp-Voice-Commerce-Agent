@@ -9,15 +9,16 @@ order, and the AI never touched the money.**
 
 ## Files
 
-| File                                                             | Use                                                    |
-| ---------------------------------------------------------------- | ------------------------------------------------------ |
-| [graphics/title-card.png](graphics/title-card.png)               | Overlay at the end of the cold open (0:08–0:12)        |
-| [graphics/architecture.png](graphics/architecture.png)           | Scene 8 (2:32–2:45)                                    |
-| [graphics/closing-card.png](graphics/closing-card.png)           | Scene 9 (2:45–2:52)                                    |
-| [graphics/thumbnail-youtube.png](graphics/thumbnail-youtube.png) | YouTube custom thumbnail (1280×720)                    |
-| [graphics/thumbnail-devpost.png](graphics/thumbnail-devpost.png) | Devpost project thumbnail (3:2, 1200×800)              |
-| [voice-over.srt](voice-over.srt)                                 | Subtitles of the voice-over; re-time after the edit    |
-| `graphics/*.html` + [graphics/render.sh](graphics/render.sh)     | Sources; edit the HTML and run the script to re-render |
+| File                                                                                               | Use                                                                               |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [graphics/title-card.png](graphics/title-card.png)                                                 | Overlay at the end of the cold open (0:08–0:12)                                   |
+| [graphics/architecture.png](graphics/architecture.png)                                             | Scene 8 (2:32–2:45)                                                               |
+| [graphics/closing-card.png](graphics/closing-card.png)                                             | Scene 9 (2:45–2:52)                                                               |
+| [graphics/thumbnail-youtube.png](graphics/thumbnail-youtube.png)                                   | YouTube custom thumbnail (1280×720)                                               |
+| [graphics/thumbnail-devpost.png](graphics/thumbnail-devpost.png)                                   | Devpost project thumbnail (3:2, 1200×800)                                         |
+| [graphics/logo-full.png](graphics/logo-full.png), [graphics/logo-icon.png](graphics/logo-icon.png) | Logo with a transparent background (light backgrounds only: the wordmark is dark) |
+| [voice-over.srt](voice-over.srt)                                                                   | Subtitles of the voice-over; re-time after the edit                               |
+| `graphics/*.html` + [graphics/render.sh](graphics/render.sh)                                       | Sources; edit the HTML and run the script to re-render                            |
 
 ## Script
 
@@ -79,8 +80,8 @@ if the suite changes.
 
 ## Editing
 
-- Layout: phone recording large on the left, caption or dashboard on the right; plain dark
-  background (#0f2a22 matches the graphics).
+- Layout: phone recording large on the left, caption or dashboard on the right; plain light
+  background (#f6faf3 matches the graphics).
 - Speed up every wait (PayPal loading, "typing…") 4–8×; never talk over a spinner.
 - Zoom in on the line that matters: totals, the CONFIRM request, "✅ Payment received", the photo.
 - Blur every phone number except the bot's, and the Sandbox buyer's email.

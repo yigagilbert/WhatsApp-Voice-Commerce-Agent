@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      html,
+      body {
+        width: 1280px;
+        height: 720px;
+      }
+      .chat {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        font-size: 26px;
+      }
+      .chat .draft {
+        max-width: 660px;
+      }
+      .chat .dur {
+        font-size: 20px;
+        opacity: 0.8;
+      }
+      .chat .bubble.out {
+        max-width: 420px;
+      }
+      .chat .link {
+        color: #9fd3ff;
+        font-size: 22px;
+      }
+      .wrap {
+        position: absolute;
+        inset: 0;
+        padding: 64px 76px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 51px;
+        align-items: center;
+      }
+      .brand {
+        font-size: 40px;
+        margin-bottom: 48px;
+      }
+      h1 {
+        font-size: 96px;
+        line-height: 1.02;
+        letter-spacing: -0.035em;
+        font-weight: 800;
+      }
+      .sub {
+        margin-top: 33px;
+        font-size: 28px;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      .chat {
+        font-size: 19px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div>
+        <div class="brand"><span class="mark"></span>Katale AI</div>
+        <h1>Voice note<br /><span class="ochre">→ PayPal</span><br />order.</h1>
+        <p class="sub">Run your shop from WhatsApp.<br />The AI never touches the money.</p>
+      </div>
+      <div class="chat">
+        <div class="bubble out voice">
+          <span class="play"></span
+          ><span class="wave"
+            ><i style="height: 16px"></i><i style="height: 12px"></i><i style="height: 20px"></i
+            ><i style="height: 30px"></i><i style="height: 8px"></i><i style="height: 8px"></i
+            ><i style="height: 34px"></i><i style="height: 26px"></i><i style="height: 8px"></i
+            ><i style="height: 16px"></i><i style="height: 26px"></i><i style="height: 8px"></i
+            ><i style="height: 26px"></i><i style="height: 12px"></i><i style="height: 8px"></i
+            ><i style="height: 8px"></i><i style="height: 20px"></i><i style="height: 20px"></i
+            ><i style="height: 8px"></i><i style="height: 12px"></i><i style="height: 8px"></i
+            ><i style="height: 26px"></i><i style="height: 20px"></i><i style="height: 8px"></i
+            ><i style="height: 34px"></i><i style="height: 26px"></i><i style="height: 8px"></i
+            ><i style="height: 12px"></i><i style="height: 30px"></i
+            ><i style="height: 30px"></i></span
+          ><span class="dur">0:06</span>
+        </div>
+        <div class="bubble in draft">
+          <b>Draft order · Sarah</b><br />
+          3 × Handmade Basket @ $12.00 — $36.00<br />
+          Delivery — $5.00<br />
+          <b>Total — $41.00</b><br />
+          <span class="muted">Reply</span> <span class="code">CONFIRM 4821</span>
+          <span class="muted">to send the PayPal link</span>
+        </div>
+        <div class="bubble out">CONFIRM 4821</div>
+        <div class="bubble in">
+          ✅ PayPal link sent to Sarah<br /><span class="link">paypal.com/checkoutnow?token=…</span>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -139,6 +139,9 @@ private field):
 
 ## Video script (under 3:00)
 
+Superseded by the full video kit in [video/README.md](video/README.md) (2:50 script, captions,
+shoot checklist, graphics and YouTube text); kept here for reference.
+
 Record on production after the API and WhatsApp worker redeploy. Show **PayPal Sandbox** on screen
 once. Product photos were verified on the customer phone on 2 Nov, so scene 5 can show the photo.
 

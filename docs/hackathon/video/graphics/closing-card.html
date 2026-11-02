@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+      }
+      .wrap {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      .brand {
+        font-size: 44px;
+        margin-bottom: 80px;
+      }
+      .rule {
+        display: grid;
+        grid-template-columns: repeat(4, auto);
+        gap: 0 64px;
+        font-size: 46px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .rule span {
+        display: block;
+      }
+      .rule small {
+        display: block;
+        font-size: 26px;
+        font-weight: 500;
+        color: var(--muted);
+        margin-top: 14px;
+        letter-spacing: 0;
+      }
+      .links {
+        margin-top: 110px;
+        font-size: 34px;
+        line-height: 1.7;
+      }
+      .links .muted {
+        font-size: 26px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="brand"><span class="mark"></span>Katale AI</div>
+      <div class="rule">
+        <span>AI prepares.<small>understands the request</small></span
+        ><span>Backend verifies.<small>prices, stock, limits</small></span
+        ><span class="ochre">Merchant approves.<small>one-time code</small></span
+        ><span>PayPal executes.<small>pay, track, resolve</small></span>
+      </div>
+      <div class="links">
+        <b>kataleai.space</b><br /><span class="muted"
+          >github.com/yigagilbert/WhatsApp-Voice-Commerce-Agent · Built in Uganda for sellers across
+          East Africa</span
+        >
+      </div>
+    </div>
+  </body>
+</html>

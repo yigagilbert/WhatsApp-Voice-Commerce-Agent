@@ -94,6 +94,9 @@ model WhatsAppAccount {
   pickupEnabled           Boolean         @default(false)
   /// Where and when to collect (shown to customers who choose pickup).
   pickupInfo              String?
+  /// Owner opt-in: the public homepage's "Chat on WhatsApp" link and QR code use this number
+  /// (only while it is the linked bot and customer shopping is on).
+  listedOnHomepage        Boolean         @default(false)
   createdAt               DateTime        @default(now())
   updatedAt               DateTime        @updatedAt
 

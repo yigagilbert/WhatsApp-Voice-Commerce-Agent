@@ -12,6 +12,8 @@ export interface WhatsAppAccountSettings {
   deliveryFeeMinor?: number;
   pickupEnabled?: boolean;
   pickupInfo?: string | null;
+  /** Use this number for the public homepage's WhatsApp link and QR code. */
+  listedOnHomepage?: boolean;
 }
 
 const BOT_ID = /^\d{6,15}@c\.us$/;
@@ -30,6 +32,19 @@ export class WhatsAppAccountService {
   forBot(wid: string | null | undefined) {
     if (!wid) return Promise.resolve(null);
     return this.db.whatsAppAccount.findUnique({ where: { wid }, include: { merchant: true } });
+  }
+
+  /**
+   * The number the public homepage may show: the linked bot's account, only if its owner listed
+   * it and customers can shop on it (otherwise a visitor's "hi" would get no useful reply).
+   */
+  async publicNumber(
+    wid: string | null | undefined,
+    options: { customerCommerceAvailable: boolean },
+  ): Promise<string | null> {
+    if (!options.customerCommerceAvailable || !wid || !BOT_ID.test(wid)) return null;
+    const account = await this.db.whatsAppAccount.findUnique({ where: { wid } });
+    return account?.listedOnHomepage && account.customerCommerceEnabled ? wid.split('@')[0]! : null;
   }
 
   forMerchant(merchantId: string) {
@@ -111,6 +126,9 @@ export class WhatsAppAccountService {
         ...(settings.pickupInfo !== undefined
           ? { pickupInfo: settings.pickupInfo?.trim().slice(0, 300) || null }
           : {}),
+        ...(settings.listedOnHomepage !== undefined
+          ? { listedOnHomepage: settings.listedOnHomepage }
+          : {}),
       },
     });
     await this.audit.record({
@@ -123,6 +141,7 @@ export class WhatsAppAccountService {
         customerCommerceEnabled: updated.customerCommerceEnabled,
         paymentLinkMode: updated.paymentLinkMode,
         handoffHours: updated.handoffHours,
+        listedOnHomepage: updated.listedOnHomepage,
       },
     });
     return updated;

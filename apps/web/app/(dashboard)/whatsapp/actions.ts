@@ -51,8 +51,10 @@ export async function saveShopSettings(
     deliveryFee: String(form.get('deliveryFee') ?? '0').trim() || '0',
     pickupEnabled: form.get('pickupEnabled') === 'on',
     pickupInfo: String(form.get('pickupInfo') ?? '').trim() || null,
+    listedOnHomepage: form.get('listedOnHomepage') === 'on',
   });
   revalidatePath('/whatsapp');
+  revalidatePath('/');
   return result.ok ? { ok: true, message: 'Saved.' } : { ok: false, message: result.error };
 }
 

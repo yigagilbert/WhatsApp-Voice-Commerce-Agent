@@ -110,14 +110,18 @@ export function checkBootstrapCredentials(
 }
 
 /** Only same-site relative paths are allowed as post-login redirects (no open redirects). */
+/** Where the dashboard starts: `/` is the public homepage. */
+export const DASHBOARD_HOME = '/overview';
+
 export function safeNextPath(next: unknown): string {
   return typeof next === 'string' &&
     next.startsWith('/') &&
+    next !== '/' &&
     !next.startsWith('//') &&
     !next.startsWith('/\\') &&
     !next.startsWith('/login')
     ? next
-    : '/';
+    : DASHBOARD_HOME;
 }
 
 /**

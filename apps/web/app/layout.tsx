@@ -1,75 +1,47 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
+import { Bricolage_Grotesque, Geist } from 'next/font/google';
 import type { ReactNode } from 'react';
-import { Brand } from '@/components/brand';
-import { Nav } from '@/components/nav';
-import { WhatsAppBanner } from '@/components/whatsapp-banner';
-import { loadWebConfig } from '@vca/config';
-import { currentUser } from '@/lib/auth';
-import Link from 'next/link';
-import { logout } from './login/actions';
+import { siteUrl } from '@/lib/public-site';
 import './globals.css';
 
-export const metadata: Metadata = {
-  title: 'Katale AI — Merchant Dashboard',
-  description: 'Conversational commerce for businesses that sell through chat and voice.',
+// Self-hosted at build time by next/font: no requests to Google from visitors' browsers.
+const geist = Geist({ subsets: ['latin'], variable: '--font-geist', display: 'swap' });
+const bricolage = Bricolage_Grotesque({
+  subsets: ['latin'],
+  variable: '--font-bricolage',
+  display: 'swap',
+});
+
+const description =
+  'Run your shop from WhatsApp: orders by voice or text, PayPal payment links, stock alerts and sales reports. The AI prepares; you approve; PayPal executes.';
+
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    metadataBase: new URL(await siteUrl()),
+    title: { default: 'Katale AI — Run your shop from WhatsApp', template: '%s · Katale AI' },
+    description,
+    applicationName: 'Katale AI',
+    openGraph: {
+      type: 'website',
+      siteName: 'Katale AI',
+      title: 'Katale AI — Run your shop from WhatsApp',
+      description,
+    },
+    twitter: { card: 'summary_large_image' },
+  };
+}
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#fafbf7' },
+    { media: '(prefers-color-scheme: dark)', color: '#121a16' },
+  ],
 };
 
-const paypalEnvironment = () => {
-  try {
-    return loadWebConfig().PAYPAL_ENV;
-  } catch {
-    return 'sandbox';
-  }
-};
-
-export default async function RootLayout({ children }: { children: ReactNode }) {
-  const user = await currentUser();
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body className="antialiased">
-        {user ? (
-          <div className="mx-auto flex min-h-screen max-w-[1680px] flex-col md:flex-row">
-            <aside className="border-b border-slate-200 p-4 md:w-56 md:shrink-0 md:border-r md:border-b-0">
-              <div className="mb-4 px-3">
-                <Brand />
-                <p className="mt-1 text-xs text-slate-500">Conversational commerce</p>
-                {paypalEnvironment() === 'sandbox' && (
-                  <p
-                    className="mt-2 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20"
-                    title="Payments use PayPal Sandbox: no real money moves."
-                  >
-                    PayPal Sandbox · test payments
-                  </p>
-                )}
-              </div>
-              <Nav />
-              <form action={logout} className="mt-4 px-3">
-                <p className="text-xs text-slate-500">
-                  Signed in as {user.name}
-                  {user.role === 'OWNER' ? ' · owner' : ' · staff'}
-                </p>
-                <div className="mt-1 flex gap-3">
-                  <Link
-                    href="/account"
-                    className="text-xs font-medium text-slate-700 hover:underline"
-                  >
-                    Account
-                  </Link>
-                  <button className="text-xs font-medium text-slate-700 hover:underline">
-                    Sign out
-                  </button>
-                </div>
-              </form>
-            </aside>
-            <main className="min-w-0 flex-1 p-4 md:p-8">
-              <WhatsAppBanner />
-              {children}
-            </main>
-          </div>
-        ) : (
-          <main className="p-4">{children}</main>
-        )}
-      </body>
+    <html lang="en" className={`${geist.variable} ${bricolage.variable}`}>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }

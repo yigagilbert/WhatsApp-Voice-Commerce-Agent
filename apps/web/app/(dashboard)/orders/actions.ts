@@ -15,7 +15,7 @@ export async function cancelOrder(reference: string): Promise<{ ok: boolean; mes
     {},
   );
   revalidatePath('/orders');
-  revalidatePath('/');
+  revalidatePath('/overview');
   if (!result.ok) return { ok: false, message: result.error };
   switch (result.data.status) {
     case 'cancelled':

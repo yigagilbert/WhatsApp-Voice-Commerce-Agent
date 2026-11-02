@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { toMajorString, toMinorUnits } from '@vca/commerce';
-import { HEADERS, NotFoundError } from '@vca/shared';
+import { NotFoundError } from '@vca/shared';
 import { z } from 'zod';
 import type { Container } from '../../container';
 import { actorLabel, ownerOnly } from '../../http/merchant-scope';
 import { parse } from '../../http/validation';
+import { forgetPublicNumber } from '../public/public.routes';
+import { linkedBot } from '../whatsapp/linked-bot';
 
 const idParams = z.object({ id: z.string().min(1).max(64) });
 const productPatch = z.object({
@@ -30,6 +32,7 @@ const accountPatch = z.object({
   deliveryFee: z.union([z.number().nonnegative(), z.string()]).optional(),
   pickupEnabled: z.boolean().optional(),
   pickupInfo: z.string().max(300).nullable().optional(),
+  listedOnHomepage: z.boolean().optional(),
 });
 
 /**
@@ -43,21 +46,7 @@ export async function customerCommerceRoutes(
   const { db, config } = container;
 
   /** The bot number currently linked to the worker (full ID stays server-side). */
-  const currentBot = async (): Promise<string | null> => {
-    if (!config.WHATSAPP_GATEWAY_URL) return null;
-    try {
-      const res = await fetch(
-        `${config.WHATSAPP_GATEWAY_URL.replace(/\/$/, '')}/internal/session`,
-        {
-          headers: { [HEADERS.internalToken]: config.INTERNAL_SERVICE_TOKEN },
-          signal: AbortSignal.timeout(5_000),
-        },
-      );
-      return ((await res.json()) as { botId?: string | null }).botId ?? null;
-    } catch {
-      return null;
-    }
-  };
+  const currentBot = () => linkedBot(config);
   const masked = (wid: string) => `•••• ${wid.split('@')[0]!.slice(-4)}`;
 
   app.get('/api/whatsapp/account', async (request) => {
@@ -87,6 +76,7 @@ export async function customerCommerceRoutes(
         currency: request.merchant.preferredCurrency,
         pickupEnabled: a.pickupEnabled,
         pickupInfo: a.pickupInfo,
+        listedOnHomepage: a.listedOnHomepage,
       })),
     };
   });
@@ -96,6 +86,7 @@ export async function customerCommerceRoutes(
     if (!bot)
       return reply.status(409).send({ error: { message: 'The WhatsApp bot is not connected.' } });
     const account = await container.whatsappAccounts.connect(request.merchant.id, bot);
+    forgetPublicNumber();
     return { id: account.id, number: masked(account.wid) };
   });
 
@@ -111,7 +102,12 @@ export async function customerCommerceRoutes(
     const account = await container.whatsappAccounts.update(request.merchant.id, id, settings, {
       customerCommerceAvailable: config.CUSTOMER_COMMERCE_ENABLED,
     });
-    return { id: account.id, customerCommerceEnabled: account.customerCommerceEnabled };
+    forgetPublicNumber();
+    return {
+      id: account.id,
+      customerCommerceEnabled: account.customerCommerceEnabled,
+      listedOnHomepage: account.listedOnHomepage,
+    };
   });
 
   // ─── Products: description, visibility, photo ─────────────────────────────

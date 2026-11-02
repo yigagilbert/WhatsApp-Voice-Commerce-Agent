@@ -86,6 +86,57 @@ prisma, postgresql, ag-grid, cloudflare-r2, docker
 
 YouTube, public or unlisted, under 3:00 (judges stop at 3:00). Paste the link after uploading.
 
+## Additional info (draft answers to paste)
+
+The declarations (age, eligibility, not a sponsor employee), submitter type, country,
+organisation and the PayPal experience rating are the submitter's own answers; they are left out
+here on purpose.
+
+**New or existing?** New. The repository's first commit is 7 Oct 2026, after the 1 Oct start.
+
+**How the project meets the main technology requirement:**
+
+> **PayPal (Sandbox):** Orders v2 creates the checkout link for each approved order and captures
+> the payment; webhooks (signature-verified, idempotent) mark orders paid, record refunds and raise
+> dispute alerts; the order tracking API receives carrier and tracking numbers when the merchant
+> ships; Disputes v1 lists and shows cases and submits the merchant's response (as evidence, or as a
+> case message when PayPal requires proof of shipment); open payment links are reconciled against
+> PayPal.
+>
+> **AI:** an OpenAI-compatible LLM (`gpt-4.1-mini`) runs two agents with typed tools: the merchant
+> assistant (inventory, orders, payments, shipments, disputes, analytics) and a narrower customer
+> shopping assistant. OpenAI Whisper transcribes WhatsApp voice notes. The AI only proposes: prices
+> and totals are computed by the backend, and every payment, shipment or dispute action needs a typed
+> one-time code from the merchant.
+
+**Sponsor tools:** AG Grid (AG Grid Community for the orders, products and payments grids; AG
+Studio for the analytics page and its assistant). Tick APIMatic only if the APIMatic review in
+[apimatic-integration.md](apimatic-integration.md) was completed.
+
+**Public repository:** https://github.com/yigagilbert/WhatsApp-Voice-Commerce-Agent
+
+**Working demo:** https://kataleai.space
+
+**Testing instructions** (needs the judge staff account first; put its password only in this
+private field):
+
+> 1. Open https://kataleai.space and sign in with the judge account below.
+> 2. **Agent console** runs the same AI pipeline as WhatsApp. Try "Which products are running
+>    low?", then "Create an order for Sarah for 2 handmade baskets", then `yes` (it asks for a code).
+>    Staff can't approve payment requests; that is owner-only by design, and the reply says so.
+> 3. **Products:** click a stock count, change it, press Enter, then ask the console "what's low?".
+> 4. **Analytics:** ask the AG Studio assistant "Revenue by product".
+> 5. **Orders → any order → Activity:** the trace from message to AI decision to approval to PayPal.
+>
+> PayPal Sandbox only; no real money. WhatsApp needs a linked phone, so judges use the console; the
+> video shows the WhatsApp side.
+
+**AG Grid experience** (draft, edit to your own words):
+
+> AG Grid let us build the merchant dashboard quickly: inline editing of prices and stock with
+> server validation, filters and CSV export on orders and payments. AG Studio gave merchants an
+> analytics page they can change by asking its assistant.
+
 ## Video script (under 3:00)
 
 Record on production after the API and WhatsApp worker redeploy. Show **PayPal Sandbox** on screen

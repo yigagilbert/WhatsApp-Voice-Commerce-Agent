@@ -58,7 +58,7 @@ The rule throughout: **the AI prepares, the backend verifies, the merchant appro
 ## Challenges we ran into
 
 - **Keeping the model away from money.** The model once invented a capped cart and total for "500 baskets". Now every cart and total a customer sees is text built by the backend.
-- **WhatsApp Web keeps changing.** Linked IDs instead of phone numbers locked an admin out, and a WhatsApp Web update broke every media send in our library; we fixed the lockout with a test and patched the library for media.
+- **WhatsApp Web keeps changing.** Linked IDs instead of phone numbers locked an admin out, and a WhatsApp Web update broke every media send in our library; we fixed the lockout with a test and patched the library so photos send again.
 - **PayPal disputes.** PayPal refuses "other" evidence on an "item not received" case without proof of shipment, so Katale now posts the merchant's response as a case message instead.
 
 We tested end to end on production with real phones, the real model and PayPal Sandbox, and fixed 15 defects in the final week. The suite has 256 unit and 215 integration tests.
@@ -140,8 +140,7 @@ private field):
 ## Video script (under 3:00)
 
 Record on production after the API and WhatsApp worker redeploy. Show **PayPal Sandbox** on screen
-once. Before recording, check scene 5 (product photo) on the customer phone: if the photo still
-doesn't arrive, record the text details and don't mention photos.
+once. Product photos were verified on the customer phone on 2 Nov, so scene 5 can show the photo.
 
 You need: the merchant phone, a customer phone, a device signed in as the Sandbox buyer, and the
 dashboard signed in (Overview, Orders, Products and Activity in tabs).

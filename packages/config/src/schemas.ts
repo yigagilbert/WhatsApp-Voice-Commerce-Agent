@@ -253,6 +253,11 @@ export const whatsappSchema = baseSchema.extend({
 
 export const webSchema = baseSchema.extend({
   API_BASE_URL: z.string().url().default('http://localhost:4000'),
+  /**
+   * The website's public address, e.g. https://kataleai.space: social previews and the homepage's
+   * WhatsApp QR code (which points at <this>/chat). Without it, the request's own host is used.
+   */
+  WEB_PUBLIC_URL: optionalString.pipe(z.string().url().optional()),
   /** Shown as a "PayPal Sandbox" badge so nobody mistakes demo payments for real money. */
   PAYPAL_ENV: paypalSchema.shape.PAYPAL_ENV,
   /** AG Studio's analytics assistant calls the LLM through the dashboard server (key stays server-side). */

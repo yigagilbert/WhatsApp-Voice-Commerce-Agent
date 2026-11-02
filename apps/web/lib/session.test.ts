@@ -65,11 +65,13 @@ describe('dashboard session', () => {
   it('only allows safe relative post-login redirects', async () => {
     const { safeNextPath } = await load();
     expect(safeNextPath('/orders?status=PAID')).toBe('/orders?status=PAID');
-    expect(safeNextPath('//evil.example')).toBe('/');
-    expect(safeNextPath('/\\evil.example')).toBe('/');
-    expect(safeNextPath('https://evil.example')).toBe('/');
-    expect(safeNextPath('/login')).toBe('/');
-    expect(safeNextPath(undefined)).toBe('/');
+    expect(safeNextPath('//evil.example')).toBe('/overview');
+    expect(safeNextPath('/\\evil.example')).toBe('/overview');
+    expect(safeNextPath('https://evil.example')).toBe('/overview');
+    expect(safeNextPath('/login')).toBe('/overview');
+    expect(safeNextPath(undefined)).toBe('/overview');
+    // `/` is the public homepage; signing in goes to the dashboard.
+    expect(safeNextPath('/')).toBe('/overview');
   });
 
   it("uses the proxy's client IP header, never the client-controlled first X-Forwarded-For hop", async () => {

@@ -21,6 +21,7 @@ export interface ShopAccount {
   currency: string;
   pickupEnabled: boolean;
   pickupInfo: string | null;
+  listedOnHomepage: boolean;
 }
 
 export interface ShopView {
@@ -107,6 +108,26 @@ export function ShopSettingsForm({
             {available
               ? 'Customers can browse products, add them to a cart, order and pay with PayPal, check their orders and ask for a person. Admin numbers keep the admin assistant.'
               : 'Not available on this server yet (CUSTOMER_COMMERCE_ENABLED is off). Customers get the generic welcome.'}
+          </span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2 text-sm text-slate-800">
+        <input
+          type="checkbox"
+          name="listedOnHomepage"
+          defaultChecked={account.listedOnHomepage}
+          className="mt-0.5"
+        />
+        <span>
+          <span className="font-medium">Show this number on the public homepage</span>
+          <span className="block text-xs text-slate-500">
+            The homepage&apos;s &ldquo;Chat on WhatsApp&rdquo; button, its QR code and{' '}
+            <a href="/chat" className="underline" target="_blank" rel="noreferrer">
+              /chat
+            </a>{' '}
+            open a chat with this number while it is the linked bot and customer shopping is on.
+            Otherwise the homepage says chat is unavailable. Shared QR codes keep working when the
+            number changes.
           </span>
         </span>
       </label>

@@ -1,7 +1,25 @@
 @import 'tailwindcss';
 
+/*
+ * Katale AI tokens, taken from the logo: forest "leaf" green, the lime highlight, the charcoal
+ * wordmark. Used by the public site and the dashboard's brand elements.
+ */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: var(--font-bricolage), var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+
+  --color-leaf-50: #eef8ef;
+  --color-leaf-100: #d6efd9;
+  --color-leaf-200: #ade0b4;
+  --color-leaf-500: #18a048;
+  --color-leaf-600: #0a8a3a;
+  --color-leaf-700: #087030;
+  --color-leaf-800: #0a5528;
+  --color-leaf-900: #0b3d20;
+  --color-lime: #6ccf1a;
+  --color-charcoal: #1c2329;
+  --color-paper: #fafbf7;
+  --color-mist: #e4ebe2;
 }
 
 body {

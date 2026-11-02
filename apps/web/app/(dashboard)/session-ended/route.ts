@@ -15,7 +15,8 @@ import { BOOTSTRAP_USER_ID, SESSION_COOKIE, verifySessionToken } from '@/lib/ses
 export async function GET(request: Request) {
   const jar = await cookies();
   const user = verifySessionToken(jar.get(SESSION_COOKIE)?.value);
-  if (user && (await stillValid(user))) return NextResponse.redirect(new URL('/', request.url));
+  if (user && (await stillValid(user)))
+    return NextResponse.redirect(new URL('/overview', request.url));
   jar.delete(SESSION_COOKIE);
   return NextResponse.redirect(new URL('/login?expired=1', request.url));
 }

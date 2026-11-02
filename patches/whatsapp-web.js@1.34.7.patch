@@ -39,10 +39,22 @@ index dd977e85b0c0c40d2625cd337264fc9ae3bed17b..95ea9eb3adc12daca3cfb0dfdd1ff13a
          if (!result) return undefined;
          return new MessageMedia(
 diff --git a/src/util/Injected/Utils.js b/src/util/Injected/Utils.js
-index 540078a9d07b3df07ccd51b030556a72af4cf650..752d053333c3317c5bb8440cb151130a41461d24 100644
+index 540078a9d07b3df07ccd51b030556a72af4cf650..9edbe6acdd2101cdc7667a95ce056c87236bb81e 100644
 --- a/src/util/Injected/Utils.js
 +++ b/src/util/Injected/Utils.js
-@@ -534,6 +534,55 @@ exports.LoadUtils = () => {
+@@ -483,6 +483,11 @@ exports.LoadUtils = () => {
+             ...extraOptions,
+         };
+ 
++        // [katale patch] Since WhatsApp Web 2.3000.10477xx (Sept 2026) the spread media data carries
++        // its own model id (`__x_id`), which replaces the message id and makes every media send fail
++        // in WhatsApp's sender check; text still works (upstream wwebjs #201921, PR #201923).
++        delete message.__x_id;
++
+         // Bot's won't reply if canonicalUrl is set (linking)
+         if (botOptions) {
+             delete message.canonicalUrl;
+@@ -534,6 +539,55 @@ exports.LoadUtils = () => {
              return msg;
          }
  
@@ -98,7 +110,7 @@ index 540078a9d07b3df07ccd51b030556a72af4cf650..752d053333c3317c5bb8440cb151130a
          if (isStatus) {
              const { backgroundColor, fontStyle } = extraOptions;
              const isMedia = Object.keys(mediaOptions).length > 0;
-@@ -546,9 +595,15 @@ exports.LoadUtils = () => {
+@@ -546,9 +600,15 @@ exports.LoadUtils = () => {
                      messageSecret: window.crypto.getRandomValues(
                          new Uint8Array(32),
                      ),
@@ -117,7 +129,7 @@ index 540078a9d07b3df07ccd51b030556a72af4cf650..752d053333c3317c5bb8440cb151130a
                  },
              );
  
-@@ -562,14 +617,11 @@ exports.LoadUtils = () => {
+@@ -562,14 +622,11 @@ exports.LoadUtils = () => {
                  text: msg.body,
              };
  

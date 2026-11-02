@@ -182,7 +182,9 @@ export class CustomerCatalog {
       `${p.price} · ${p.availability}`,
       ...(p.description ? ['', p.description] : []),
       '',
-      'Reply *menu* for more options or ask me a question.',
+      p.availability === 'Out of stock'
+        ? 'Reply *1* to see other products, *menu* for more options, or ask me a question.'
+        : 'Reply *add* to put one in your cart (or e.g. *add 3*), *menu* for more options, or ask me a question.',
     ].join('\n');
   }
 }

@@ -10,6 +10,23 @@ describe('customer catalog', () => {
     expect(availability({ stockQuantity: 0, reorderLevel: 5 })).toBe('Out of stock');
   });
 
+  it('tells the customer how to add a product to the cart from its details', () => {
+    const wallet = {
+      id: 'p1',
+      name: 'Barkcloth Wallet',
+      price: '$18.00',
+      availability: 'In stock' as const,
+      description: 'Bi-fold wallet in barkcloth',
+      hasPhoto: true,
+    };
+    expect(CustomerCatalog.formatDetails(wallet)).toContain(
+      'Reply *add* to put one in your cart (or e.g. *add 3*)',
+    );
+    const soldOut = CustomerCatalog.formatDetails({ ...wallet, availability: 'Out of stock' });
+    expect(soldOut).not.toContain('*add*');
+    expect(soldOut).toContain('Reply *1* to see other products');
+  });
+
   it('formats numbered lists across pages', () => {
     const product = (n: number) => ({
       id: `p${n}`,

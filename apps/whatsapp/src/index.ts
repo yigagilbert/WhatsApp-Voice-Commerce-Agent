@@ -8,6 +8,7 @@ import {
 } from '@vca/shared';
 import { CoreApiClient } from './api-client';
 import { RecentIds } from './dedupe';
+import { deliverReplies } from './deliver';
 import { createGatewayServer } from './gateway-server';
 import { durationHintSeconds, mapWhatsAppMessage } from './message-mapper';
 
@@ -130,10 +131,7 @@ async function main() {
     } finally {
       clearTimeout(ack);
     }
-    for (const reply of result.replies) {
-      if (reply.media) await transport.sendImage(reply.externalChatId, reply.media, reply.text);
-      else await transport.sendText(reply.externalChatId, reply.text);
-    }
+    await deliverReplies(transport, result.replies, logger);
     logger.info(
       { type: message.type, status: result.status, replies: result.replies.length },
       'message processed',

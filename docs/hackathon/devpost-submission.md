@@ -58,7 +58,7 @@ The rule throughout: **the AI prepares, the backend verifies, the merchant appro
 ## Challenges we ran into
 
 - **Keeping the model away from money.** The model once invented a capped cart and total for "500 baskets". Now every cart and total a customer sees is text built by the backend.
-- **WhatsApp Web keeps changing.** Linked IDs instead of phone numbers locked an admin out, and a WhatsApp Web update broke every media send in our library; we fixed both with tests and a small library patch.
+- **WhatsApp Web keeps changing.** Linked IDs instead of phone numbers locked an admin out, and a WhatsApp Web update broke every media send in our library; we fixed the lockout with a test and patched the library for media.
 - **PayPal disputes.** PayPal refuses "other" evidence on an "item not received" case without proof of shipment, so Katale now posts the merchant's response as a case message instead.
 
 We tested end to end on production with real phones, the real model and PayPal Sandbox, and fixed 15 defects in the final week. The suite has 256 unit and 215 integration tests.

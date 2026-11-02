@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { Brand } from '@/components/brand';
 import { Nav } from '@/components/nav';
 import { WhatsAppBanner } from '@/components/whatsapp-banner';
 import { loadWebConfig } from '@vca/config';
@@ -30,8 +31,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <div className="mx-auto flex min-h-screen max-w-[1680px] flex-col md:flex-row">
             <aside className="border-b border-slate-200 p-4 md:w-56 md:shrink-0 md:border-r md:border-b-0">
               <div className="mb-4 px-3">
-                <p className="text-sm font-semibold text-slate-900">Katale AI</p>
-                <p className="text-xs text-slate-500">Conversational commerce</p>
+                <Brand />
+                <p className="mt-1 text-xs text-slate-500">Conversational commerce</p>
                 {paypalEnvironment() === 'sandbox' && (
                   <p
                     className="mt-2 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20"

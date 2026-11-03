@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { Container } from '../../container';
 import { actorLabel, ownerOnly } from '../../http/merchant-scope';
 import { parse } from '../../http/validation';
+import { productPricingFields, productPricingInput } from '../catalog/pricing.routes';
 import { forgetPublicNumber } from '../public/public.routes';
 import { linkedBot } from '../whatsapp/linked-bot';
 
@@ -20,6 +21,7 @@ const productPatch = z.object({
   sku: z.string().trim().max(64).nullable().optional(),
   /** A counted stock level; recorded in the stock ledger as a dashboard count. */
   stockQuantity: z.number().int().min(0).max(1_000_000).optional(),
+  ...productPricingFields,
 });
 const imageQuery = z.object({ size: z.enum(['main', 'thumb']).optional() });
 const accountPatch = z.object({
@@ -135,6 +137,7 @@ export async function customerCommerceRoutes(
       ...(body.unitPrice !== undefined
         ? { unitPriceMinor: toMinorUnits(body.unitPrice, current.currency) }
         : {}),
+      ...productPricingInput(body, current.currency),
     });
     if (body.stockQuantity !== undefined && body.stockQuantity !== current.stockQuantity) {
       await container.inventory.adjust({

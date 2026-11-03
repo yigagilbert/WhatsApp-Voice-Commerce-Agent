@@ -22,6 +22,8 @@ const merchant = {
   preferredCurrency: 'USD',
   preferredLanguage: 'en',
   timezone: 'Africa/Kampala',
+  bundleMinItems: null,
+  bundlePercentOff: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 } satisfies Merchant;

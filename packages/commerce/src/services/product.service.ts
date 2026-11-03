@@ -1,6 +1,33 @@
 import type { Database, Product } from '@vca/database';
 import type { AuditService } from './audit.service';
 import { ConflictError, NotFoundError, ValidationError } from '@vca/shared';
+import {
+  parseQuantityTiers,
+  validatePricingRules,
+  type PricingRules,
+  type QuantityTier,
+} from '../bargaining';
+
+/** Bargaining settings a merchant edits with a product (all optional on update). */
+export interface ProductPricingInput {
+  bargainingEnabled?: boolean;
+  minPriceMinor?: number | null;
+  quantityDiscounts?: QuantityTier[];
+}
+
+/** The pricing rules stored on a product, parsed (stored JSON is never trusted as is). */
+export const pricingRulesOf = (
+  product: Pick<
+    Product,
+    'unitPriceMinor' | 'bargainingEnabled' | 'minPriceMinor' | 'quantityDiscounts'
+  >,
+): PricingRules => ({
+  unitPriceMinor: product.unitPriceMinor,
+  // Bargaining without a minimum is never allowed, whatever the row says.
+  bargainingEnabled: product.bargainingEnabled && product.minPriceMinor !== null,
+  minPriceMinor: product.minPriceMinor,
+  quantityDiscounts: parseQuantityTiers(product.quantityDiscounts),
+});
 
 /** Lowercase, strip punctuation, crude singularisation ("baskets" -> "basket"). */
 export function normalizeProductTokens(text: string): string[] {
@@ -74,9 +101,15 @@ export class ProductService {
       stockQuantity?: number | null;
       reorderLevel?: number | null;
       visibleToCustomers?: boolean;
-    },
+    } & ProductPricingInput,
   ) {
     const name = input.name.trim();
+    const pricing = {
+      bargainingEnabled: input.bargainingEnabled ?? false,
+      minPriceMinor: input.minPriceMinor ?? null,
+      quantityDiscounts: input.quantityDiscounts ?? [],
+    };
+    validatePricingRules({ unitPriceMinor: input.unitPriceMinor, ...pricing });
     const existing = await this.db.product.findFirst({
       where: { merchantId, name: { equals: name, mode: 'insensitive' } },
     });
@@ -94,6 +127,9 @@ export class ProductService {
         ...(input.visibleToCustomers !== undefined
           ? { visibleToCustomers: input.visibleToCustomers }
           : {}),
+        bargainingEnabled: pricing.bargainingEnabled,
+        minPriceMinor: pricing.minPriceMinor,
+        quantityDiscounts: pricing.quantityDiscounts.map((t) => ({ ...t })),
       },
     });
     await this.audit?.record({
@@ -106,6 +142,10 @@ export class ProductService {
         product: product.name,
         priceMinor: product.unitPriceMinor,
         currency: product.currency,
+        ...(pricing.bargainingEnabled ? { bargainingEnabled: true } : {}),
+        ...(pricing.quantityDiscounts.length
+          ? { quantityDiscounts: pricing.quantityDiscounts }
+          : {}),
       },
     });
     return product;
@@ -123,9 +163,22 @@ export class ProductService {
       visibleToCustomers?: boolean;
       reorderLevel?: number | null;
       sku?: string | null;
-    },
+    } & ProductPricingInput,
   ): Promise<Product> {
     const product = await this.get(merchantId, id);
+    // The rules are checked as they will be after the change (e.g. a new price under the minimum).
+    const current = pricingRulesOf(product);
+    const next: PricingRules = {
+      unitPriceMinor: data.unitPriceMinor ?? product.unitPriceMinor,
+      bargainingEnabled: data.bargainingEnabled ?? product.bargainingEnabled,
+      minPriceMinor: data.minPriceMinor !== undefined ? data.minPriceMinor : product.minPriceMinor,
+      quantityDiscounts: data.quantityDiscounts ?? current.quantityDiscounts,
+    };
+    validatePricingRules(next);
+    const pricingChanged =
+      next.bargainingEnabled !== product.bargainingEnabled ||
+      next.minPriceMinor !== product.minPriceMinor ||
+      JSON.stringify(next.quantityDiscounts) !== JSON.stringify(current.quantityDiscounts);
     if (data.name !== undefined) {
       const name = data.name.trim();
       if (!name) throw new ValidationError('Give the product a name.');
@@ -135,7 +188,16 @@ export class ProductService {
       if (clash) throw new ConflictError(`'${clash.name}' is already in the catalog.`);
       data = { ...data, name };
     }
-    const updated = await this.db.product.update({ where: { id: product.id }, data });
+    const { quantityDiscounts, ...fields } = data;
+    const updated = await this.db.product.update({
+      where: { id: product.id },
+      data: {
+        ...fields,
+        ...(quantityDiscounts !== undefined
+          ? { quantityDiscounts: next.quantityDiscounts.map((t) => ({ ...t })) }
+          : {}),
+      },
+    });
     await this.audit?.record({
       merchantId,
       actor: 'MERCHANT',
@@ -152,6 +214,14 @@ export class ProductService {
         ...(data.reorderLevel !== undefined ? { reorderLevel: data.reorderLevel } : {}),
         ...(data.visibleToCustomers !== undefined
           ? { visibleToCustomers: data.visibleToCustomers }
+          : {}),
+        // The minimum itself is not written to the audit trail (it is internal), only that it changed.
+        ...(pricingChanged
+          ? {
+              bargainingEnabled: next.bargainingEnabled,
+              minimumPriceChanged: next.minPriceMinor !== product.minPriceMinor,
+              quantityDiscounts: next.quantityDiscounts,
+            }
           : {}),
       },
     });

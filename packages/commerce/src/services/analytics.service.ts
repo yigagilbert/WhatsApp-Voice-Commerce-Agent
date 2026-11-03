@@ -3,6 +3,7 @@ import type { SalesPeriod } from '../commands';
 import { aggregatePaidOrders, sourceLabel, type PaidOrderFact } from '../insights';
 import { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '../state';
 import { formatMoney, toMajorNumber } from '../money';
+import { parseQuantityTiers } from '../bargaining';
 import { NOT_OPEN_CART } from './order.service';
 import { previousPeriod, resolvePeriod } from '../periods';
 
@@ -353,6 +354,9 @@ export class AnalyticsService {
         imageVersion: p.image ? `${p.image.id}-${p.image.updatedAt.getTime()}` : null,
         unitsSold: s?._sum.quantity ?? 0,
         revenueMinor: s?._sum.lineTotalMinor ?? 0,
+        bargainingEnabled: p.bargainingEnabled && p.minPriceMinor !== null,
+        minPriceMinor: p.minPriceMinor,
+        quantityDiscounts: parseQuantityTiers(p.quantityDiscounts),
       };
     });
   }

@@ -1,5 +1,6 @@
 export * from './money';
 export * from './pricing';
+export * from './bargaining';
 export * from './commands';
 export * from './state';
 export * from './confirmation';

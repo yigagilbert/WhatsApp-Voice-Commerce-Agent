@@ -10,7 +10,8 @@ import {
   useState,
   useTransition,
 } from 'react';
-import { toMajorString } from '@vca/commerce/money';
+import { toMajorString, toMinorUnits } from '@vca/commerce/money';
+import { MAX_COUNTER_OFFERS, counterOffer } from '@vca/commerce/bargaining';
 import { PHOTO_TYPES, photoProblem, photoUrl } from '@/lib/photo';
 import type { ProductDetail } from '@/lib/types';
 import { removeProductPhoto, saveProduct, type ProductFormState } from './actions';
@@ -156,6 +157,141 @@ function PhotoField({
   );
 }
 
+/** "$30 → $29 → $27 → $25": the offers Katale would make, from typed prices (or null). */
+function offerLadder(price: string, min: string, currency: string): string[] | null {
+  try {
+    const list = toMinorUnits(price, currency);
+    const floor = toMinorUnits(min, currency);
+    if (floor <= 0 || floor >= list) return null;
+    const offers = [list];
+    for (let round = 1; round <= MAX_COUNTER_OFFERS; round++) {
+      const next = counterOffer(list, floor, round);
+      if (next < offers.at(-1)!) offers.push(next);
+    }
+    const fmt = (m: number) =>
+      new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(
+        Number(toMajorString(m, currency)),
+      );
+    return offers.map(fmt);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Bargaining and quantity discounts, in plain words: an on/off switch, the lowest price the
+ * merchant accepts (with a preview of the offers Katale would make) and up to three
+ * "buy N or more, X% off" rows. Nothing here is shown to customers except the quantity deals.
+ */
+function PricingFields({
+  product,
+  currency,
+  price,
+}: {
+  product?: ProductDetail;
+  currency: string;
+  price: string;
+}) {
+  const [bargaining, setBargaining] = useState(product?.bargainingEnabled ?? false);
+  const [min, setMin] = useState(
+    product?.minPriceMinor != null ? toMajorString(product.minPriceMinor, currency) : '',
+  );
+  const tiers = product?.quantityDiscounts ?? [];
+  const ladder = bargaining ? offerLadder(price, min, currency) : null;
+  return (
+    <fieldset className="space-y-4 rounded-md border border-slate-200 p-4">
+      <legend className="px-1 text-sm font-medium text-slate-700">
+        Bargaining &amp; discounts
+      </legend>
+      <label className="flex items-start gap-2 text-sm text-slate-700">
+        <input
+          type="checkbox"
+          name="bargainingEnabled"
+          className="mt-0.5"
+          checked={bargaining}
+          onChange={(e) => setBargaining(e.target.checked)}
+        />
+        <span>
+          <span className="font-medium">Customers can bargain on WhatsApp</span>
+          <span className="block text-xs text-slate-500">
+            When a customer asks for a better price, Katale AI negotiates politely, never below your
+            lowest price. Leave off for a fixed price.
+          </span>
+        </span>
+      </label>
+      {bargaining && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label={`Lowest price you accept (${currency})`}
+            hint="Private: never shown or hinted to customers."
+          >
+            {(id, hint) => (
+              <input
+                id={id}
+                name="minPrice"
+                inputMode="decimal"
+                required
+                aria-describedby={hint}
+                value={min}
+                onChange={(e) => setMin(e.target.value)}
+                placeholder="e.g. 24.00"
+                className={input}
+              />
+            )}
+          </Field>
+          <div className="rounded-md bg-slate-50 p-3 text-xs text-slate-600" aria-live="polite">
+            {ladder ? (
+              <>
+                <p className="font-medium text-slate-700">How Katale would bargain</p>
+                <p className="mt-1 tabular-nums">{ladder.join(' → ')}</p>
+                <p className="mt-1">
+                  At most {MAX_COUNTER_OFFERS} steps. A customer offer at or above the next step is
+                  accepted.
+                </p>
+              </>
+            ) : (
+              <p>
+                Enter a lowest price below the selling price to see the offers Katale would make.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+      <div>
+        <p className="text-sm font-medium text-slate-700">Quantity discounts (optional)</p>
+        <p className="mb-2 text-xs text-slate-500">
+          Customers see these. Applied automatically; never combined with other discounts.
+        </p>
+        <div className="space-y-2">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+              <span>Buy</span>
+              <input
+                name={`tierQty${i}`}
+                aria-label={`Quantity discount ${i + 1}: minimum units`}
+                inputMode="numeric"
+                defaultValue={tiers[i]?.minQuantity ?? ''}
+                placeholder={String([3, 5, 10][i])}
+                className={`${input} w-20`}
+              />
+              <span>or more →</span>
+              <input
+                name={`tierPct${i}`}
+                aria-label={`Quantity discount ${i + 1}: percent off`}
+                inputMode="numeric"
+                defaultValue={tiers[i]?.percentOff ?? ''}
+                placeholder={String([5, 10, 15][i])}
+                className={`${input} w-20`}
+              />
+              <span>% off each</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </fieldset>
+  );
+}
+
 /** Create or edit a product: details, price, stock, visibility and photo in one form. */
 export function ProductEditor({
   product,
@@ -176,6 +312,10 @@ export function ProductEditor({
   };
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [trackStock, setTrackStock] = useState(product ? product.stockQuantity !== null : true);
+  const productCurrency = product?.currency ?? currency;
+  const [price, setPrice] = useState(
+    product ? toMajorString(product.unitPriceMinor, product.currency) : '',
+  );
   const editing = !!product;
   const router = useRouter();
   // After a successful edit, drop "?saved=created" so an old banner doesn't linger.
@@ -211,7 +351,8 @@ export function ProductEditor({
               required
               inputMode="decimal"
               aria-describedby={hint}
-              defaultValue={product ? toMajorString(product.unitPriceMinor, product.currency) : ''}
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
               placeholder="12.00"
               className={input}
             />
@@ -232,6 +373,8 @@ export function ProductEditor({
           />
         )}
       </Field>
+
+      <PricingFields product={product} currency={productCurrency} price={price} />
 
       <fieldset className="space-y-3 rounded-md border border-slate-200 p-4">
         <legend className="px-1 text-sm font-medium text-slate-700">Stock</legend>

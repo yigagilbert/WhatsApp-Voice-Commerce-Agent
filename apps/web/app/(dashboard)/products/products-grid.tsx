@@ -100,6 +100,24 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
         cellClass: 'tabular-nums cursor-text underline decoration-dotted decoration-slate-300',
         headerTooltip: 'Click a price to change it',
       },
+      {
+        colId: 'bargaining',
+        headerName: 'Bargaining',
+        minWidth: 170,
+        headerTooltip: 'Open the product to change bargaining and quantity discounts',
+        valueGetter: (p) => {
+          const row = p.data;
+          if (!row || p.node?.rowPinned) return '';
+          const deals = row.quantityDiscounts?.length
+            ? ` · ${row.quantityDiscounts.length} qty deal${row.quantityDiscounts.length > 1 ? 's' : ''}`
+            : '';
+          return row.bargainingEnabled && row.minPriceMinor != null
+            ? `Open · min ${formatMinor(row.minPriceMinor, row.currency)}${deals}`
+            : `Fixed price${deals}`;
+        },
+        cellClass: (p) =>
+          String(p.value).startsWith('Open') ? 'text-emerald-700 font-medium' : 'text-slate-500',
+      },
       { field: 'currency', headerName: 'Currency', minWidth: 80, maxWidth: 100 },
       {
         field: 'stockQuantity',

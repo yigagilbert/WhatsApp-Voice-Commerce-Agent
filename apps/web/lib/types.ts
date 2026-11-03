@@ -26,6 +26,16 @@ export interface Product {
   stockQuantity: number | null;
   active: boolean;
   visibleToCustomers?: boolean;
+  /** Customers may bargain on WhatsApp (needs minPriceMinor). */
+  bargainingEnabled?: boolean;
+  /** Lowest price the merchant accepts; dashboard only, never shown to customers. */
+  minPriceMinor?: number | null;
+  quantityDiscounts?: QuantityDeal[] | null;
+}
+
+export interface QuantityDeal {
+  minQuantity: number;
+  percentOff: number;
 }
 
 export interface Order {
@@ -188,6 +198,43 @@ export interface ProductStat {
   imageVersion?: string | null;
   unitsSold: number;
   revenueMinor: number;
+  bargainingEnabled?: boolean;
+  minPriceMinor?: number | null;
+  quantityDiscounts?: QuantityDeal[];
+}
+
+/** GET /api/pricing: the bundle rule and bargaining results for the Bargaining page. */
+export interface PricingOverview {
+  currency: string;
+  bundle: { minItems: number; percentOff: number } | null;
+  products: { active: number; bargaining: number; quantityDeals: number };
+  last30Days: {
+    offersMade: number;
+    dealsAgreed: number;
+    paidDiscountedOrders: number;
+    paidNegotiatedOrders: number;
+    revenueMinor: number;
+    discountMinor: number;
+  };
+  orders: {
+    id: string;
+    reference: string;
+    customer: string;
+    status: Order['status'];
+    createdAt: string;
+    currency: string;
+    totalMinor: number;
+    regularMinor: number;
+    discountMinor: number;
+    negotiated: boolean;
+    items: {
+      description: string;
+      quantity: number;
+      unitPriceMinor: number;
+      listUnitPriceMinor: number | null;
+      pricing: 'LIST' | 'QUANTITY' | 'BUNDLE' | 'NEGOTIATED';
+    }[];
+  }[];
 }
 
 /** One product for the edit page (GET /api/products/:id). */

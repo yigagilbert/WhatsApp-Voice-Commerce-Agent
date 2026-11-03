@@ -44,6 +44,7 @@ import { CustomerCatalog } from './modules/customer/catalog';
 import { CustomerConversationService } from './modules/customer/customer-conversation.service';
 import { createCustomerTools } from './modules/customer/customer-tools';
 import { ShopOrderService } from './modules/customer/shop-order.service';
+import { BargainingService } from './modules/customer/bargaining.service';
 import { PayPalWebhookService } from './modules/paypal/webhook.service';
 import { DisputeService } from './modules/disputes/dispute.service';
 import { ShipmentService } from './modules/shipments/shipment.service';
@@ -302,13 +303,15 @@ export function createContainer(
     audit,
     logger.child({ component: 'shop-orders' }),
   );
+  const bargaining = new BargainingService(db, shopOrders, audit);
   const customerChats = new CustomerConversationService({
     db,
     audit,
     catalog: customerCatalog,
     shop: shopOrders,
+    bargaining,
     perMinute: config.CUSTOMER_MESSAGES_PER_MINUTE,
-    tools: createCustomerTools(customerCatalog, shopOrders),
+    tools: createCustomerTools(customerCatalog, shopOrders, bargaining),
     chatModel,
     notifications,
     lifecycle: orderLifecycle,
@@ -436,6 +439,7 @@ export function createContainer(
     productImages,
     customerChats,
     shopOrders,
+    bargaining,
     shipments,
     disputes,
     webhooks,

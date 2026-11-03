@@ -1,4 +1,10 @@
-import { closestMatches, formatMoney, normalizeProductTokens, stockStatus } from '@vca/commerce';
+import {
+  closestMatches,
+  formatMoney,
+  normalizeProductTokens,
+  pricingRulesOf,
+  stockStatus,
+} from '@vca/commerce';
 import type { Database, Product } from '@vca/database';
 import type { OutboundMedia } from '@vca/shared';
 import type { ProductImageService } from '../images/product-image.service';
@@ -12,7 +18,10 @@ export const availability = (p: Pick<Product, 'stockQuantity' | 'reorderLevel'>)
   return status === 'OUT_OF_STOCK' ? 'Out of stock' : status === 'LOW' ? 'Low stock' : 'In stock';
 };
 
-/** A product as a customer sees it. No stock counts, SKUs, costs or internal fields. */
+/**
+ * A product as a customer sees it. No stock counts, SKUs, costs, minimum prices or other
+ * internal fields: only whether the price is open to offers and the public quantity deals.
+ */
 export interface CustomerProduct {
   id: string;
   name: string;
@@ -20,6 +29,10 @@ export interface CustomerProduct {
   availability: Availability;
   description: string | null;
   hasPhoto: boolean;
+  /** Open to bargaining (false = fixed price). */
+  negotiable: boolean;
+  /** Public quantity discounts, e.g. "buy 3+ and get 5% off each". */
+  deals: string | null;
 }
 
 export const PAGE_SIZE = 8;
@@ -67,7 +80,14 @@ export class CustomerCatalog {
   }
 
   private view(p: Product & { image: { id: string } | null }): CustomerProduct {
+    const rules = pricingRulesOf(p);
     return {
+      negotiable: rules.bargainingEnabled,
+      deals: rules.quantityDiscounts.length
+        ? rules.quantityDiscounts
+            .map((t) => `buy ${t.minQuantity}+ and get ${t.percentOff}% off each`)
+            .join('; ')
+        : null,
       id: p.id,
       name: p.name,
       price: formatMoney(p.unitPriceMinor, p.currency),
@@ -181,6 +201,10 @@ export class CustomerCatalog {
       `*${p.name}*`,
       `${p.price} · ${p.availability}`,
       ...(p.description ? ['', p.description] : []),
+      ...(p.deals ? ['', `🏷️ Deal: ${p.deals}.`] : []),
+      ...(p.negotiable && p.availability !== 'Out of stock'
+        ? ['', '💬 Price open to offers: ask me for a better price.']
+        : []),
       '',
       p.availability === 'Out of stock'
         ? 'Reply *1* to see other products, *menu* for more options, or ask me a question.'

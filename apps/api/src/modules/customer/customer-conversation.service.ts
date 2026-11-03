@@ -15,8 +15,10 @@ import type { NotificationService } from '../notifications/notification.service'
 import type { OrderLifecycleService } from '../orders/order-lifecycle.service';
 import { CustomerCatalog } from './catalog';
 import { ShopOrderService, type CheckoutStep, type ShopActor } from './shop-order.service';
+import type { BargainingService } from './bargaining.service';
 import { buildCustomerPrompt } from './customer-prompt';
 import type { CustomerAgentContext } from './customer-tools';
+import { checkReplyPrices, moneyAmounts } from './price-guard';
 
 const HOUR = 3_600_000;
 const PER_MINUTE = 15;
@@ -39,6 +41,13 @@ const ADD =
   /^add(?:\s+(\d{1,2}))?(?:\s*(?:x|×|of|pcs?|pieces?)?\s*(?:product|item|number|no\.?|#)?\s*(\d{1,3}))?(?:\s+to (?:my )?cart)?[\s!.]*$/i;
 /** "cancel ORD-ABC123" / "cancel order ORD-ABC123": the customer cancels their own unpaid order. */
 const CANCEL_ORDER = /^cancel\s+(?:my\s+)?(?:order\s+)?(ORD-[A-Z0-9]{6})[\s!.]*$/i;
+/** Accepting / refusing the shop's price offer, without the AI. */
+const DEAL =
+  /^(deal|it'?s a deal|accept|i accept|ok(ay)?,? deal|yes,? deal|deal done)[\s!.👍🤝]*$/iu;
+const NO_DEAL = /^(no deal|regular price|normal price)[\s!.]*$/i;
+/** Sent instead of an AI reply that states a price the shop didn't produce. */
+const PRICE_GUARD_REPLY =
+  "Sorry, I can only quote the shop's own prices. Ask me for a better price on a product and I'll check the best I can do, or reply *1* to see our products.";
 /** "remove 2" (cart line) or "remove this item". */
 const REMOVE = /^(?:remove|delete)\s+(?:(\d{1,2})|this(?: item| one)?|it)[\s!.]*$/i;
 
@@ -63,6 +72,8 @@ export interface CustomerConversationDeps {
   chatModel: ChatModel | null;
   notifications: NotificationService;
   shop: ShopOrderService;
+  /** WhatsApp bargaining (optional: without it, price talk is answered with regular prices). */
+  bargaining?: BargainingService;
   /** Customer cancellation of their own unpaid orders (optional). */
   lifecycle?: Pick<OrderLifecycleService, 'cancel'>;
   logger: Logger;
@@ -186,6 +197,16 @@ export class CustomerConversationService {
     try {
       const cancelOrder = CANCEL_ORDER.exec(text);
       if (cancelOrder) return await this.cancelOrder(conversation, actor, cancelOrder[1]!);
+
+      // ── Bargaining: "deal" takes the shop's open offer, "no deal" keeps regular prices ──
+      if (this.deps.bargaining && (DEAL.test(text) || NO_DEAL.test(text))) {
+        const result = DEAL.test(text)
+          ? await this.deps.bargaining.accept(actor, {})
+          : await this.deps.bargaining.decline(actor, null);
+        // A price change invalidates a checkout summary in progress.
+        if (state?.checkout) await this.saveState(conversation, { ...state, checkout: undefined });
+        return this.reply(conversation, result.message);
+      }
 
       // ── Checkout: ORDER places it; answers fill in name / delivery / address ──
       if (ORDER_WORD.test(text)) {
@@ -548,6 +569,7 @@ export class CustomerConversationService {
       handoffReason: null,
       verbatim: null,
       checkout: null,
+      bargain: null,
     };
     let result;
     try {
@@ -569,6 +591,9 @@ export class CustomerConversationService {
     }
     if (context.handoffReason)
       return this.handoff(account, conversation, customer, context.handoffReason, text);
+    const reply =
+      context.verbatim ??
+      (await this.guardPrices(account, conversation, customer, result, history, context));
     const listChanged = !!context.shownList && context.shownList !== state?.list;
     await this.saveState(conversation, {
       ...(state ?? { mode: 'menu' }),
@@ -577,13 +602,54 @@ export class CustomerConversationService {
         : {}),
       ...(context.lastProductId ? { lastProductId: context.lastProductId } : {}),
       // Checkout started by the assistant: its backend-built prompt is the reply, verbatim.
-      checkout: context.checkout ?? (context.verbatim ? undefined : state?.checkout),
+      // A bargaining step changes prices, so a summary shown before it is no longer valid.
+      checkout:
+        context.checkout ?? (context.verbatim || context.bargain ? undefined : state?.checkout),
     });
-    return this.reply(
-      conversation,
-      context.verbatim ?? result.reply,
-      context.attachments.slice(0, 3),
+    return this.reply(conversation, reply, context.attachments.slice(0, 3));
+  }
+
+  /**
+   * The AI phrases replies, but every money amount in them must come from the backend: tool
+   * results this turn, or the shop's own earlier messages. After a bargaining step the reply must
+   * also state the shop's actual offer. Otherwise the backend's own wording is sent instead and
+   * the attempt is audited, so the model can't be talked into "agreeing" to a price.
+   */
+  private async guardPrices(
+    account: Account,
+    conversation: Conversation,
+    customer: Customer,
+    result: { reply: string; steps: { tool: string; result: unknown }[] },
+    history: ChatMessage[],
+    context: CustomerAgentContext,
+  ): Promise<string> {
+    const currency = account.merchant.preferredCurrency;
+    const allowed = new Set<number>(context.bargain?.allowedMinor ?? []);
+    for (const step of result.steps)
+      for (const amount of moneyAmounts(JSON.stringify(step.result), currency)) allowed.add(amount);
+    for (const message of history)
+      if (message.role === 'assistant' && message.content)
+        for (const amount of moneyAmounts(message.content, currency)) allowed.add(amount);
+    const check = checkReplyPrices({
+      reply: result.reply,
+      currency,
+      allowedMinor: allowed,
+      requiredMinor: context.bargain?.keyMinor ?? null,
+    });
+    if (check.ok) return result.reply;
+    this.deps.logger.warn(
+      { unexpected: check.unexpected, missing: check.missing, conversationId: conversation.id },
+      'customer reply blocked by the price guard',
     );
+    await this.deps.audit.record({
+      merchantId: account.merchantId,
+      actor: 'SYSTEM',
+      type: 'customer.price_guard',
+      entityType: 'customer',
+      entityId: customer.id,
+      data: { unexpectedMinor: check.unexpected, missingMinor: check.missing, currency },
+    });
+    return context.bargain?.message ?? PRICE_GUARD_REPLY;
   }
 
   /** Pause automated replies and tell the team. */

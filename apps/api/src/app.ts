@@ -13,6 +13,7 @@ import { registerErrorHandler } from './http/errors';
 import { registerDashboardScope } from './http/merchant-scope';
 import { agentRoutes } from './modules/agent/agent.routes';
 import { catalogRoutes } from './modules/catalog/catalog.routes';
+import { pricingRoutes } from './modules/catalog/pricing.routes';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes';
 import { healthRoutes } from './modules/health/health.routes';
 import { ordersRoutes } from './modules/orders/orders.routes';
@@ -83,6 +84,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   await app.register(async (scope) => {
     registerDashboardScope(scope, container);
     await scope.register(catalogRoutes, { container });
+    await scope.register(pricingRoutes, { container });
     await scope.register(ordersRoutes, { container });
     await scope.register(dashboardRoutes, { container });
     await scope.register(disputesRoutes, { container });

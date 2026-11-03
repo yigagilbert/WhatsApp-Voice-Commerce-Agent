@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
 import {
+  automaticUnitPrice,
+  bundleQualifies,
   calculateOrderTotals,
   formatMoney,
   generateOrderReference,
+  pricingRulesOf,
   type AuditService,
   type OrderService,
 } from '@vca/commerce';
@@ -13,6 +16,7 @@ import type {
   Merchant,
   Order,
   OrderItem,
+  Product,
   WhatsAppAccount,
 } from '@vca/database';
 import {
@@ -36,6 +40,36 @@ export const MAX_LINE_QUANTITY = 20;
 const DEFAULT_NAME = 'WhatsApp customer';
 
 type Cart = Order & { items: (OrderItem & { product: { name: string } | null })[] };
+type PricedItem = Pick<
+  OrderItem,
+  'description' | 'quantity' | 'unitPriceMinor' | 'listUnitPriceMinor' | 'pricing'
+>;
+
+const PRICE_LABEL: Record<OrderItem['pricing'], string> = {
+  LIST: '',
+  QUANTITY: ' _(bulk price)_',
+  BUNDLE: ' _(bundle price)_',
+  NEGOTIATED: ' _(agreed price)_',
+};
+
+/** "Bag × 2 — ~$60.00~ $52.00 _(agreed price)_": regular and agreed prices side by side. */
+export function formatLine(item: PricedItem, currency: string): string {
+  const money = (m: number) => formatMoney(m, currency);
+  const total = money(item.unitPriceMinor * item.quantity);
+  const list = item.listUnitPriceMinor;
+  if (list === null || list <= item.unitPriceMinor)
+    return `${item.description} × ${item.quantity} — ${total}`;
+  return `${item.description} × ${item.quantity} — ~${money(list * item.quantity)}~ ${total}${PRICE_LABEL[item.pricing]}`;
+}
+
+/** What the customer saves against regular prices (minor units). */
+export const savingsOf = (items: PricedItem[]): number =>
+  items.reduce(
+    (sum, i) =>
+      sum +
+      (i.listUnitPriceMinor !== null ? (i.listUnitPriceMinor - i.unitPriceMinor) * i.quantity : 0),
+    0,
+  );
 type Account = WhatsAppAccount & { merchant: Merchant };
 
 export interface ShopActor {
@@ -197,7 +231,7 @@ export class ShopOrderService {
       if (line)
         await tx.orderItem.update({
           where: { id: line.id },
-          data: { quantity: wanted, unitPriceMinor: product.unitPriceMinor },
+          data: { quantity: wanted },
         });
       else
         await tx.orderItem.create({
@@ -260,9 +294,26 @@ export class ShopOrderService {
     if (cart) await this.orders.transition(cart.id, 'DRAFT', 'CANCELLED');
   }
 
-  /** Totals from the lines (backend arithmetic only); an emptied cart is cancelled. */
-  private async recompute(tx: DatabaseTx, orderId: string, shippingMinor: number, now: Date) {
-    const order = await tx.order.findUniqueOrThrow({
+  /** Re-applies the shop's current prices, discounts and agreed bargains to the open cart. */
+  async reprice(actor: ShopActor, now = new Date()) {
+    const cart = await this.cart(actor.merchant.id, actor.customer.id, now);
+    if (!cart) return null;
+    await this.db.$transaction((tx) => this.recompute(tx, cart.id, 0, now));
+    return this.cart(actor.merchant.id, actor.customer.id, now);
+  }
+
+  /**
+   * Totals from the lines (backend arithmetic only); an emptied cart is cancelled. An open
+   * customer cart is repriced first, so every change, refresh and ORDER uses the current rules.
+   * Returns notes for the customer about prices that changed.
+   */
+  private async recompute(
+    tx: DatabaseTx,
+    orderId: string,
+    shippingMinor: number,
+    now: Date,
+  ): Promise<string[]> {
+    let order = await tx.order.findUniqueOrThrow({
       where: { id: orderId },
       include: { items: { orderBy: { position: 'asc' } } },
     });
@@ -271,7 +322,15 @@ export class ShopOrderService {
         where: { id: orderId },
         data: { status: 'CANCELLED', subtotalMinor: 0, totalMinor: 0 },
       });
-      return;
+      return [];
+    }
+    let notes: string[] = [];
+    if (order.placedBy === 'CUSTOMER' && order.status === 'DRAFT' && !order.customerConfirmedAt) {
+      notes = await this.applyPricing(tx, order, now);
+      order = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
+        include: { items: { orderBy: { position: 'asc' } } },
+      });
     }
     const totals = calculateOrderTotals({
       currency: order.currency,
@@ -300,6 +359,100 @@ export class ShopOrderService {
           : { expiresAt: new Date(now.getTime() + CART_TTL_HOURS * HOUR) }),
       },
     });
+    return notes;
+  }
+
+  /**
+   * Each line's unit price, from the database only: the regular price, the best quantity or
+   * bundle discount, or an accepted bargain for this cart that is still valid — whichever is
+   * lowest, never stacked and never under the merchant's current minimum.
+   */
+  private async applyPricing(
+    tx: DatabaseTx,
+    order: Order & { items: OrderItem[] },
+    now: Date,
+  ): Promise<string[]> {
+    const ids = order.items.map((i) => i.productId).filter((id): id is string => !!id);
+    const [products, merchant, deals] = await Promise.all([
+      tx.product.findMany({ where: { id: { in: ids }, merchantId: order.merchantId } }),
+      tx.merchant.findUniqueOrThrow({
+        where: { id: order.merchantId },
+        select: { bundleMinItems: true, bundlePercentOff: true },
+      }),
+      tx.priceOffer.findMany({
+        where: {
+          orderId: order.id,
+          merchantId: order.merchantId,
+          customerId: order.customerId,
+          status: 'ACCEPTED',
+          expiresAt: { gt: now },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    const byId = new Map<string, Product>(products.map((p) => [p.id, p]));
+    const rules = new Map(products.map((p) => [p.id, pricingRulesOf(p)]));
+    const bundleRule =
+      merchant.bundleMinItems && merchant.bundlePercentOff
+        ? { minItems: merchant.bundleMinItems, percentOff: merchant.bundlePercentOff }
+        : null;
+    const bundle = bundleQualifies(
+      bundleRule,
+      order.items
+        .filter((i) => i.productId && rules.has(i.productId))
+        .map((i) => ({
+          productId: i.productId!,
+          bargainingEnabled: rules.get(i.productId!)!.bargainingEnabled,
+        })),
+    )
+      ? bundleRule
+      : null;
+    const money = (m: number) => formatMoney(m, order.currency);
+    const notes: string[] = [];
+
+    for (const item of order.items) {
+      const product = item.productId ? byId.get(item.productId) : undefined;
+      const rule = item.productId ? rules.get(item.productId) : undefined;
+      if (!product || !rule) continue; // unavailable products are handled by the caller
+      const auto = automaticUnitPrice(rule, item.quantity, bundle);
+      const deal = deals.find(
+        (d) =>
+          d.productId === product.id &&
+          item.quantity >= d.quantity &&
+          rule.bargainingEnabled &&
+          rule.minPriceMinor !== null &&
+          d.offerUnitMinor >= rule.minPriceMinor &&
+          d.currency === order.currency,
+      );
+      const negotiated = !!deal && deal.offerUnitMinor < auto.unitMinor;
+      const unitPriceMinor = negotiated ? deal.offerUnitMinor : auto.unitMinor;
+      const pricing = negotiated ? 'NEGOTIATED' : auto.pricing;
+      const listUnitPriceMinor =
+        unitPriceMinor < product.unitPriceMinor ? product.unitPriceMinor : null;
+      const priceOfferId = negotiated ? deal.id : null;
+
+      const previousList =
+        item.listUnitPriceMinor ?? (item.pricing === 'LIST' ? item.unitPriceMinor : null);
+      if (previousList !== null && previousList !== product.unitPriceMinor)
+        notes.push(
+          `${product.name} is now ${money(product.unitPriceMinor)} (was ${money(previousList)}).`,
+        );
+      if (item.pricing === 'NEGOTIATED' && !negotiated)
+        notes.push(
+          `Your agreed price for ${product.name} no longer applies (it expired or the quantity changed). It is ${money(unitPriceMinor)} each now.`,
+        );
+      if (
+        item.unitPriceMinor !== unitPriceMinor ||
+        item.pricing !== pricing ||
+        item.listUnitPriceMinor !== listUnitPriceMinor ||
+        item.priceOfferId !== priceOfferId
+      )
+        await tx.orderItem.update({
+          where: { id: item.id },
+          data: { unitPriceMinor, pricing, listUnitPriceMinor, priceOfferId },
+        });
+    }
+    return notes;
   }
 
   static formatCart(cart: Cart | null): string {
@@ -309,9 +462,12 @@ export class ShopOrderService {
       '*Your cart*',
       ...cart.items.map(
         (i, n) =>
-          `${n + 1}. ${i.product?.name ?? i.description} × ${i.quantity} — ${formatMoney(i.unitPriceMinor * i.quantity, cart.currency)}`,
+          `${n + 1}. ${formatLine({ ...i, description: i.product?.name ?? i.description }, cart.currency)}`,
       ),
       `Subtotal: *${formatMoney(cart.subtotalMinor, cart.currency)}*`,
+      ...(savingsOf(cart.items) > 0
+        ? [`You save: ${formatMoney(savingsOf(cart.items), cart.currency)} 🎉`]
+        : []),
       '',
       'Reply *checkout* to order, *remove 1* to remove an item, or keep browsing (*1*).',
     ].join('\n');
@@ -342,17 +498,9 @@ export class ShopOrderService {
         if (!product) {
           await tx.orderItem.delete({ where: { id: item.id } });
           notes.push(`${item.description} is no longer available and was removed.`);
-        } else if (product.unitPriceMinor !== item.unitPriceMinor) {
-          await tx.orderItem.update({
-            where: { id: item.id },
-            data: { unitPriceMinor: product.unitPriceMinor },
-          });
-          notes.push(
-            `${product.name} is now ${formatMoney(product.unitPriceMinor, product.currency)} (was ${formatMoney(item.unitPriceMinor, cart.currency)}).`,
-          );
         }
       }
-      await this.recompute(tx, cart.id, 0, now);
+      notes.push(...(await this.recompute(tx, cart.id, 0, now)));
     });
     const fresh = await this.cart(actor.merchant.id, actor.customer.id, now);
     for (const item of fresh?.items ?? []) {
@@ -491,10 +639,11 @@ export class ShopOrderService {
     const money = (m: number) => formatMoney(m, order.currency);
     const text = [
       '*Order summary*',
-      ...order.items.map(
-        (i) => `• ${i.description} × ${i.quantity} — ${money(i.unitPriceMinor * i.quantity)}`,
-      ),
+      ...order.items.map((i) => `• ${formatLine(i, order.currency)}`),
       `Subtotal: ${money(totals.subtotalMinor)}`,
+      ...(savingsOf(order.items) > 0
+        ? [`You save: ${money(savingsOf(order.items))} on regular prices`]
+        : []),
       ...(order.deliveryMethod === 'DELIVERY'
         ? [`Delivery: ${money(fee)} to ${order.deliveryAddress}`]
         : order.deliveryMethod === 'PICKUP'
@@ -557,9 +706,9 @@ export class ShopOrderService {
         if (order.customerConfirmedAt) return this.claim(tx, account, order, false);
         if (order.expiresAt && order.expiresAt < new Date()) return { status: 'expired' };
 
-        // What the customer saw must still be exactly true. Bring the cart up to the catalog's
-        // current prices, then compare with the summary they confirmed: any difference means
-        // they see the new summary and confirm again.
+        // What the customer saw must still be exactly true. Reprice the cart with the catalog's
+        // current prices, discounts and still-valid bargains, then compare with the summary they
+        // confirmed: any difference means they see the new summary and confirm again.
         const items = await tx.orderItem.findMany({ where: { orderId: order.id } });
         for (const item of items) {
           if (!item.productId) continue;
@@ -571,11 +720,6 @@ export class ShopOrderService {
               status: 'refused',
               reason: `Sorry, ${item.description} is no longer available. Reply *cart* to change your order.`,
             };
-          if (product.unitPriceMinor !== item.unitPriceMinor)
-            await tx.orderItem.update({
-              where: { id: item.id },
-              data: { unitPriceMinor: product.unitPriceMinor },
-            });
         }
         await this.recompute(tx, order.id, 0, new Date());
         const current = await this.summary(order.id, account, tx);

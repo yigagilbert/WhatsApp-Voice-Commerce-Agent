@@ -53,6 +53,12 @@ model Merchant {
   dashboardUsers   DashboardUser[]
   statusAdSettings StatusAdSettings?
   statusAds        StatusAd[]
+  priceOffers      PriceOffer[]
+
+  /// Bundle discount: buying at least this many different products open to bargaining together
+  /// takes `bundlePercentOff` off each of them (null = no bundle discount).
+  bundleMinItems   Int?
+  bundlePercentOff Int?
 
   @@map("merchants")
 }
@@ -229,6 +235,12 @@ model Product {
   active             Boolean   @default(true)
   /// Shown to customers on WhatsApp (when customer commerce is on).
   visibleToCustomers Boolean   @default(true)
+  /// Customers may bargain on WhatsApp (false = fixed price). Requires minPriceMinor.
+  bargainingEnabled  Boolean   @default(false)
+  /// Lowest unit price the merchant accepts. Never shown to customers.
+  minPriceMinor      Int?
+  /// Quantity discounts: [{ minQuantity, percentOff }], at most 3 tiers (see @vca/commerce bargaining).
+  quantityDiscounts  Json?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -237,6 +249,7 @@ model Product {
   stockMovements StockMovement[]
   image          ProductImage?
   statusAds      StatusAd[]
+  priceOffers    PriceOffer[]
 
   @@unique([merchantId, sku])
   @@index([merchantId, name])
@@ -345,20 +358,81 @@ model Order {
 }
 
 model OrderItem {
-  id             String  @id @default(cuid())
-  orderId        String
-  productId      String?
-  description    String
-  quantity       Int
-  unitPriceMinor Int
-  lineTotalMinor Int
-  position       Int     @default(0)
+  id                 String      @id @default(cuid())
+  orderId            String
+  productId          String?
+  description        String
+  quantity           Int
+  unitPriceMinor     Int
+  lineTotalMinor     Int
+  position           Int         @default(0)
+  /// The catalog price when the line is discounted (null = sold at the regular price).
+  listUnitPriceMinor Int?
+  /// How unitPriceMinor was set: regular price, a quantity or bundle discount, or a bargain.
+  pricing            LinePricing @default(LIST)
+  /// The accepted offer behind a NEGOTIATED price.
+  priceOfferId       String?
 
-  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+  priceOffer PriceOffer? @relation(fields: [priceOfferId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@map("order_items")
+}
+
+enum LinePricing {
+  LIST
+  QUANTITY
+  BUNDLE
+  NEGOTIATED
+}
+
+enum PriceOfferStatus {
+  /// Offered by the shop; the customer hasn't answered yet.
+  OPEN
+  /// Agreed: applies to the bound cart (orderId) until expiresAt.
+  ACCEPTED
+  /// The customer declined it or went back to the regular price.
+  REJECTED
+  /// Replaced by a newer offer for the same product.
+  SUPERSEDED
+}
+
+/**
+ * One step of a WhatsApp bargain: a unit price the shop offered (or a customer price it agreed
+ * to). Prices are computed by @vca/commerce negotiate() within the merchant's minimum; the AI
+ * only relays them. An accepted offer is bound to one customer's cart and expires.
+ */
+model PriceOffer {
+  id                String           @id @default(cuid())
+  merchantId        String
+  customerId        String
+  productId         String
+  /// The cart the offer is applied to (set when accepted).
+  orderId           String?
+  quantity          Int
+  currency          String
+  /// Regular unit price when the offer was made.
+  listUnitMinor     Int
+  /// The agreed / offered unit price.
+  offerUnitMinor    Int
+  /// What the customer proposed (per unit), if they named a price.
+  customerUnitMinor Int?
+  /// Shop counter-offer number (1–3) within the bargaining window.
+  round             Int
+  status            PriceOfferStatus @default(OPEN)
+  expiresAt         DateTime
+  acceptedAt        DateTime?
+  createdAt         DateTime         @default(now())
+
+  merchant   Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@index([merchantId, customerId, productId, createdAt])
+  @@index([orderId, status])
+  @@map("price_offers")
 }
 
 enum PaymentProvider {

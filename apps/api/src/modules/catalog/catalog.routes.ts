@@ -4,6 +4,7 @@ import { NotFoundError } from '@vca/shared';
 import { z } from 'zod';
 import type { Container } from '../../container';
 import { parse } from '../../http/validation';
+import { productPricingFields, productPricingInput } from './pricing.routes';
 
 const createCustomerSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -24,6 +25,7 @@ const createProductSchema = z.object({
   stockQuantity: z.number().int().nonnegative().optional(),
   reorderLevel: z.number().int().nonnegative().nullable().optional(),
   visibleToCustomers: z.boolean().optional(),
+  ...productPricingFields,
 });
 
 const idParams = z.object({ id: z.string().min(1).max(64) });
@@ -102,6 +104,7 @@ export async function catalogRoutes(app: FastifyInstance, { container }: { conta
       ...(body.visibleToCustomers !== undefined
         ? { visibleToCustomers: body.visibleToCustomers }
         : {}),
+      ...productPricingInput(body, currency),
     });
     // Opening stock goes through the ledger, as when a product is added by chat.
     if (body.stockQuantity === undefined) return reply.status(201).send(product);

@@ -376,9 +376,12 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
         (req) => {
           const names = req.tools?.map((t) => t.name).sort();
           expect(names).toEqual([
+            'accept_offer',
             'add_to_cart',
             'browse_products',
+            'decline_offer',
             'my_orders',
+            'negotiate_price',
             'product_details',
             'request_human',
             'shop_info',

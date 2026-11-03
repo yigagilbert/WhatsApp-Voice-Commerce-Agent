@@ -15,6 +15,13 @@ export const DEMO_PRODUCTS = [
     unitPriceMinor: 1200,
     stockQuantity: 200,
     reorderLevel: 30,
+    // Open to bargaining on WhatsApp down to $10.00; bulk buyers get 5% / 10% off.
+    bargainingEnabled: true,
+    minPriceMinor: 1000,
+    quantityDiscounts: [
+      { minQuantity: 5, percentOff: 5 },
+      { minQuantity: 10, percentOff: 10 },
+    ],
   },
   {
     sku: 'KC-WALLET',
@@ -23,6 +30,9 @@ export const DEMO_PRODUCTS = [
     unitPriceMinor: 1800,
     stockQuantity: 80,
     reorderLevel: 15,
+    bargainingEnabled: true,
+    minPriceMinor: 1500,
+    quantityDiscounts: [],
   },
   {
     sku: 'KC-COFFEE',
@@ -31,6 +41,10 @@ export const DEMO_PRODUCTS = [
     unitPriceMinor: 2500,
     stockQuantity: 120,
     reorderLevel: 20,
+    // Fixed price: customers who ask are told politely that it isn't negotiable.
+    bargainingEnabled: false,
+    minPriceMinor: null,
+    quantityDiscounts: [],
   },
 ];
 
@@ -73,6 +87,9 @@ export async function upsertDemoData(db: Database): Promise<void> {
         unitPriceMinor: p.unitPriceMinor,
         stockQuantity: p.stockQuantity,
         reorderLevel: p.reorderLevel,
+        bargainingEnabled: p.bargainingEnabled,
+        minPriceMinor: p.minPriceMinor,
+        quantityDiscounts: p.quantityDiscounts,
         lowStockAlertedAt: null,
         active: true,
       },

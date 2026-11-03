@@ -46,9 +46,32 @@ export async function saveProduct(
   const reorderLevel = tracked && reorderRaw ? wholeNumber(reorderRaw) : null;
   if (Number.isNaN(reorderLevel))
     return { ok: false, message: 'The low-stock alert level must be a whole number.' };
+  const bargainingEnabled = form.get('bargainingEnabled') === 'on';
+  const minPrice = text(form, 'minPrice');
+  if (bargainingEnabled && (!/^\d+(\.\d{1,2})?$/.test(minPrice) || Number(minPrice) <= 0))
+    return { ok: false, message: 'Enter the lowest price you accept, such as 24 or 24.50.' };
+  const quantityDiscounts: { minQuantity: number; percentOff: number }[] = [];
+  for (const i of [0, 1, 2]) {
+    const qty = text(form, `tierQty${i}`);
+    const pct = text(form, `tierPct${i}`);
+    if (!qty && !pct) continue;
+    const minQuantity = wholeNumber(qty);
+    const percentOff = wholeNumber(pct.replace(/%$/, ''));
+    if (Number.isNaN(minQuantity) || minQuantity < 2 || Number.isNaN(percentOff) || percentOff < 1)
+      return {
+        ok: false,
+        message: 'Quantity discounts need a number of units (2 or more) and a whole percentage.',
+      };
+    quantityDiscounts.push({ minQuantity, percentOff });
+  }
+  quantityDiscounts.sort((a, b) => a.minQuantity - b.minQuantity);
   const common = {
     name,
     unitPrice: price,
+    bargainingEnabled,
+    // Turning bargaining off keeps nothing stale: the minimum is cleared too.
+    minPrice: bargainingEnabled ? minPrice : null,
+    quantityDiscounts,
     description: text(form, 'description') || null,
     visibleToCustomers: form.get('visibleToCustomers') === 'on',
     reorderLevel,

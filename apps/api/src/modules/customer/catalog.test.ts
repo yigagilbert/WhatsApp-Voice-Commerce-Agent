@@ -18,6 +18,8 @@ describe('customer catalog', () => {
       availability: 'In stock' as const,
       description: 'Bi-fold wallet in barkcloth',
       hasPhoto: true,
+      negotiable: false,
+      deals: null,
     };
     expect(CustomerCatalog.formatDetails(wallet)).toContain(
       'Reply *add* to put one in your cart (or e.g. *add 3*)',
@@ -25,6 +27,25 @@ describe('customer catalog', () => {
     const soldOut = CustomerCatalog.formatDetails({ ...wallet, availability: 'Out of stock' });
     expect(soldOut).not.toContain('*add*');
     expect(soldOut).toContain('Reply *1* to see other products');
+  });
+
+  it('says when a price is open to offers and shows quantity deals, never the minimum', () => {
+    const bag = {
+      id: 'p2',
+      name: 'Leather Bag',
+      price: '$30.00',
+      availability: 'In stock' as const,
+      description: null,
+      hasPhoto: false,
+      negotiable: true,
+      deals: 'buy 3+ and get 5% off each',
+    };
+    const text = CustomerCatalog.formatDetails(bag);
+    expect(text).toContain('💬 Price open to offers');
+    expect(text).toContain('🏷️ Deal: buy 3+ and get 5% off each.');
+    expect(CustomerCatalog.formatDetails({ ...bag, negotiable: false, deals: null })).not.toMatch(
+      /offers|Deal/,
+    );
   });
 
   it('formats numbered lists across pages', () => {
@@ -35,6 +56,8 @@ describe('customer catalog', () => {
       availability: 'In stock' as const,
       description: null,
       hasPhoto: false,
+      negotiable: false,
+      deals: null,
     });
     const text = CustomerCatalog.formatList({
       query: null,

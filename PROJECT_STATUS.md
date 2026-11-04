@@ -5,8 +5,8 @@ _Last updated: 2026-10-29 — production runs **`v0.1.0-202610291327`** (product
 ## Overview redesign (2026-11-04, branch `claude/katale-overview-analytics-redesign-27e3a5`)
 
 Overview and Analytics are now one AG Studio-powered command center, with financial accuracy fixes
-and a grounded assistant. **Not merged or deployed**; needs `pnpm db:deploy`. Details:
-[docs/hackathon/overview-redesign.md](docs/hackathon/overview-redesign.md).
+and a grounded assistant. **Not merged or deployed.** Licence key and release steps:
+[docs/hackathon/overview-redesign.md](docs/hackathon/overview-redesign.md#8-deploying).
 
 ## End-to-end testing and fixes (2026-10-31, branch `claude/katale-ai-hackathon-testing-855308`)
 

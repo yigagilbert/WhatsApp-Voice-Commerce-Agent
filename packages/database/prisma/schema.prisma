@@ -23,19 +23,18 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Merchant {
-  dashboardLayouts  DashboardLayout[]
-  id                String            @id @default(cuid())
+  id                String   @id @default(cuid())
   businessName      String
   ownerName         String
   ownerEmail        String?
   /// ISO-4217 code, e.g. "USD". Must be a PayPal-supported currency to take payments.
-  preferredCurrency String            @default("USD")
+  preferredCurrency String   @default("USD")
   /// BCP-47 language tag, e.g. "en", "lg" (Luganda).
-  preferredLanguage String            @default("en")
+  preferredLanguage String   @default("en")
   /// IANA timezone used for "today" / "this week" analytics.
-  timezone          String            @default("Africa/Kampala")
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  timezone          String   @default("Africa/Kampala")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   operators        MerchantOperator[]
   customers        Customer[]

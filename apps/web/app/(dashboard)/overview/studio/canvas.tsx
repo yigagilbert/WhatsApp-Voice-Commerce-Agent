@@ -3,6 +3,8 @@
 import {
   AgStudioAiModule,
   type AgAiHarness,
+  type AgDrillThroughOptions,
+  type AgGetContextMenuParams,
   type AgPanelConfig,
   type AgReportState,
   type AgStudioApi,
@@ -12,6 +14,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import type { AnalyticsDataset } from '@/lib/types';
 import { buildAssistant, type AssistantContext } from './assistant';
 import { buildDataSources, scopeDataset } from './data-sources';
+import { RESPONSIVE_BREAKPOINTS } from './layout';
 import { TOOL_LABELS } from './prompts';
 import { kataleLayout, kataleTheme } from './theme';
 
@@ -44,6 +47,8 @@ export function StudioCanvas({
   onReady,
   onStateChange,
   onFatalState,
+  drillThrough,
+  onDrill,
 }: {
   dataset: AnalyticsDataset;
   currency: string;
@@ -55,6 +60,8 @@ export function StudioCanvas({
   onReady: (api: AgStudioApi, harness: AgAiHarness | null) => void;
   onStateChange: (state: AgReportState) => void;
   onFatalState: () => void;
+  drillThrough: AgDrillThroughOptions | undefined;
+  onDrill: (params: AgGetContextMenuParams) => void;
 }) {
   // Only row data may change after first render: Studio ignores other changes to `data`.
   const data = useMemo(
@@ -71,7 +78,19 @@ export function StudioCanvas({
     },
     [assistantContext],
   );
-  const ai = useCallback(({ api }: { api: AgStudioApi }) => harnessFor(api), [harnessFor]);
+  // The harness hook types `api` as Studio's core API; at runtime it is the full API.
+  const ai = useCallback(
+    ({ api }: { api: unknown }) => harnessFor(api as AgStudioApi),
+    [harnessFor],
+  );
+
+  const getContextMenuItems = useCallback(
+    (params: AgGetContextMenuParams) =>
+      params.filter && mode === 'view' && !drillThrough
+        ? [{ name: 'See the records behind this', action: () => onDrill(params) }]
+        : [],
+    [mode, drillThrough, onDrill],
+  );
 
   return (
     <AgStudioProvider
@@ -86,6 +105,9 @@ export function StudioCanvas({
         layout={kataleLayout}
         initialState={initialState}
         panels={PANELS}
+        responsiveLayoutBreakpoints={RESPONSIVE_BREAKPOINTS}
+        getContextMenuItems={getContextMenuItems}
+        {...(drillThrough ? { drillThrough } : {})}
         onStudioReady={({ api }) => onReady(api, aiEnabled ? harnessFor(api) : null)}
         onStateUpdated={({ state }) => onStateChange(state)}
         onErrorRaised={({ fatal, errorDetails }) => {

@@ -1,7 +1,6 @@
 # Overview redesign: one AG Studio business command center
 
-**Status:** on branch `claude/katale-overview-analytics-redesign-27e3a5`. Not merged or deployed.
-Deploying needs the new migration (`pnpm db:deploy`).
+**Status:** PR 21. Not merged or deployed. See [Deploying](#8-deploying) for the steps.
 
 The Overview answers three questions the moment a merchant signs in: _How is my business
 performing? What needs my attention? What should I do next?_
@@ -55,13 +54,13 @@ records don't say which line was refunded.
 | Assistant loop, tools, chat panel in Customize             | **AG Studio harness and `defineAiTool`** | Native                                                                                             |
 | Today, week and month with % change                        | React, from the API                      | Studio value widgets can't compare periods, and the boundaries must follow the merchant's timezone |
 | Needs attention                                            | React, from the API                      | A worklist of links, not a chart                                                                   |
-| Ask panel in View mode                                     | React over Studio's session              | Studio 3.0 only offers its AI panel in edit mode, which doesn't fit a phone                        |
+| Ask panel in View mode                                     | React over Studio's session              | Studio only offers its AI panel in edit mode, which doesn't fit a phone                            |
 | Page tabs                                                  | React over `api.setState`                | Studio 3.0 shows no page tabs in view mode                                                         |
 | Phone layout                                               | `stackedLayout` over report state        | Responsive breakpoints arrive in Studio 3.1                                                        |
 
-**AG Studio 3.1.0** was published on 2026-11-04 with native responsive layouts, drill-through and
-context menus. We stayed on the installed 3.0.0: 3.1 is hours old and also moves `ag-grid-enterprise`
-to 36.3, with the submission a week away. It's a good follow-up that would remove `stackedLayout`.
+**AG Studio 3.1.0** replaced two things here: a hand-written phone layout that rewrote report state,
+and the absence of drill-through. AG Grid moved to 36.3 with it, so one grid version ships. Page tabs
+and the Ask panel stay custom because 3.1 still has neither in view mode.
 
 ## 4. The assistant
 
@@ -130,8 +129,8 @@ share a password kept in the script). Sign in as `overview-demo`.
 1. **Land (15 s).** "A shop owner signs in. Net revenue today, this week and this month with changes.
    On the right, what needs attention, and the single thing to do next."
 2. **Act (15 s).** Click _Respond_: it opens exactly those disputes. Go back.
-3. **Explore (20 s).** Drag through Performance, set _Paid between_ to August, and show every chart
-   follow. Open _Products & inventory_.
+3. **Explore (20 s).** Set _Paid between_ to August and show every chart follow. Right-click a product
+   bar to see the records behind it, then go back. Open _Products & inventory_.
 4. **Ask (25 s).** Click _Pending PayPal payments_: 14 for $2,002.00, the same as the tile. "It reads
    the real records through AG Studio's agent tools, and it can't move money." Ask it to refund an
    order and let it decline.
@@ -149,3 +148,33 @@ share a password kept in the script). Sign in as `overview-demo`.
 | ![Payments page](overview/tab-Payments.jpg) | ![Inventory page](overview/tab-Products.jpg) |
 | ![Tablet](overview/tablet-full.jpg)         | ![Phone](overview/mobile-full.jpg)           |
 | ![Phone assistant](overview/mobile-ask.jpg) | ![Empty shop](overview/empty.jpg)            |
+
+## 8. Deploying
+
+### Licence key
+
+1. Request the free 45-day trial at <https://www.ag-grid.com/studio/react/enterprise-licence/>. It
+   removes the watermark and console warnings and is allowed in production. Mention the PayPal AI
+   Hackathon, and ask whether the licence covers the judging period and which edition it unlocks
+   (Studio reports "AG Studio Pro with AI"). The console notice also gives info@ag-grid.com.
+2. Check the key with the validation tool on the
+   [licence install page](https://www.ag-grid.com/studio/react/licence-install/).
+3. On the VM, set it in the deployment `.env` (never in git):
+   `AG_STUDIO_LICENSE_KEY=<key>`. The web server reads it at runtime, so no image rebuild is needed,
+   and `vm-deploy.sh` recreates the container with it. It is sent to the browser, as AG Studio
+   licence keys are, so it isn't a secret like `AI_API_KEY`. Keep it out of the repository anyway.
+
+The trial lasts 45 days from issue. Note the end date: renew or buy before then, or the watermark
+returns.
+
+### Release
+
+1. Merge the PR once CI is green.
+2. From `main`: `KATALE_IMAGE_NAMESPACE=yigagilbert ./scripts/release-images.sh`.
+3. On the VM: `./deployment/vm-deploy.sh <tag>`. It backs up, then runs the additive
+   `dashboard_layouts` migration and starts the services.
+4. Check: sign in, confirm no watermark and no licence notice in the console, ask the assistant
+   "Which PayPal payments are still pending?" and compare the answer with the Payments page. Then
+   open the storefront, which ships in the same release.
+
+Rollback: `./deployment/vm-deploy.sh <previous tag>`. The new table is unused by older images.

@@ -266,7 +266,7 @@ export const defaultReport = {
   ],
   selectedPageId: 'performance',
   panels: { filters: { collapsed: true }, edit: { collapsed: true }, data: { collapsed: true } },
-  version: '3.0.0',
+  version: '3.1.0',
 } as unknown as AgReportState;
 
 /** Tab names for the standard pages. Pages merchants or the assistant add are simply numbered. */

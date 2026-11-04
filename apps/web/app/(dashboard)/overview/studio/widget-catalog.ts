@@ -69,7 +69,7 @@ export const TABLE_IDS = Object.keys(TABLES) as TablePreset[];
 
 export const AI_PAGE_ID = 'ai-dashboard';
 const COLUMNS = 24;
-const SIZES = { kpi: [6, 6], chart: [12, 14], table: [24, 14] } as const;
+const SIZES = { kpi: [4, 6], chart: [12, 14], table: [24, 14] } as const;
 
 export interface ChartSpec {
   metric: MetricId;

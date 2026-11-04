@@ -4,8 +4,8 @@ Katale AI uses two AG technologies in the merchant dashboard:
 
 | Technology                  | Package                              | Licence            | Where                                 | What it does                                          |
 | --------------------------- | ------------------------------------ | ------------------ | ------------------------------------- | ----------------------------------------------------- |
-| **AG Grid Community** 36.2  | `ag-grid-react`, `ag-grid-community` | MIT                | Orders, Payments, Customers, Products | Operational grids                                     |
-| **AG Studio** 3.0 (with AI) | `ag-studio-react`, `ag-studio`       | Commercial (trial) | Overview                              | The dashboard merchants land on, with an AI assistant |
+| **AG Grid Community** 36.3  | `ag-grid-react`, `ag-grid-community` | MIT                | Orders, Payments, Customers, Products | Operational grids                                     |
+| **AG Studio** 3.1 (with AI) | `ag-studio-react`, `ag-studio`       | Commercial (trial) | Overview                              | The dashboard merchants land on, with an AI assistant |
 
 Sponsor material used: the [PayPal + AG Studio hackathon post](https://www.ag-grid.com/blog/hackathon-paypal-and-ag-studio/),
 the [PayPal + AG Grid boilerplate](https://github.com/paypaldev/hackathon-paypal-ag-grid-boilerplate),
@@ -57,7 +57,7 @@ Katale AI assistant on AG Studio's harness (browser)
 
 **Licence.** AG Studio is commercial. Without `AG_STUDIO_LICENSE_KEY` it runs with all features
 unlocked but shows a watermark and a console notice. A trial key is available from info@ag-grid.com;
-set it in the VM `.env`. The operational grids use AG Grid Community (MIT) and need no key.
+set it in the VM `.env` ([steps](overview-redesign.md#8-deploying)). The operational grids use AG Grid Community (MIT) and need no key.
 
 ## Verification
 

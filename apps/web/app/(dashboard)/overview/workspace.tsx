@@ -1,6 +1,12 @@
 'use client';
 
-import type { AgAiHarness, AgReportState, AgStudioApi } from 'ag-studio';
+import type {
+  AgAiHarness,
+  AgDrillThroughOptions,
+  AgGetContextMenuParams,
+  AgReportState,
+  AgStudioApi,
+} from 'ag-studio';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import {
@@ -20,7 +26,8 @@ import type { AssistantContext } from './studio/assistant';
 import { AskPanel } from './studio/ask-panel';
 import { scopeDataset } from './studio/data-sources';
 import { defaultReport, PAGE_LABELS } from './studio/default-report';
-import { isStacked, layoutSignature, NARROW_WIDTH, pageRows, stackedLayout } from './studio/layout';
+import { describeDrill, drillFilter, drillReport } from './studio/drill';
+import { layoutSignature, NARROW_WIDTH, pageRows } from './studio/layout';
 import { PROMPT_STARTERS } from './studio/prompts';
 
 const REFRESH_MS = 60_000;
@@ -99,14 +106,20 @@ export function OverviewWorkspace({
   const [notice, setNotice] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [canvasFailed, setCanvasFailed] = useState(false);
-  const [rows, setRows] = useState(() => pageRows(savedState ?? defaultReport));
-  const [pages, setPages] = useState(() => pagesOf(savedState ?? defaultReport));
+  const [report, setReport] = useState<AgReportState>(savedState ?? defaultReport);
+  const [drill, setDrill] = useState<{ label: string; options: AgDrillThroughOptions } | null>(
+    null,
+  );
+  const rows = pageRows(report, narrow);
+  const pages = pagesOf(report);
 
   const apiRef = useRef<AgStudioApi | null>(null);
   const baseline = useRef<AgReportState>(savedState ?? defaultReport);
   const latest = useRef<AgReportState>(savedState ?? defaultReport);
   const [dirty, setDirty] = useState(false);
   const loadedVersion = useRef<string | null>(null);
+  const beforeDrill = useRef<AgReportState | null>(null);
+  const exploreRef = useRef<HTMLElement>(null);
 
   const scoped = useMemo(
     () => (dataset ? scopeDataset(dataset, currency) : null),
@@ -142,41 +155,61 @@ export function OverviewWorkspace({
     return () => clearInterval(timer);
   }, [router]);
 
+  // Studio picks the phone layout from its canvas width, so the page follows the same measure.
   useEffect(() => {
-    const media = window.matchMedia(`(max-width: ${NARROW_WIDTH}px)`);
-    const update = () => setNarrow(media.matches);
-    update();
-    media.addEventListener('change', update);
-    return () => media.removeEventListener('change', update);
+    const section = exploreRef.current;
+    if (!section) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setNarrow(entry.contentRect.width <= NARROW_WIDTH);
+    });
+    observer.observe(section);
+    return () => observer.disconnect();
   }, []);
 
   const initialState = useMemo(() => {
     void revision;
-    return narrow ? stackedLayout(latest.current) : latest.current;
-  }, [narrow, revision]);
-
-  useEffect(() => setRows(pageRows(initialState)), [initialState]);
+    return latest.current;
+  }, [revision]);
 
   const onReady = useCallback((api: AgStudioApi, next: AgAiHarness | null) => {
     apiRef.current = api;
     setHarness(next);
-    setRows(pageRows(api.getState()));
+    setReport(api.getState());
   }, []);
 
-  const onStateChange = useCallback(
-    (state: AgReportState) => {
-      if (narrow) {
-        // New widgets arrive with desktop positions; keep the phone view in one column.
-        if (!isStacked(state)) apiRef.current?.setState(stackedLayout(state));
-      } else {
-        latest.current = state;
-        setDirty(layoutSignature(state) !== layoutSignature(baseline.current));
-      }
-      setRows(pageRows(state));
-      setPages(pagesOf(state));
-    },
-    [narrow],
-  );
+  const onStateChange = useCallback((state: AgReportState) => {
+    setReport(state);
+    // The records view is temporary: it never counts as a change to the dashboard.
+    if (beforeDrill.current) return;
+    latest.current = state;
+    setDirty(layoutSignature(state) !== layoutSignature(baseline.current));
+  }, []);
+
+  const onDrill = useCallback((params: AgGetContextMenuParams) => {
+    const api = apiRef.current;
+    const clicked = params.filter;
+    if (!api || !clicked) return;
+    beforeDrill.current = api.getState();
+    api.setState(drillReport(clicked));
+    setDrill({
+      label: describeDrill(clicked),
+      options: { filter: drillFilter(clicked, params.getActiveFiltersForWidget?.()) },
+    });
+  }, []);
+
+  const closeDrill = useCallback(() => {
+    const saved = beforeDrill.current;
+    if (saved) apiRef.current?.setState(saved);
+    beforeDrill.current = null;
+    setDrill(null);
+  }, []);
+
+  const changeCurrency = (next: string) => {
+    // A new currency starts a new Studio from the dashboard, not from the records view.
+    beforeDrill.current = null;
+    setDrill(null);
+    setCurrency(next);
+  };
 
   const onFatalState = useCallback(() => {
     // A change that broke the report (saved or AI-made) rolls back rather than blanking the page.
@@ -293,7 +326,7 @@ export function OverviewWorkspace({
               <span>Currency</span>
               <select
                 value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
+                onChange={(e) => changeCurrency(e.target.value)}
                 className="rounded-lg border border-mist bg-white px-2.5 py-1.5 text-sm font-medium text-charcoal"
               >
                 {currencies.map((c) => (
@@ -363,12 +396,16 @@ export function OverviewWorkspace({
         </section>
       )}
 
-      <section aria-labelledby="explore-heading" className="mt-6">
+      <section ref={exploreRef} aria-labelledby="explore-heading" className="mt-6">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h2 id="explore-heading" className="font-display text-base font-semibold text-charcoal">
-            {mode === 'edit' ? 'Customize your dashboard' : 'Explore'}
+            {drill
+              ? `Records for ${drill.label}`
+              : mode === 'edit'
+                ? 'Customize your dashboard'
+                : 'Explore'}
           </h2>
-          {hasOrders && mode === 'view' && pages.ids.length > 1 && (
+          {hasOrders && !drill && mode === 'view' && pages.ids.length > 1 && (
             <div
               role="tablist"
               aria-label="Dashboard pages"
@@ -392,7 +429,16 @@ export function OverviewWorkspace({
               ))}
             </div>
           )}
-          {hasOrders && !narrow && (
+          {drill && (
+            <button
+              type="button"
+              onClick={closeDrill}
+              className="rounded-lg border border-mist bg-white px-3 py-1.5 text-sm font-medium text-charcoal hover:bg-slate-50"
+            >
+              ← Back to dashboard
+            </button>
+          )}
+          {hasOrders && !drill && (
             <div className="flex flex-wrap items-center gap-2">
               {mode === 'edit' && (
                 <button
@@ -426,7 +472,7 @@ export function OverviewWorkspace({
                   )}
                 </>
               )}
-              {mode === 'view' && (
+              {mode === 'view' && !narrow && (
                 <button
                   type="button"
                   onClick={() => setMode('edit')}
@@ -438,6 +484,11 @@ export function OverviewWorkspace({
             </div>
           )}
         </div>
+        {hasOrders && !drill && mode === 'view' && !narrow && (
+          <p className="mb-2 text-xs text-slate-500">
+            Right-click any bar, slice or row to see the records behind it.
+          </p>
+        )}
         {notice && (
           <p role="status" className="mb-2 rounded-lg bg-leaf-50 px-3 py-2 text-sm text-leaf-800">
             {notice}
@@ -488,7 +539,7 @@ export function OverviewWorkspace({
           <div className="w-full [&>div]:h-full" style={{ height: canvasHeight }}>
             <StudioCanvas
               // Field formats are fixed when Studio starts, so a new currency or layout means a new Studio.
-              key={`${currency}-${narrow ? 'stack' : 'grid'}-${revision}`}
+              key={`${currency}-${revision}`}
               dataset={dataset}
               currency={currency}
               mode={mode}
@@ -499,6 +550,8 @@ export function OverviewWorkspace({
               onReady={onReady}
               onStateChange={onStateChange}
               onFatalState={onFatalState}
+              drillThrough={drill?.options}
+              onDrill={onDrill}
             />
           </div>
         )}

@@ -5,12 +5,8 @@ import { addChart, addTable, AI_PAGE_ID } from '../app/(dashboard)/overview/stud
 import { createLookups } from '../app/(dashboard)/overview/studio/lookups';
 import { scopeDataset } from '../app/(dashboard)/overview/studio/data-sources';
 import { defaultReport } from '../app/(dashboard)/overview/studio/default-report';
-import {
-  isStacked,
-  layoutSignature,
-  pageRows,
-  stackedLayout,
-} from '../app/(dashboard)/overview/studio/layout';
+import { layoutSignature, pageRows, stackBoxes } from '../app/(dashboard)/overview/studio/layout';
+import { describeDrill, drillFilter, drillReport } from '../app/(dashboard)/overview/studio/drill';
 
 const dataset: AnalyticsDataset = {
   meta: { generatedAt: '2026-11-04T00:00:00Z', timezone: 'Africa/Kampala', truncated: false },
@@ -48,21 +44,23 @@ describe('scopeDataset', () => {
 });
 
 describe('dashboard layout helpers', () => {
-  it('stacks widgets in reading order with KPIs in pairs, without touching the original', () => {
-    const before = JSON.stringify(defaultReport);
-    const stacked = stackedLayout(defaultReport);
-    expect(isStacked(stacked)).toBe(true);
-    expect(isStacked(defaultReport)).toBe(false);
-    expect(JSON.stringify(defaultReport)).toBe(before);
-    const first = stacked.pages?.[0]?.widgetLayout as Record<
-      string,
-      { xTrack: number; yTrack: number; xSpan: number }
-    >;
-    expect(first.period).toMatchObject({ xTrack: 0, yTrack: 0, xSpan: 24 });
-    expect(first.net).toMatchObject({ xTrack: 0, xSpan: 12 });
-    expect(first.gross).toMatchObject({ xTrack: 12, xSpan: 12, yTrack: first.net?.yTrack });
-    expect(first.trend?.xSpan).toBe(24);
-    expect(isStacked(stackedLayout(stacked))).toBe(true);
+  it('stacks widgets in reading order with the smallest KPIs in pairs, keeping the given order', () => {
+    const boxes = [
+      { xTrack: 12, yTrack: 0, xSpan: 4, ySpan: 7 }, // gross
+      { xTrack: 0, yTrack: 0, xSpan: 6, ySpan: 7 }, // filter
+      { xTrack: 16, yTrack: 0, xSpan: 4, ySpan: 7 }, // refunds
+      { xTrack: 0, yTrack: 7, xSpan: 16, ySpan: 15 }, // trend
+    ];
+    expect(stackBoxes(boxes)).toEqual([
+      { xTrack: 0, yTrack: 7, xSpan: 12, ySpan: 5 },
+      { xTrack: 0, yTrack: 0, xSpan: 24, ySpan: 7 },
+      { xTrack: 12, yTrack: 7, xSpan: 12, ySpan: 5 },
+      { xTrack: 0, yTrack: 12, xSpan: 24, ySpan: 15 },
+    ]);
+  });
+
+  it('measures the phone layout when the canvas is narrow', () => {
+    expect(pageRows(defaultReport, true)).toBeGreaterThan(pageRows(defaultReport));
   });
 
   it('measures the selected page', () => {
@@ -316,7 +314,7 @@ describe('assistant widget catalog', () => {
     );
     expect(boxes.map((b) => [b.xTrack, b.yTrack])).toEqual([
       [0, 0],
-      [6, 0],
+      [4, 0],
       [0, 6],
       [12, 6],
       [0, 20],
@@ -330,5 +328,41 @@ describe('assistant widget catalog', () => {
     expect(aiPage(result.state)?.filter?.widget?.[result.widgetId]).toMatchObject([
       { field: { id: 'orders.status' }, model: { operator: 'equals', value: 'Awaiting payment' } },
     ]);
+  });
+});
+
+describe('drill-through', () => {
+  const product = {
+    field: { id: 'orderItems.product' },
+    operator: 'equals',
+    value: 'Basket',
+  } as never;
+  const stock = {
+    field: { id: 'products.stockStatus' },
+    operator: 'equals',
+    value: 'Low stock',
+  } as never;
+  const fields = (state: AgReportState) => JSON.stringify(state.pages?.[0]?.widgets);
+
+  it('shows sales records for sales, and products for products, which sales are not joined to', () => {
+    expect(fields(drillReport(product))).toContain('payments.net');
+    expect(fields(drillReport(product))).toContain('orderItems.soldAmount');
+    expect(fields(drillReport(stock))).toContain('products.stockStatus');
+    expect(fields(drillReport(stock))).not.toContain('payments.');
+  });
+
+  it('keeps whatever was already narrowing the widget', () => {
+    expect(drillFilter(product)).toBe(product);
+    expect(drillFilter(product, { page: stock })).toEqual({
+      operator: 'AND',
+      conditions: [product, stock],
+    });
+  });
+
+  it('names the clicked values', () => {
+    expect(describeDrill(product)).toBe('Basket');
+    expect(describeDrill({ operator: 'AND', conditions: [product, stock] } as never)).toBe(
+      'Basket, Low stock',
+    );
   });
 });

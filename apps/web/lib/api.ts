@@ -44,6 +44,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
     // 401 = the session ended (password changed, account deactivated, or the setup login after
     // accounts exist): handled below by sending the person to sign in again.
     if (response.status !== 401) {
+      if (response.status === 429)
+        return { ok: false, error: 'Too many requests just now. Wait a minute and try again.' };
       if (!response.ok)
         return { ok: false, error: body?.error?.message ?? `API responded ${response.status}` };
       return { ok: true, data: body as T };

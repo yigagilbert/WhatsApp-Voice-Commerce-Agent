@@ -154,6 +154,36 @@ describe('product management and photos (integration)', () => {
       expect(movement).toMatchObject({ type: 'ADJUSTMENT', quantity: -5, balanceAfter: 20 });
     });
 
+    it('explains a duplicate SKU instead of failing with a server error', async () => {
+      const first = await api('POST', '/api/products', {
+        name: 'Sku Holder',
+        unitPrice: 5,
+        sku: `DUP-${run}`,
+      });
+      expect(first.statusCode).toBe(201);
+      const second = await api('POST', '/api/products', {
+        name: 'Sku Taker',
+        unitPrice: 5,
+        sku: `DUP-${run}`,
+      });
+      expect(second.statusCode).toBe(409);
+      expect(second.json().error.message).toBe(`SKU 'DUP-${run}' is already used by 'Sku Holder'.`);
+
+      const other = await api('POST', '/api/products', { name: 'Sku Editor', unitPrice: 5 });
+      const edit = await api('PATCH', `/api/products/${other.json().id}`, { sku: `DUP-${run}` });
+      expect(edit.statusCode).toBe(409);
+      // Saving a product with its own SKU, and the same SKU at another shop, are both fine.
+      const own = await api('PATCH', `/api/products/${first.json().id}`, { sku: `DUP-${run}` });
+      expect(own.statusCode).toBe(200);
+      const elsewhere = await api(
+        'POST',
+        '/api/products',
+        { name: 'Sku Holder', unitPrice: 5, sku: `DUP-${run}` },
+        otherShop,
+      );
+      expect(elsewhere.statusCode).toBe(201);
+    });
+
     it('refuses a name that another product already uses', async () => {
       await api('POST', '/api/products', { name: 'Clay Pot', unitPrice: 5 });
       const res = await api('PATCH', `/api/products/${productId}`, { name: 'clay pot' });

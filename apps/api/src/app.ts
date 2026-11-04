@@ -9,6 +9,7 @@ import Fastify, {
 import { HEADERS, runWithContext } from '@vca/shared';
 import type { Container } from './container';
 import type {} from './fastify-augment';
+import { rateLimitOptions } from './http/rate-limit';
 import { registerErrorHandler } from './http/errors';
 import { registerDashboardScope } from './http/merchant-scope';
 import { agentRoutes } from './modules/agent/agent.routes';
@@ -73,7 +74,10 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
 
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, { origin: container.config.CORS_ORIGINS });
-  await app.register(rateLimit, { max: container.config.RATE_LIMIT_MAX, timeWindow: '1 minute' });
+  await app.register(rateLimit, {
+    ...rateLimitOptions(container.config.API_AUTH_TOKEN, container.config.RATE_LIMIT_MAX),
+    timeWindow: '1 minute',
+  });
 
   registerErrorHandler(app);
 

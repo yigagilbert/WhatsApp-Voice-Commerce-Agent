@@ -10,6 +10,10 @@ export const dynamic = 'force-dynamic';
 
 const SAVED: Record<string, { ok: boolean; text: string }> = {
   created: { ok: true, text: 'Product added. Customers can find it on WhatsApp.' },
+  'created-hidden': {
+    ok: true,
+    text: 'Product added. It stays hidden from customers until you turn on "Show to customers".',
+  },
   'photo-failed': {
     ok: false,
     text: 'Product added, but the photo could not be saved. Choose it again below.',
@@ -28,7 +32,9 @@ export default async function ProductPage({
   const result = await apiGet<ProductDetail>(`/api/products/${encodeURIComponent(id)}`);
   if (!result.ok) return <ErrorNotice message={result.error} />;
   const product = result.data;
-  const notice = saved ? SAVED[saved] : undefined;
+  const notice = saved
+    ? SAVED[saved === 'created' && !product.visibleToCustomers ? 'created-hidden' : saved]
+    : undefined;
   const storefront = await apiGet<StorefrontSettings>('/api/storefront');
   const publicLink =
     storefront.ok && storefront.data.enabled && product.active && product.visibleToCustomers

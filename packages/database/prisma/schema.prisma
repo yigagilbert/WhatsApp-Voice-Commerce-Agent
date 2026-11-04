@@ -54,6 +54,8 @@ model Merchant {
   statusAdSettings StatusAdSettings?
   statusAds        StatusAd[]
   priceOffers      PriceOffer[]
+  storefront       Storefront?
+  cartTransfers    CartTransfer[]
 
   /// Bundle discount: buying at least this many different products open to bargaining together
   /// takes `bundlePercentOff` off each of them (null = no bundle discount).
@@ -233,8 +235,10 @@ model Product {
   /// Set when a low-stock alert was sent; cleared when stock is back above the reorder level.
   lowStockAlertedAt  DateTime?
   active             Boolean   @default(true)
-  /// Shown to customers on WhatsApp (when customer commerce is on).
+  /// Shown to customers on WhatsApp and on the public storefront.
   visibleToCustomers Boolean   @default(true)
+  /// Free-text storefront category, e.g. "Baskets" (null = uncategorised).
+  category           String?
   /// Customers may bargain on WhatsApp (false = fixed price). Requires minPriceMinor.
   bargainingEnabled  Boolean   @default(false)
   /// Lowest unit price the merchant accepts. Never shown to customers.
@@ -253,6 +257,7 @@ model Product {
 
   @@unique([merchantId, sku])
   @@index([merchantId, name])
+  @@index([merchantId, category])
   @@map("products")
 }
 
@@ -1074,4 +1079,66 @@ model StatusAd {
   @@index([merchantId, createdAt])
   @@index([status, nextAttemptAt])
   @@map("status_ads")
+}
+
+// ---------------------------------------------------------------------------
+// Public storefront
+// ---------------------------------------------------------------------------
+
+/// A merchant's public web catalogue at /shop/<slug>. Its own table so logo bytes are never loaded
+/// with the Merchant row, which is read on every inbound message.
+model Storefront {
+  merchantId    String        @id
+  slug          String        @unique
+  /// Nothing is public until the owner publishes.
+  enabled       Boolean       @default(false)
+  tagline       String?
+  about         String?
+  logoMimeType  String?
+  logoStorage   ImageStorage?
+  /// DATABASE storage: logo bytes. R2 storage: object key.
+  logoData      Bytes?
+  logoKey       String?
+  logoUpdatedAt DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@map("storefronts")
+}
+
+enum CartTransferStatus {
+  /// Waiting for the customer's WhatsApp message.
+  OPEN
+  /// Received on WhatsApp and moved into that customer's cart. Single use.
+  CLAIMED
+  /// Replaced by a newer checkout from the same browser cart.
+  SUPERSEDED
+}
+
+/// A web cart on its way to WhatsApp. Website carts live in the browser; this row exists only from
+/// "Checkout on WhatsApp" until the reference is used or expires. The reference itself is never
+/// stored, only its hash. Items are quantities plus the price the customer saw (for a "price
+/// changed" note): every price is recalculated from the catalogue when the cart is claimed.
+model CartTransfer {
+  id         String             @id @default(cuid())
+  merchantId String
+  tokenHash  String             @unique
+  /// Random ID of the browser's cart: a newer checkout replaces the older reference.
+  clientKey  String?
+  status     CartTransferStatus @default(OPEN)
+  /// [{ productId, name, quantity, seenUnitMinor }]
+  items      Json
+  expiresAt  DateTime
+  customerId String?
+  orderId    String?
+  claimedAt  DateTime?
+  createdAt  DateTime           @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, clientKey, status])
+  @@index([expiresAt])
+  @@map("cart_transfers")
 }

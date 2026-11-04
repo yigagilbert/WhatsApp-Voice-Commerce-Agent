@@ -101,6 +101,7 @@ export class ProductService {
       stockQuantity?: number | null;
       reorderLevel?: number | null;
       visibleToCustomers?: boolean;
+      category?: string | null;
     } & ProductPricingInput,
   ) {
     const name = input.name.trim();
@@ -122,6 +123,7 @@ export class ProductService {
         currency: input.currency,
         sku: input.sku ?? null,
         description: input.description ?? null,
+        category: input.category?.trim() || null,
         stockQuantity: input.stockQuantity ?? null,
         reorderLevel: input.reorderLevel ?? null,
         ...(input.visibleToCustomers !== undefined
@@ -161,6 +163,7 @@ export class ProductService {
       name?: string;
       description?: string | null;
       visibleToCustomers?: boolean;
+      category?: string | null;
       reorderLevel?: number | null;
       sku?: string | null;
     } & ProductPricingInput,

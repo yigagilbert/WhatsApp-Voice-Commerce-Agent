@@ -2,8 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, verifySessionToken } from './lib/session';
 
 /**
- * The public website: the homepage, the stable WhatsApp link (/chat) and the login page. They show
- * only published information. Exact paths: anything else is the dashboard.
+ * The public website: the homepage, the stable WhatsApp link (/chat), the login page and merchant
+ * storefronts (/shop/...). They show only published information. Anything else is the dashboard.
  */
 const PUBLIC_PATHS = new Set(['/', '/chat', '/login', '/robots.txt', '/sitemap.xml']);
 
@@ -14,7 +14,8 @@ const PUBLIC_PATHS = new Set(['/', '/chat', '/login', '/robots.txt', '/sitemap.x
  */
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
+  if (PUBLIC_PATHS.has(pathname) || pathname === '/shop' || pathname.startsWith('/shop/'))
+    return NextResponse.next();
 
   if (verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value)) return NextResponse.next();
 

@@ -16,6 +16,13 @@ export interface ProcessedImage {
   mimeType: 'image/jpeg';
 }
 
+/** A sharp 640 px square for storefront grids on high-density phones, cut from the stored photo. */
+export const cardVariant = (main: Buffer) =>
+  sharp(main)
+    .resize(640, 640, { fit: 'cover', position: 'attention', withoutEnlargement: false })
+    .jpeg({ quality: 78, mozjpeg: true })
+    .toBuffer();
+
 /**
  * Turns an uploaded photo into what Katale stores: the file is decoded (so a renamed non-image is
  * rejected whatever its extension or declared type), rotated by its EXIF orientation, stripped of

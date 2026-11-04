@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { ErrorNotice, PageHeader } from '@/components/ui';
 import { apiGet } from '@/lib/api';
 import { money } from '@/lib/format';
-import type { ProductDetail } from '@/lib/types';
+import { siteUrl } from '@/lib/public-site';
+import type { ProductDetail, StorefrontSettings } from '@/lib/types';
 import { ProductEditor } from '../product-editor';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,11 @@ export default async function ProductPage({
   if (!result.ok) return <ErrorNotice message={result.error} />;
   const product = result.data;
   const notice = saved ? SAVED[saved] : undefined;
+  const storefront = await apiGet<StorefrontSettings>('/api/storefront');
+  const publicLink =
+    storefront.ok && storefront.data.enabled && product.active && product.visibleToCustomers
+      ? `${await siteUrl()}/shop/${storefront.data.slug}/p/${product.id}`
+      : null;
   return (
     <>
       <p className="mb-2 text-sm">
@@ -41,6 +47,21 @@ export default async function ProductPage({
           product.stockQuantity == null ? 'stock not tracked' : `${product.stockQuantity} in stock`
         }${product.active ? '' : ' · inactive'}. Customers only see In stock / Low stock / Out of stock.`}
       />
+      {publicLink && (
+        <p className="mb-4 flex max-w-3xl flex-wrap items-center gap-3 text-sm text-slate-600">
+          <a href={publicLink} target="_blank" rel="noreferrer" className="font-medium underline">
+            View on your storefront
+          </a>
+          <a
+            href={`https://wa.me/?text=${encodeURIComponent(`${product.name}: ${publicLink}`)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium underline"
+          >
+            Share on WhatsApp
+          </a>
+        </p>
+      )}
       {notice && (
         <p
           role="status"

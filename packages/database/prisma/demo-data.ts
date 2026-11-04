@@ -10,6 +10,7 @@ export const DEMO_MERCHANT_NAME = 'Kampala Crafts';
 export const DEMO_PRODUCTS = [
   {
     sku: 'KC-BASKET',
+    category: 'Baskets',
     name: 'Handmade Basket',
     description: 'Woven raffia basket',
     unitPriceMinor: 1200,
@@ -25,6 +26,7 @@ export const DEMO_PRODUCTS = [
   },
   {
     sku: 'KC-WALLET',
+    category: 'Leather and cloth',
     name: 'Barkcloth Wallet',
     description: 'Bi-fold wallet in barkcloth',
     unitPriceMinor: 1800,
@@ -36,6 +38,7 @@ export const DEMO_PRODUCTS = [
   },
   {
     sku: 'KC-COFFEE',
+    category: 'Food and gifts',
     name: 'Coffee Gift Pack',
     description: 'Arabica gift pack, 250 g',
     unitPriceMinor: 2500,
@@ -84,6 +87,7 @@ export async function upsertDemoData(db: Database): Promise<void> {
       update: {
         name: p.name,
         description: p.description,
+        category: p.category,
         unitPriceMinor: p.unitPriceMinor,
         stockQuantity: p.stockQuantity,
         reorderLevel: p.reorderLevel,
@@ -96,6 +100,19 @@ export async function upsertDemoData(db: Database): Promise<void> {
       create: { ...p, merchantId: DEMO_MERCHANT_ID, currency: 'USD' },
     });
   }
+  // Published for the demo; a real merchant's shop stays private until the owner publishes it.
+  await db.storefront.upsert({
+    where: { merchantId: DEMO_MERCHANT_ID },
+    update: {},
+    create: {
+      merchantId: DEMO_MERCHANT_ID,
+      slug: 'kampala-crafts',
+      enabled: true,
+      tagline: 'Handmade in Kampala, ordered on WhatsApp',
+      about: 'Baskets, barkcloth and coffee from workshops around Kampala.',
+    },
+    select: { merchantId: true },
+  });
   for (const c of DEMO_CUSTOMERS) {
     await db.customer.upsert({
       where: { id: c.id },

@@ -26,6 +26,10 @@ import { authRoutes } from './modules/auth/auth.routes';
 import { dashboardUserRoutes } from './modules/auth/dashboard-users.routes';
 import { statusAdRoutes } from './modules/status-ads/status-ads.routes';
 import { publicRoutes } from './modules/public/public.routes';
+import {
+  storefrontDashboardRoutes,
+  storefrontPublicRoutes,
+} from './modules/storefront/storefront.routes';
 
 const CORRELATION_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 
@@ -79,6 +83,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   await app.register(agentRoutes, { container });
   await app.register(authRoutes, { container });
   await app.register(publicRoutes, { container });
+  await app.register(storefrontPublicRoutes, { container });
 
   // Dashboard routes: service-token auth + merchant scope (encapsulated plugin).
   await app.register(async (scope) => {
@@ -93,6 +98,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
     await scope.register(customerCommerceRoutes, { container });
     await scope.register(dashboardUserRoutes, { container });
     await scope.register(statusAdRoutes, { container });
+    await scope.register(storefrontDashboardRoutes, { container });
   });
 
   return app;

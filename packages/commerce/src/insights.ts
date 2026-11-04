@@ -38,6 +38,7 @@ const figure = (currency: string, amountMinor: number): MoneyFigure => ({
 /** "WhatsApp voice", "WhatsApp text", "Agent console". */
 export function sourceLabel(source: string, inputMode: InputMode): string {
   if (source === 'web') return inputMode === 'VOICE' ? 'Agent console voice' : 'Agent console';
+  if (source === 'storefront') return 'Website, ordered on WhatsApp';
   const channel = source === 'whatsapp' ? 'WhatsApp' : source;
   return `${channel} ${inputMode === 'VOICE' ? 'voice' : 'text'}`;
 }

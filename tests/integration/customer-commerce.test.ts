@@ -379,6 +379,7 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
             'accept_offer',
             'add_to_cart',
             'browse_products',
+            'catalogue_link',
             'decline_offer',
             'my_orders',
             'negotiate_price',

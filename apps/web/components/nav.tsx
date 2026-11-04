@@ -18,6 +18,7 @@ const LINKS = [
   { href: '/status', label: 'Status ads' },
   { href: '/admins', label: 'Admins' },
   { href: '/whatsapp', label: 'WhatsApp' },
+  { href: '/storefront', label: 'Storefront' },
 ];
 
 export function Nav() {

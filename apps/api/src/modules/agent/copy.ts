@@ -38,6 +38,8 @@ export const copy = {
    * The only reply a number that isn't an active admin ever gets: no business details, no IDs,
    * and no hint about whether the number is a customer, a former admin or a stranger.
    */
+  adminCartReference:
+    "That's a cart reference from your storefront. This number is an admin of the shop, so it can't check out here. To test checkout, send it from a phone that isn't an admin.",
   welcome:
     "Hello! 👋 Welcome to Katale AI. Our team will get back to you as soon as they're available.",
   ownerOnly: branded(

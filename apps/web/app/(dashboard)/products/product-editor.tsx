@@ -360,7 +360,23 @@ export function ProductEditor({
         </Field>
       </div>
 
-      <Field label="Description" hint="Shown to customers on WhatsApp. Keep it short.">
+      <Field label="Category" hint="Groups products on your storefront, for example Baskets.">
+        {(id, hint) => (
+          <input
+            id={id}
+            name="category"
+            maxLength={60}
+            aria-describedby={hint}
+            defaultValue={product?.category ?? ''}
+            className={input}
+          />
+        )}
+      </Field>
+
+      <Field
+        label="Description"
+        hint="Shown to customers on WhatsApp and your storefront. Keep it short."
+      >
         {(id, hint) => (
           <textarea
             id={id}
@@ -450,7 +466,7 @@ export function ProductEditor({
               name="visibleToCustomers"
               defaultChecked={product?.visibleToCustomers ?? true}
             />
-            Show to customers on WhatsApp
+            Show to customers on WhatsApp and your storefront
           </label>
           {editing && (
             <label className="flex items-center gap-2">

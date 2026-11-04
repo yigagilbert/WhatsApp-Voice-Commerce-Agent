@@ -14,8 +14,14 @@ import {
 import type { NotificationService } from '../notifications/notification.service';
 import type { OrderLifecycleService } from '../orders/order-lifecycle.service';
 import { CustomerCatalog } from './catalog';
-import { ShopOrderService, type CheckoutStep, type ShopActor } from './shop-order.service';
+import {
+  ShopOrderService,
+  formatLine,
+  type CheckoutStep,
+  type ShopActor,
+} from './shop-order.service';
 import type { BargainingService } from './bargaining.service';
+import { CART_REFERENCE, type StorefrontService } from '../storefront/storefront.service';
 import { buildCustomerPrompt } from './customer-prompt';
 import type { CustomerAgentContext } from './customer-tools';
 import { checkReplyPrices, moneyAmounts } from './price-guard';
@@ -45,6 +51,9 @@ const CANCEL_ORDER = /^cancel\s+(?:my\s+)?(?:order\s+)?(ORD-[A-Z0-9]{6})[\s!.]*$
 const DEAL =
   /^(deal|it'?s a deal|accept|i accept|ok(ay)?,? deal|yes,? deal|deal done)[\s!.👍🤝]*$/iu;
 const NO_DEAL = /^(no deal|regular price|normal price)[\s!.]*$/i;
+/** "show me all your products", "see the catalogue", "website": the web catalogue is easier. */
+const CATALOGUE =
+  /^(?:(?:please|pls|can i|could i|can you|could you)\s+)?(?:(?:show|see|send|view|list|browse|share|give)(?:\s+me)?(?:\s+(?:all|everything|your|the|full|whole|entire|complete|of|link|to|a|whole))*\s+(?:products?|items?|catalog(?:ue)?|website|online (?:shop|store)|everything)|(?:full |your )?catalog(?:ue)?|(?:your )?website|all (?:your )?products|everything you (?:have|sell))(?:\s+(?:please|pls))?[\s!.?]*$/i;
 /** Sent instead of an AI reply that states a price the shop didn't produce. */
 const PRICE_GUARD_REPLY =
   "Sorry, I can only quote the shop's own prices. Ask me for a better price on a product and I'll check the best I can do, or reply *1* to see our products.";
@@ -74,6 +83,8 @@ export interface CustomerConversationDeps {
   shop: ShopOrderService;
   /** WhatsApp bargaining (optional: without it, price talk is answered with regular prices). */
   bargaining?: BargainingService;
+  /** The public web catalogue and carts sent from it (optional). */
+  storefront?: Pick<StorefrontService, 'claim' | 'link'>;
   /** Customer cancellation of their own unpaid orders (optional). */
   lifecycle?: Pick<OrderLifecycleService, 'cancel'>;
   logger: Logger;
@@ -163,6 +174,12 @@ export class CustomerConversationService {
         "You're sending messages very quickly. Please wait a moment and try again. 🙏",
       );
 
+    // A cart sent from the website. Before everything else: the prefilled message may contain words
+    // the other rules react to, and it is an explicit request to buy, even during a hand-off.
+    const reference = CART_REFERENCE.exec(text);
+    if (reference && this.deps.storefront)
+      return this.receiveCart(account, conversation, customer, reference[0]);
+
     // Paused for a person: forward to the team, say nothing.
     if (conversation.handoffUntil && conversation.handoffUntil > new Date()) {
       await this.deps.notifications.toAdmins(
@@ -190,7 +207,12 @@ export class CustomerConversationService {
       await this.saveState(conversation, { mode: 'menu' });
       return this.reply(
         conversation,
-        this.menu(merchant, customer, identified.created || !existing),
+        this.menu(
+          merchant,
+          customer,
+          identified.created || !existing,
+          (await this.deps.storefront?.link(merchant.id)) ?? null,
+        ),
       );
     }
 
@@ -248,6 +270,14 @@ export class CustomerConversationService {
       if (CART.test(text)) return await this.showCart(conversation, actor, state);
       if (ORDERS.test(text)) return await this.showOrders(conversation, actor);
       if (CHECKOUT.test(text)) return await this.startCheckout(account, conversation, actor, state);
+      if (CATALOGUE.test(text)) {
+        const link = await this.deps.storefront?.link(merchant.id);
+        if (link)
+          return this.reply(
+            conversation,
+            `You can browse all our products with photos here:\n${link}\n\nAdd what you like to your cart, tap *Checkout on WhatsApp* and I'll take it from there. Or just tell me what you're looking for.`,
+          );
+      }
 
       const add = ADD.exec(text);
       if (add) {
@@ -320,6 +350,91 @@ export class CustomerConversationService {
     }
 
     return this.runAgent(account, conversation, customer, text, state);
+  }
+
+  /** A reference from "Checkout on WhatsApp": the web cart joins this customer's cart. */
+  private async receiveCart(
+    account: Account,
+    conversation: Conversation,
+    customer: Customer,
+    reference: string,
+  ) {
+    const storefront = this.deps.storefront!;
+    const merchant = account.merchant;
+    const actor: ShopActor = { merchant, customer, conversationId: conversation.id };
+    const state = (conversation.context as { shop?: ShopState } | null)?.shop ?? null;
+    const shopLink = await storefront.link(merchant.id);
+    const again = shopLink ? `\n\nYou can check out again from ${shopLink}` : '';
+    let outcome;
+    try {
+      outcome = await storefront.claim(actor, reference);
+    } catch (error) {
+      if (isAppError(error) && error.httpStatus < 500)
+        return this.reply(conversation, error.message);
+      throw error;
+    }
+    switch (outcome.status) {
+      case 'not_found':
+        return this.reply(
+          conversation,
+          `I couldn't find that cart. Please tap *Checkout on WhatsApp* on the website again.${again}`,
+        );
+      case 'expired':
+        return this.reply(
+          conversation,
+          `That cart reference has expired or was replaced by a newer one. Nothing was ordered. Your items are still in your cart on the website.${again}`,
+        );
+      case 'used':
+        return this.reply(
+          conversation,
+          `That cart reference has already been used. Please check out from your own cart on the website.${again}`,
+        );
+      case 'already_yours': {
+        const cart = await this.deps.shop.cart(merchant.id, customer.id);
+        return this.reply(
+          conversation,
+          cart?.items.length
+            ? `You've already sent me that cart, so nothing changed.\n\n${ShopOrderService.formatCart(cart)}`
+            : "You've already sent me that cart, so nothing changed. Reply *orders* to see your order.",
+        );
+      }
+      case 'claimed':
+        break;
+    }
+    // The customer came back to buy, so a pause for a person would leave them stuck mid-checkout.
+    if (conversation.handoffUntil && conversation.handoffUntil > new Date()) {
+      await this.deps.db.conversation.update({
+        where: { id: conversation.id },
+        data: { handoffUntil: null },
+      });
+      await this.deps.notifications.toAdmins(
+        merchant.id,
+        `🛒 *${customer.name}* sent a cart from the website, so automated replies are back on for this chat.`,
+      );
+    }
+    const notes = outcome.notes.length ? `${outcome.notes.join('\n')}\n\n` : '';
+    const cart = await this.deps.shop.cart(merchant.id, customer.id);
+    if (!outcome.added || !cart?.items.length)
+      return this.reply(
+        conversation,
+        `${notes}None of those items can be ordered right now, so nothing was added.${again}`,
+      );
+    const next = await this.deps.shop.nextStep(actor, account);
+    await this.saveState(conversation, {
+      ...(state ?? { mode: 'menu' }),
+      checkout:
+        next.step && next.orderId
+          ? { orderId: next.orderId, step: next.step, quote: next.quote ?? null }
+          : undefined,
+    });
+    const items =
+      next.step === 'confirm' || !next.step
+        ? ''
+        : `${cart.items.map((i) => `• ${formatLine(i, cart.currency)}`).join('\n')}\n\n`;
+    return this.reply(
+      conversation,
+      `🛒 Got your cart from our website!\n\n${notes}${items}${next.text}`,
+    );
   }
 
   /** The customer cancels one of their own unpaid orders. */
@@ -490,7 +605,13 @@ export class CustomerConversationService {
       page: result.page,
       ...(state?.lastProductId ? { lastProductId: state.lastProductId } : {}),
     });
-    return this.reply(conversation, CustomerCatalog.formatList(result));
+    const link = result.pages > 1 ? await this.deps.storefront?.link(merchantId) : null;
+    return this.reply(
+      conversation,
+      link
+        ? `${CustomerCatalog.formatList(result)}\n\n🛍️ Prefer photos? See all ${result.total} here: ${link}`
+        : CustomerCatalog.formatList(result),
+    );
   }
 
   private async showDetails(
@@ -518,7 +639,7 @@ export class CustomerConversationService {
     );
   }
 
-  private menu(merchant: Merchant, customer: Customer, firstTime: boolean) {
+  private menu(merchant: Merchant, customer: Customer, firstTime: boolean, link: string | null) {
     const name =
       customer.source === 'WHATSAPP' && customer.name === 'WhatsApp customer'
         ? ''
@@ -532,6 +653,7 @@ export class CustomerConversationService {
       '*4* Talk to a person',
       '',
       "Reply with a number, or just tell me what you're looking for.",
+      ...(link ? ['', `🛍️ Browse our full catalogue: ${link}`] : []),
     ].join('\n');
   }
 
@@ -576,7 +698,10 @@ export class CustomerConversationService {
       result = await runAgent({
         model: this.deps.chatModel,
         tools: this.deps.tools,
-        systemPrompt: buildCustomerPrompt({ merchant }),
+        systemPrompt: buildCustomerPrompt({
+          merchant,
+          hasCatalogue: !!(await this.deps.storefront?.link(merchant.id)),
+        }),
         history,
         userMessage: text,
         context,

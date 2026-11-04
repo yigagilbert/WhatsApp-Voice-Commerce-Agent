@@ -25,6 +25,7 @@ import {
   type SpeechPipelineResult,
 } from '@vca/speech';
 import type { CustomerConversationService } from '../customer/customer-conversation.service';
+import { CART_REFERENCE } from '../storefront/storefront.service';
 import type { ConfirmationExecutor } from './confirmation-executor';
 import { approvalWord, copy } from './copy';
 import { buildSystemPrompt } from './system-prompt';
@@ -170,6 +171,19 @@ export class InboundMessageService {
     const merchant = operator.merchant;
     const ctx = getContext();
     if (ctx) ctx.merchantId = merchant.id;
+
+    // Admin numbers run the shop; they don't shop in it, so a storefront test needs another phone.
+    if (message.text && CART_REFERENCE.test(message.text))
+      return {
+        status: 'processed',
+        replies: [
+          {
+            channel: message.channel,
+            externalChatId: message.externalChatId,
+            text: copy.adminCartReference,
+          },
+        ],
+      };
 
     const conversation = await db.conversation.upsert({
       where: {

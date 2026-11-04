@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { BargainingService, BargainResult } from './bargaining.service';
 import { CustomerCatalog } from './catalog';
 import { ShopOrderService, type CheckoutStep, type ShopActor } from './shop-order.service';
+import type { StorefrontService } from '../storefront/storefront.service';
 
 /**
  * Everything a customer tool may touch. Built by the router from the bot account and the
@@ -100,9 +101,47 @@ export function createCustomerTools(
   catalog: CustomerCatalog,
   shop: ShopOrderService,
   bargaining?: BargainingService,
+  storefront?: Pick<StorefrontService, 'link'>,
 ): ToolRegistry<CustomerAgentContext> {
   const registry = createShoppingTools(catalog, shop);
+  if (storefront) registerCatalogueLink(registry, catalog, storefront);
   return bargaining ? registerBargainingTools(registry, catalog, shop, bargaining) : registry;
+}
+
+/** Links to the public website catalogue, built by the backend so the model can't invent one. */
+function registerCatalogueLink(
+  registry: ToolRegistry<CustomerAgentContext>,
+  catalog: CustomerCatalog,
+  storefront: Pick<StorefrontService, 'link'>,
+) {
+  registry.register(
+    defineTool({
+      name: 'catalogue_link',
+      kind: 'read',
+      description:
+        'A link to the shop’s website catalogue with photos: the whole shop, one product (name, list number or "this") or one category. ' +
+        'Use when the customer wants to see many products or asks for a link. Share the link exactly as returned.',
+      input: z.object({
+        product: z.string().trim().min(1).max(100).optional(),
+        category: z.string().trim().min(1).max(60).optional(),
+      }),
+      async execute({ product, category }, ctx) {
+        const found = product ? await resolveProduct(catalog, ctx, product) : null;
+        if (product && !found) return { found: false, note: 'No such product.' };
+        const link = await storefront.link(ctx.merchant.id, {
+          ...(found ? { productId: found.id } : {}),
+          ...(category && !found ? { category } : {}),
+        });
+        return link
+          ? {
+              found: true,
+              link,
+              next: 'They can add items to a cart there and tap Checkout on WhatsApp to continue here.',
+            }
+          : { found: false, note: 'The shop has no website catalogue. Keep helping here.' };
+      },
+    }),
+  );
 }
 
 function createShoppingTools(

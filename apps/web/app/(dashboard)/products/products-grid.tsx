@@ -9,7 +9,12 @@ import { toMajorNumber } from '@vca/commerce/money';
 import { photoUrl } from '@/lib/photo';
 import { saveProductCell } from './actions';
 
-type Row = ProductStat & { price: number; revenue: number; activeLabel: string };
+type Row = ProductStat & {
+  price: number;
+  revenue: number;
+  activeLabel: string;
+  shownLabel: 'Shown' | 'Hidden';
+};
 
 /** At or below the product's own low-stock alert level (the level admins are alerted at). */
 const isLow = (row: Row | undefined) =>
@@ -24,7 +29,14 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
     if (!e.data || e.newValue === e.oldValue) return;
     const field = e.colDef.field;
     const value = Number(e.newValue);
-    const change = field === 'price' ? { price: value.toFixed(2) } : { stock: Math.round(value) };
+    const change =
+      field === 'category'
+        ? { category: String(e.newValue ?? '') }
+        : field === 'shownLabel'
+          ? { shown: e.newValue === 'Shown' }
+          : field === 'price'
+            ? { price: value.toFixed(2) }
+            : { stock: Math.round(value) };
     const result = await saveProductCell(e.data.id, change);
     if (!result?.ok) {
       e.node.setDataValue(e.column, e.oldValue);
@@ -34,9 +46,13 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
     setNotice({
       ok: true,
       message:
-        field === 'price'
-          ? `${e.data.name}: price saved. New orders use it; existing orders keep theirs.`
-          : `${e.data.name}: stock count saved to the stock ledger.`,
+        field === 'category'
+          ? `${e.data.name}: category saved. The storefront shows it right away.`
+          : field === 'shownLabel'
+            ? `${e.data.name}: ${e.newValue === 'Shown' ? 'customers can see it on WhatsApp and the storefront.' : 'hidden from customers.'}`
+            : field === 'price'
+              ? `${e.data.name}: price saved. New orders use it; existing orders keep theirs.`
+              : `${e.data.name}: stock count saved to the stock ledger.`,
     });
     router.refresh();
   };
@@ -47,6 +63,7 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
         price: toMajorNumber(p.unitPriceMinor, p.currency),
         revenue: toMajorNumber(p.revenueMinor, p.currency),
         activeLabel: p.active ? 'Active' : 'Inactive',
+        shownLabel: p.visibleToCustomers === false ? 'Hidden' : 'Shown',
       })),
     [products],
   );
@@ -85,6 +102,24 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
         cellClass: 'font-medium',
       },
       { field: 'sku', headerName: 'SKU', minWidth: 120 },
+      {
+        field: 'category',
+        headerName: 'Category',
+        minWidth: 130,
+        editable: (p) => !p.node.rowPinned,
+        cellClass: 'cursor-text underline decoration-dotted decoration-slate-300',
+        headerTooltip: 'Click to set the storefront category',
+      },
+      {
+        field: 'shownLabel',
+        headerName: 'Customers',
+        minWidth: 110,
+        editable: (p) => !p.node.rowPinned,
+        cellEditor: 'agSelectCellEditor',
+        cellEditorParams: { values: ['Shown', 'Hidden'] },
+        cellClass: 'cursor-text underline decoration-dotted decoration-slate-300',
+        headerTooltip: 'Click to show or hide this product on WhatsApp and the storefront',
+      },
       {
         field: 'price',
         headerName: 'Price',
@@ -170,8 +205,8 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
   return (
     <div className="space-y-2">
       <p className="text-xs text-slate-500">
-        Click a price or stock count to edit it in place; click anywhere else in a row to open the
-        product.
+        Click a price, stock count, category or Shown/Hidden to edit it in place; click anywhere
+        else in a row to open the product.
       </p>
       {notice && (
         <p role="status" className={`text-sm ${notice.ok ? 'text-emerald-700' : 'text-red-700'}`}>

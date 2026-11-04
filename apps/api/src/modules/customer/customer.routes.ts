@@ -14,6 +14,7 @@ const productPatch = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   description: z.string().max(1000).nullable().optional(),
   visibleToCustomers: z.boolean().optional(),
+  category: z.string().trim().max(60).nullable().optional(),
   active: z.boolean().optional(),
   /** Major units, e.g. 12 or "12.50", in the product's currency. */
   unitPrice: z.union([z.number().positive(), z.string().min(1)]).optional(),
@@ -131,6 +132,7 @@ export async function customerCommerceRoutes(
       ...(body.visibleToCustomers !== undefined
         ? { visibleToCustomers: body.visibleToCustomers }
         : {}),
+      ...(body.category !== undefined ? { category: body.category?.trim() || null } : {}),
       ...(body.active !== undefined ? { active: body.active } : {}),
       ...(body.reorderLevel !== undefined ? { reorderLevel: body.reorderLevel } : {}),
       ...(body.sku !== undefined ? { sku: body.sku || null } : {}),

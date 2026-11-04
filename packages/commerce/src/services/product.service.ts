@@ -30,6 +30,15 @@ export const pricingRulesOf = (
 });
 
 /** Lowercase, strip punctuation, crude singularisation ("baskets" -> "basket"). */
+/** Two saves racing for one SKU: the database's refusal, in the same words as the check. */
+const rethrowDuplicateSku =
+  (sku: string | null | undefined) =>
+  (error: unknown): never => {
+    if ((error as { code?: string }).code === 'P2002')
+      throw new ConflictError(`SKU '${sku}' is already used by another product.`);
+    throw error;
+  };
+
 export function normalizeProductTokens(text: string): string[] {
   return text
     .toLowerCase()
@@ -115,25 +124,28 @@ export class ProductService {
       where: { merchantId, name: { equals: name, mode: 'insensitive' } },
     });
     if (existing) throw new ConflictError(`'${existing.name}' is already in the catalog.`);
-    const product = await this.db.product.create({
-      data: {
-        merchantId,
-        name,
-        unitPriceMinor: input.unitPriceMinor,
-        currency: input.currency,
-        sku: input.sku ?? null,
-        description: input.description ?? null,
-        category: input.category?.trim() || null,
-        stockQuantity: input.stockQuantity ?? null,
-        reorderLevel: input.reorderLevel ?? null,
-        ...(input.visibleToCustomers !== undefined
-          ? { visibleToCustomers: input.visibleToCustomers }
-          : {}),
-        bargainingEnabled: pricing.bargainingEnabled,
-        minPriceMinor: pricing.minPriceMinor,
-        quantityDiscounts: pricing.quantityDiscounts.map((t) => ({ ...t })),
-      },
-    });
+    await this.assertSkuFree(merchantId, input.sku);
+    const product = await this.db.product
+      .create({
+        data: {
+          merchantId,
+          name,
+          unitPriceMinor: input.unitPriceMinor,
+          currency: input.currency,
+          sku: input.sku ?? null,
+          description: input.description ?? null,
+          category: input.category?.trim() || null,
+          stockQuantity: input.stockQuantity ?? null,
+          reorderLevel: input.reorderLevel ?? null,
+          ...(input.visibleToCustomers !== undefined
+            ? { visibleToCustomers: input.visibleToCustomers }
+            : {}),
+          bargainingEnabled: pricing.bargainingEnabled,
+          minPriceMinor: pricing.minPriceMinor,
+          quantityDiscounts: pricing.quantityDiscounts.map((t) => ({ ...t })),
+        },
+      })
+      .catch(rethrowDuplicateSku(input.sku));
     await this.audit?.record({
       merchantId,
       actor: 'MERCHANT',
@@ -151,6 +163,19 @@ export class ProductService {
       },
     });
     return product;
+  }
+
+  /** A SKU belongs to one product per merchant: says which one, instead of a database error. */
+  private async assertSkuFree(
+    merchantId: string,
+    sku: string | null | undefined,
+    exceptId?: string,
+  ) {
+    if (!sku) return;
+    const clash = await this.db.product.findFirst({
+      where: { merchantId, sku, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    });
+    if (clash) throw new ConflictError(`SKU '${sku}' is already used by '${clash.name}'.`);
   }
 
   /** Updates catalog fields (a price change applies to new orders only); audited. */
@@ -191,16 +216,19 @@ export class ProductService {
       if (clash) throw new ConflictError(`'${clash.name}' is already in the catalog.`);
       data = { ...data, name };
     }
+    await this.assertSkuFree(merchantId, data.sku, id);
     const { quantityDiscounts, ...fields } = data;
-    const updated = await this.db.product.update({
-      where: { id: product.id },
-      data: {
-        ...fields,
-        ...(quantityDiscounts !== undefined
-          ? { quantityDiscounts: next.quantityDiscounts.map((t) => ({ ...t })) }
-          : {}),
-      },
-    });
+    const updated = await this.db.product
+      .update({
+        where: { id: product.id },
+        data: {
+          ...fields,
+          ...(quantityDiscounts !== undefined
+            ? { quantityDiscounts: next.quantityDiscounts.map((t) => ({ ...t })) }
+            : {}),
+        },
+      })
+      .catch(rethrowDuplicateSku(data.sku));
     await this.audit?.record({
       merchantId,
       actor: 'MERCHANT',

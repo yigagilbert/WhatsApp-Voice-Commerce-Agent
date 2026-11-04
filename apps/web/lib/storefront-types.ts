@@ -81,6 +81,26 @@ export type CheckoutResponse =
 
 export const MAX_LINE_QUANTITY = 20;
 
+/** What the customer has chosen on the catalogue; all of it lives in the URL. */
+export interface CatalogueState {
+  q: string;
+  category: string;
+  sort: string;
+  inStock: boolean;
+  preview: boolean;
+}
+
+export const catalogueUrl = (slug: string, c: Partial<CatalogueState>) => {
+  const params = new URLSearchParams();
+  if (c.q) params.set('q', c.q);
+  if (c.category) params.set('category', c.category);
+  if (c.sort && c.sort !== 'name') params.set('sort', c.sort);
+  if (c.inStock) params.set('inStock', '1');
+  if (c.preview) params.set('preview', '1');
+  const query = params.toString();
+  return `/shop/${slug}${query ? `?${query}` : ''}`;
+};
+
 /** Where a shop's images and links live. `preview` keeps an owner inside their private preview. */
 export const shopHref = (slug: string, preview = false, path = '') =>
   `/shop/${slug}${path}${preview ? '?preview=1' : ''}`;

@@ -8,8 +8,8 @@ delivery, bargaining and the PayPal link.
 
 ## Setup
 
-1. `pnpm db:deploy`, then `pnpm storefront:demo 120` for a catalogue with generated images. For the
-   video, upload real photos of your hero products instead, since the generated ones are patterns.
+1. `pnpm db:deploy`, then `pnpm storefront:demo 120` for a catalogue with placeholder illustrations. For
+   the video, upload real photos of your hero products instead.
 2. Dashboard → **WhatsApp**: connect the shop's number and turn on customer shopping.
 3. Dashboard → **Storefront**: publish, and check no warning appears.
 4. Set `WEB_PUBLIC_URL` for both the API and web app.
@@ -22,7 +22,7 @@ delivery, bargaining and the PayPal link.
 | 0:00 | WhatsApp: customer types _Show me all your products_; the bot sends the link  | "Listing hundreds of products in a chat doesn't work, so Katale sends the catalogue."                |
 | 0:15 | Phone: storefront opens. Scroll, tap a category, search _basket_              | "No login and no app. Prices and stock come straight from the shop's database."                      |
 | 0:35 | Product page: a quantity deal and "open to offers". Add to cart, 3 units      | "The discount comes from the backend. The browser only holds IDs and quantities."                    |
-| 0:50 | Cart bubble → cart → **Checkout on WhatsApp**                                 | "One tap. The link carries an unguessable reference, and no prices."                                 |
+| 0:50 | Cart → **Checkout on WhatsApp**                                               | "One tap. The link carries an unguessable reference, and no prices."                                 |
 | 1:00 | WhatsApp opens with the message ready. Send. The website says "has your cart" | "Only now does the checkout begin. The reference is bound to this customer and can't be used again." |
 | 1:15 | Bot shows the cart and asks for name and delivery. Type _Can you do better?_  | "Same agent, same rules. It bargains, and the backend sets the limit it can never cross."            |
 | 1:30 | Reply **ORDER**; PayPal link arrives. Pay in Sandbox                          | "The AI prepares, the customer confirms, PayPal executes."                                           |

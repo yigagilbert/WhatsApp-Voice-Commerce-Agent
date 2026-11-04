@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { describeEvent } from './activity';
-import { buildInsights } from './insights';
 import { toChatCompletion } from './studio-llm';
-import type { DashboardSummary } from './types';
 
 describe('describeEvent (Activity page)', () => {
   it('explains each step of the responsible-commerce chain in plain language', () => {
@@ -44,56 +42,6 @@ describe('describeEvent (Activity page)', () => {
       stage: 'Problem',
       title: 'PayPal checkout could not be created',
     });
-  });
-});
-
-const money = (formatted: string, amountMinor: number) => ({
-  currency: 'USD',
-  amountMinor,
-  formatted,
-});
-
-describe('buildInsights (Overview highlights)', () => {
-  it('only quotes figures the API computed', () => {
-    const summary = {
-      revenue: [{ ...money('$286.00', 28_600), count: 3 }],
-      revenueThisWeek: [{ ...money('$286.00', 28_600), count: 3 }],
-      outstanding: [{ ...money('$60.00', 6_000), count: 1 }],
-      averageOrderValue: [money('$95.33', 9_533)],
-      topProducts: [
-        { ...money('$120.00', 12_000), name: 'Handmade Basket', quantity: 10, sharePercent: 46.9 },
-        { ...money('$100.00', 10_000), name: 'Coffee Gift Pack', quantity: 4, sharePercent: 39.1 },
-      ],
-      topCustomers: [{ ...money('$250.00', 25_000), name: 'Sarah Thompson', orders: 2 }],
-      bySource: [
-        { ...money('$250.00', 25_000), name: 'WhatsApp voice', orders: 2 },
-        { ...money('$36.00', 3_600), name: 'WhatsApp text', orders: 1 },
-      ],
-      operations: {
-        awaitingShipment: 2,
-        shipped: 1,
-        openDisputes: 1,
-        needsResponse: 1,
-        disputedAmount: [],
-      },
-      counts: {
-        orders: 5,
-        paidOrders: 3,
-        awaitingPayment: 1,
-        drafts: 1,
-        customers: 2,
-        products: 3,
-      },
-    } as unknown as DashboardSummary;
-    expect(buildInsights(summary)).toEqual([
-      '3 paid orders so far, $286.00 received ($286.00 this week).',
-      'Handmade Basket is your best seller: 46.9% of product revenue ($120.00).',
-      'Voice notes brought in $250.00 across 2 paid orders.',
-      'Sarah Thompson is your top customer ($250.00).',
-      '$60.00 is still outstanding across 1 order awaiting payment.',
-      '2 paid orders are waiting for shipping and tracking.',
-      '1 PayPal dispute needs your response.',
-    ]);
   });
 });
 

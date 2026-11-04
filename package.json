@@ -32,6 +32,7 @@
     "operator:add": "tsx scripts/operator-add.ts",
     "demo:reset": "tsx scripts/demo-reset.ts",
     "storefront:demo": "tsx scripts/storefront-demo.ts",
+    "overview:demo": "tsx scripts/overview-demo.ts",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:generate": "pnpm --filter @vca/database db:generate",

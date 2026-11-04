@@ -20,4 +20,5 @@ export * from './services/customer-identity.service';
 export * from './services/whatsapp-account.service';
 export * from './similarity';
 export * from './insights';
+export * from './attention';
 export * from './services/dashboard-user.service';

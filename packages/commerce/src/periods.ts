@@ -48,6 +48,12 @@ export function zonedParts(
   };
 }
 
+/** The calendar date of an instant in `timeZone`, as YYYY-MM-DD. */
+export function zonedDay(date: Date, timeZone: string): string {
+  const { year, month, day } = zonedParts(date, timeZone);
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 /** Offset (ms) of `timeZone` from UTC at the given instant. */
 function offsetMs(date: Date, timeZone: string): number {
   const p = zonedParts(date, timeZone);

@@ -9,7 +9,7 @@ Language: English. Payments: PayPal Sandbox (test money only).
    shows every service `healthy`, and `docker compose logs --tail=5 whatsapp` shows `client ready`.
 2. Optional clean slate (deletes demo orders and payments, keeps everything else):
    `docker compose run --rm -e DEMO_RESET_ALLOWED=true api node dist/demo-reset.js --confirm kampala-crafts`.
-3. Open https://kataleai.space and sign in. Keep **Overview**, **Orders**, **Analytics** and **Activity** in tabs.
+3. Open https://kataleai.space and sign in. Keep **Overview**, **Orders** and **Activity** in tabs.
 4. Have the merchant phone (WhatsApp) and a second device with the PayPal Sandbox **Personal** buyer.
 
 ## Scenes
@@ -29,10 +29,10 @@ Language: English. Payments: PayPal Sandbox (test money only).
 
 ## If something goes wrong
 
-| Problem                  | Do this                                                        |
-| ------------------------ | -------------------------------------------------------------- |
-| Voice note slow          | The 🎙️ acknowledgement appears after 2.5 s; replies take 4–9 s |
-| "I heard: …" read-back   | Type `YES` if it's right                                       |
-| WhatsApp unavailable     | Run scenes 2–7 in the **Agent console** (same pipeline, typed) |
-| Buyer can't pay          | Show an earlier paid order in Orders and its trace in Activity |
-| Analytics assistant slow | Show the default Sales overview and use drag and drop          |
+| Problem                 | Do this                                                        |
+| ----------------------- | -------------------------------------------------------------- |
+| Voice note slow         | The 🎙️ acknowledgement appears after 2.5 s; replies take 4–9 s |
+| "I heard: …" read-back  | Type `YES` if it's right                                       |
+| WhatsApp unavailable    | Run scenes 2–7 in the **Agent console** (same pipeline, typed) |
+| Buyer can't pay         | Show an earlier paid order in Orders and its trace in Activity |
+| Overview assistant slow | Show the standard dashboard and use its date filter            |

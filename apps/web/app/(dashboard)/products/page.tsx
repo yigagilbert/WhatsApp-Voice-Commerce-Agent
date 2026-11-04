@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { FilteredView } from '@/components/filtered-view';
 import { ErrorNotice, PageHeader } from '@/components/ui';
 import { apiGet } from '@/lib/api';
 import type { ProductStat } from '@/lib/types';
@@ -6,8 +7,33 @@ import { ProductsGrid } from './products-grid';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ProductsPage() {
+/** Views the Overview's "needs attention" list links to. */
+const VIEWS: Record<string, { label: string; matches: (product: ProductStat) => boolean }> = {
+  'out-of-stock': {
+    label: 'out of stock',
+    matches: (p) => p.active && p.stockQuantity !== null && p.stockQuantity <= 0,
+  },
+  'low-stock': {
+    label: 'at or below the reorder level',
+    matches: (p) =>
+      p.active &&
+      p.stockQuantity !== null &&
+      p.stockQuantity > 0 &&
+      p.reorderLevel != null &&
+      p.stockQuantity <= p.reorderLevel,
+  },
+};
+
+export default async function ProductsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
+  const { view } = await searchParams;
+  const filter = view ? VIEWS[view] : undefined;
   const result = await apiGet<ProductStat[]>('/api/products/stats');
+  const products =
+    result.ok && filter ? result.data.filter(filter.matches) : result.ok ? result.data : [];
   return (
     <>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -22,7 +48,10 @@ export default async function ProductsPage() {
           + Add product
         </Link>
       </div>
-      {result.ok ? <ProductsGrid products={result.data} /> : <ErrorNotice message={result.error} />}
+      {filter && result.ok && (
+        <FilteredView label={filter.label} count={products.length} clearHref="/products" />
+      )}
+      {result.ok ? <ProductsGrid products={products} /> : <ErrorNotice message={result.error} />}
     </>
   );
 }

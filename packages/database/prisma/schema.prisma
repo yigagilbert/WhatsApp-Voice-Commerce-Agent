@@ -23,21 +23,23 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Merchant {
-  id                String   @id @default(cuid())
+  dashboardLayouts  DashboardLayout[]
+  id                String            @id @default(cuid())
   businessName      String
   ownerName         String
   ownerEmail        String?
   /// ISO-4217 code, e.g. "USD". Must be a PayPal-supported currency to take payments.
-  preferredCurrency String   @default("USD")
+  preferredCurrency String            @default("USD")
   /// BCP-47 language tag, e.g. "en", "lg" (Luganda).
-  preferredLanguage String   @default("en")
+  preferredLanguage String            @default("en")
   /// IANA timezone used for "today" / "this week" analytics.
-  timezone          String   @default("Africa/Kampala")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  timezone          String            @default("Africa/Kampala")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   operators        MerchantOperator[]
   customers        Customer[]
+  dashboardLayouts DashboardLayout[]
   products         Product[]
   orders           Order[]
   payments         Payment[]
@@ -1141,4 +1143,20 @@ model CartTransfer {
   @@index([merchantId, clientKey, status])
   @@index([expiresAt])
   @@map("cart_transfers")
+}
+
+/// A dashboard person's saved Overview: an AG Studio report state. Removing it restores the default.
+model DashboardLayout {
+  id         String   @id @default(cuid())
+  merchantId String
+  /// DashboardUser id, or "bootstrap" for the setup login.
+  userKey    String
+  state      Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, userKey])
+  @@map("dashboard_layouts")
 }

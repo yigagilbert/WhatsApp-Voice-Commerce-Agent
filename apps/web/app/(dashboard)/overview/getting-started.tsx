@@ -59,21 +59,31 @@ export async function GettingStarted({ summary }: { summary: DashboardSummary })
   ];
   const remaining = steps.filter((s) => !s.done).length;
   if (remaining === 0) return null;
+  // A shop that is already selling shouldn't have to scroll past its setup to see its business.
+  const open = summary.counts.paidOrders === 0;
 
   return (
-    <section
-      aria-labelledby="getting-started"
-      className="mb-6 rounded-lg border border-slate-200 bg-white p-4"
+    <details
+      open={open}
+      className="mb-5 rounded-2xl border border-mist bg-white px-4 py-3 text-sm [&_summary::-webkit-details-marker]:hidden"
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="getting-started" className="text-sm font-semibold text-slate-700">
-          Get started
-        </h2>
-        <p className="text-xs text-slate-500">
+      <summary className="flex cursor-pointer list-none items-baseline justify-between gap-2">
+        <span id="getting-started" className="font-medium text-charcoal">
+          Finish setting up
+        </span>
+        <span className="text-xs text-slate-500">
           {steps.length - remaining} of {steps.length} done
-        </p>
-      </div>
-      <ol className="mt-3 divide-y divide-slate-100">
+        </span>
+      </summary>
+      <Steps steps={steps} />
+    </details>
+  );
+}
+
+function Steps({ steps }: { steps: Step[] }) {
+  return (
+    <section aria-labelledby="getting-started">
+      <ol className="mt-2 divide-y divide-slate-100">
         {steps.map((step) => (
           <li key={step.title} className="flex items-center gap-3 py-2.5 text-sm">
             <span

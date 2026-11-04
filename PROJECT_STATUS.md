@@ -2,6 +2,12 @@
 
 _Last updated: 2026-10-29 — production runs **`v0.1.0-202610291327`** (product photos with Cloudflare R2, commit `1556e00` from PR #4 before merge, deployed 2026-10-29; previous release `v0.1.0-202610260553` kept for rollback). Customer shopping remains switched off. Audit: [docs/audits/2026-10-25-katale-ai-system-audit.md](docs/audits/2026-10-25-katale-ai-system-audit.md)._
 
+## Overview redesign (2026-11-04, branch `claude/katale-overview-analytics-redesign-27e3a5`)
+
+Overview and Analytics are now one AG Studio-powered command center, with financial accuracy fixes
+and a grounded assistant. **Not merged or deployed**; needs `pnpm db:deploy`. Details:
+[docs/hackathon/overview-redesign.md](docs/hackathon/overview-redesign.md).
+
 ## End-to-end testing and fixes (2026-10-31, branch `claude/katale-ai-hackathon-testing-855308`)
 
 Local stack with the real LLM, Whisper and PayPal Sandbox (the owner's phone and Sandbox buyer were

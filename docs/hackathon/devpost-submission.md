@@ -110,7 +110,7 @@ here on purpose.
 > one-time code from the merchant.
 
 **Sponsor tools:** AG Grid (AG Grid Community for the orders, products and payments grids; AG
-Studio for the analytics page and its assistant). Tick APIMatic only if the APIMatic review in
+Studio for the Overview dashboard and its assistant). Tick APIMatic only if the APIMatic review in
 [apimatic-integration.md](apimatic-integration.md) was completed.
 
 **Public repository:** https://github.com/yigagilbert/WhatsApp-Voice-Commerce-Agent
@@ -125,7 +125,7 @@ private field):
 >    low?", then "Create an order for Sarah for 2 handmade baskets", then `yes` (it asks for a code).
 >    Staff can't approve payment requests; that is owner-only by design, and the reply says so.
 > 3. **Products:** click a stock count, change it, press Enter, then ask the console "what's low?".
-> 4. **Analytics:** ask the AG Studio assistant "Revenue by product".
+> 4. **Overview:** ask the AG Studio assistant "Which products are generating the most revenue?".
 > 5. **Orders → any order → Activity:** the trace from message to AI decision to approval to PayPal.
 >
 > PayPal Sandbox only; no real money. WhatsApp needs a linked phone, so judges use the console; the
@@ -135,7 +135,7 @@ private field):
 
 > AG Grid let us build the merchant dashboard quickly: inline editing of prices and stock with
 > server validation, filters and CSV export on orders and payments. AG Studio gave merchants an
-> analytics page they can change by asking its assistant.
+> Overview dashboard they can change by asking its assistant.
 
 ## Video script (under 3:00)
 

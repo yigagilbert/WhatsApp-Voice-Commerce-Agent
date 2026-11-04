@@ -97,7 +97,7 @@ More in [docs/hackathon/product-story.md](docs/hackathon/product-story.md).
 - 🔗 Dashboard WhatsApp page: connection status, pairing QR, reconnect and unlink — no terminal needed
 - 📦 Fulfillment as its own dimension (paid + not shipped = to ship); no invented delivery status
 - ⚖️ Disputes: webhook → canonical fetch → linked to order/payment/shipment → one notification → evidence (facts + missing) → code-drafted factual response → merchant SUBMIT
-- 📊 Dashboard: AG Grid (orders, payments, disputes, customers, products), AG Studio analytics with an AI assistant, plain-language activity trace
+- 📊 Dashboard: AG Grid (orders, payments, disputes, customers, products), AG Studio Overview with an AI assistant, plain-language activity trace
 - 🔎 One trace ID from the first message through payment, tracking and dispute response
 
 ## 5. Architecture

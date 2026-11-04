@@ -319,12 +319,52 @@ export interface DashboardSummary {
     customers: number;
     products: number;
   };
-  recentOrders: Order[];
-  recentPayments: Payment[];
+  generatedAt: string;
+  /** Changes whenever the records behind the dashboard change. */
+  dataVersion: string;
+  /** One block per currency: amounts in different currencies are never added together. */
+  pulse: PulseFigures[];
+  attention: AttentionItem[];
+}
+
+export interface PulsePeriodFigures {
+  period: 'today' | 'this_week' | 'this_month';
+  net: string;
+  netMinor: number;
+  paidOrders: number;
+  previousNet: string;
+  comparedWith: string | null;
+  /** null when the earlier period had no sales: growth from nothing has no percentage. */
+  changePercent: number | null;
+}
+
+export interface PulseFigures {
+  currency: string;
+  gross: string;
+  refunds: string;
+  net: string;
+  netMinor: number;
+  paidOrders: number;
+  averageOrderValue: string | null;
+  outstanding: string;
+  outstandingOrders: number;
+  disputed: string;
+  periods: PulsePeriodFigures[];
+}
+
+export interface AttentionItem {
+  id: string;
+  severity: 'urgent' | 'warning' | 'info';
+  title: string;
+  detail: string;
+  count: number;
+  href: string;
+  action: string;
 }
 
 /** Flat tables for AG Studio (amounts in major units). */
 export interface AnalyticsDataset {
+  meta: { generatedAt: string; timezone: string; truncated: boolean };
   orders: Record<string, string | number | boolean | null>[];
   orderItems: Record<string, string | number | boolean | null>[];
   payments: Record<string, string | number | boolean | null>[];

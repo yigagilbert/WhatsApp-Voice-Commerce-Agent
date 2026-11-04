@@ -5,7 +5,9 @@ import { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '../state';
 import { formatMoney, toMajorNumber } from '../money';
 import { parseQuantityTiers } from '../bargaining';
 import { NOT_OPEN_CART } from './order.service';
-import { previousPeriod, resolvePeriod } from '../periods';
+import { buildAttention, type AttentionFacts } from '../attention';
+import { previousPeriod, resolvePeriod, zonedDay } from '../periods';
+import { stockStatus } from './inventory.service';
 
 export interface CurrencyAmount {
   currency: string;
@@ -40,6 +42,25 @@ const toCurrencyAmounts = (
 
 /** Upper bound on paid orders loaded for one aggregation (far above demo scale). */
 const MAX_FACTS = 10_000;
+const MAX_DIMENSION_ROWS = 1000;
+const DAY_MS = 86_400_000;
+
+const PULSE_PERIODS = ['today', 'this_week', 'this_month'] as const;
+type PulsePeriod = (typeof PULSE_PERIODS)[number];
+
+const STOCK_LABELS: Record<ReturnType<typeof stockStatus>, string> = {
+  OK: 'In stock',
+  LOW: 'Low stock',
+  OUT_OF_STOCK: 'Out of stock',
+  NOT_TRACKED: 'Not tracked',
+};
+
+/**
+ * A payment that counts as a sale. A duplicate is a second payment for an order that was already
+ * paid: the money is the customer's and has to be returned, so it is not a sale and must not count
+ * the order twice. The Overview raises those as an alert instead.
+ */
+const SALE = { status: 'COMPLETED', duplicate: false } as const;
 
 /**
  * Trusted, database-computed business metrics. The agent answers analytics questions
@@ -54,7 +75,7 @@ export class AnalyticsService {
     completedAt: Prisma.DateTimeFilter,
   ): Promise<PaidOrderFact[]> {
     const payments = await this.db.payment.findMany({
-      where: { merchantId, status: 'COMPLETED', completedAt },
+      where: { merchantId, ...SALE, completedAt },
       include: {
         order: {
           include: {
@@ -101,7 +122,7 @@ export class AnalyticsService {
       this.db.payment
         .groupBy({
           by: ['currency'],
-          where: { merchantId: merchant.id, status: 'COMPLETED', completedAt },
+          where: { merchantId: merchant.id, ...SALE, completedAt },
           _sum: { amountMinor: true, refundedMinor: true },
           _count: { _all: true },
         })
@@ -123,7 +144,7 @@ export class AnalyticsService {
       outstanding,
       ...breakdown,
       notes:
-        'Revenue = completed PayPal payments minus refunds (fully refunded orders are excluded). Product revenue excludes shipping and tax. Outstanding = orders awaiting payment now.',
+        'Revenue = completed PayPal payments minus refunds (fully refunded orders and duplicate payments are excluded). Product revenue excludes shipping and tax. Outstanding = orders awaiting payment now.',
     };
   }
 
@@ -133,7 +154,7 @@ export class AnalyticsService {
       by: ['currency'],
       where: {
         merchantId,
-        status: 'COMPLETED',
+        ...SALE,
         completedAt: { ...(start ? { gte: start } : {}), lt: end },
       },
       _sum: { amountMinor: true, refundedMinor: true },
@@ -186,7 +207,7 @@ export class AnalyticsService {
     // A little more than `days` days back; only the last `days` local dates are kept below.
     const start = new Date(now.getTime() - days * 86_400_000);
     const payments = await this.db.payment.findMany({
-      where: { merchantId: merchant.id, status: 'COMPLETED', completedAt: { gte: start, lt: now } },
+      where: { merchantId: merchant.id, ...SALE, completedAt: { gte: start, lt: now } },
       select: { amountMinor: true, refundedMinor: true, currency: true, completedAt: true },
       take: MAX_FACTS,
     });
@@ -195,7 +216,15 @@ export class AnalyticsService {
     const keys: string[] = [];
     for (let t = now.getTime() - (days - 1) * 86_400_000; t <= now.getTime(); t += 86_400_000)
       keys.push(dayKey(new Date(t)));
-    const currency = payments[0]?.currency ?? null;
+    // The chart shows one currency: the one with the most revenue, never whichever row came first.
+    const netByCurrency = new Map<string, number>();
+    for (const p of payments)
+      netByCurrency.set(
+        p.currency,
+        (netByCurrency.get(p.currency) ?? 0) + p.amountMinor - p.refundedMinor,
+      );
+    const currency =
+      [...netByCurrency].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
     const totals = new Map(keys.map((k) => [k, 0]));
     for (const p of payments) {
       if (p.currency !== currency) continue; // single-currency chart; others reported separately
@@ -230,6 +259,7 @@ export class AnalyticsService {
             reference: true,
             status: true,
             totalMinor: true,
+            refundedMinor: true,
             currency: true,
             createdAt: true,
           },
@@ -244,7 +274,7 @@ export class AnalyticsService {
       const sum = (status: string) => {
         const totals = new Map<string, number>();
         for (const o of c.orders.filter((o) => o.status === status))
-          totals.set(o.currency, (totals.get(o.currency) ?? 0) + o.totalMinor);
+          totals.set(o.currency, (totals.get(o.currency) ?? 0) + o.totalMinor - o.refundedMinor);
         return [...totals].map(([currency, minor]) => formatMoney(minor, currency));
       };
       const last = c.orders[0];
@@ -289,7 +319,7 @@ export class AnalyticsService {
         take: 1000,
       }),
       this.db.payment.findMany({
-        where: { merchantId, status: 'COMPLETED' },
+        where: { merchantId, ...SALE },
         select: {
           amountMinor: true,
           refundedMinor: true,
@@ -363,8 +393,13 @@ export class AnalyticsService {
   }
 
   /**
-   * Flat, denormalised tables for the AG Studio analytics workspace. Amounts are major-unit
+   * Flat, denormalised tables for the AG Studio workspace on the Overview. Amounts are major-unit
    * numbers for charting; the authoritative figures remain the minor-unit values elsewhere.
+   *
+   * Money fields whose name means a sale (`gross`, `refunded`, `net`, `soldAmount`, `soldUnits`) are
+   * zero on rows that are not sales, so summing them is correct with or without a filter: neither a
+   * merchant dragging a field nor the assistant can overstate revenue by forgetting one. `paidOn`
+   * and `createdOn` are calendar dates in the merchant's timezone, not the viewer's.
    */
   async dataset(merchant: Pick<Merchant, 'id' | 'timezone'>) {
     const merchantId = merchant.id;
@@ -374,19 +409,29 @@ export class AnalyticsService {
         include: {
           customer: { select: { id: true, name: true } },
           items: true,
-          payments: { where: { status: 'COMPLETED' }, select: { completedAt: true }, take: 1 },
+          payments: { where: SALE, select: { completedAt: true }, take: 1 },
         },
         orderBy: { createdAt: 'desc' },
         take: MAX_FACTS,
       }),
       this.db.payment.findMany({
         where: { merchantId },
-        include: { order: { select: { reference: true, customerId: true } } },
+        include: {
+          order: {
+            select: {
+              reference: true,
+              customerId: true,
+              source: true,
+              inputMode: true,
+              customer: { select: { name: true } },
+            },
+          },
+        },
         orderBy: { createdAt: 'desc' },
         take: MAX_FACTS,
       }),
-      this.db.customer.findMany({ where: { merchantId }, take: 1000 }),
-      this.db.product.findMany({ where: { merchantId }, take: 1000 }),
+      this.db.customer.findMany({ where: { merchantId }, take: MAX_DIMENSION_ROWS }),
+      this.db.product.findMany({ where: { merchantId }, take: MAX_DIMENSION_ROWS }),
       this.db.shipment.findMany({
         where: { merchantId },
         include: { order: { select: { reference: true } } },
@@ -400,25 +445,60 @@ export class AnalyticsService {
     ]);
     // Exponent-aware: UGX/JPY amounts are stored without a minor unit.
     const major = toMajorNumber;
+    const day = (date: Date | null | undefined) =>
+      date ? zonedDay(date, merchant.timezone) : null;
+
+    const sold = new Map<string, { units: number; revenueMinor: number }>();
+    const productCurrency = new Map(products.map((p) => [p.id, p.currency]));
+    for (const order of orders) {
+      if (order.status !== 'PAID') continue;
+      for (const item of order.items) {
+        if (!item.productId || productCurrency.get(item.productId) !== order.currency) continue;
+        const row = sold.get(item.productId) ?? { units: 0, revenueMinor: 0 };
+        row.units += item.quantity;
+        row.revenueMinor += item.lineTotalMinor;
+        sold.set(item.productId, row);
+      }
+    }
+
     return {
-      orders: orders.map((o) => ({
-        orderId: o.reference,
-        customerId: o.customer.id,
-        customer: o.customer.name,
-        channel: o.source === 'web' ? 'Agent console' : 'WhatsApp',
-        inputMode: o.inputMode === 'VOICE' ? 'Voice' : 'Text',
-        source: sourceLabel(o.source, o.inputMode),
-        status: ORDER_STATUS_LABELS[o.status],
-        currency: o.currency,
-        subtotal: major(o.subtotalMinor, o.currency),
-        shipping: major(o.shippingMinor, o.currency),
-        total: major(o.totalMinor, o.currency),
-        refunded: major(o.refundedMinor, o.currency),
-        itemCount: o.items.reduce((sum, i) => sum + i.quantity, 0),
-        createdAt: o.createdAt.toISOString(),
-        paidAt: o.payments[0]?.completedAt?.toISOString() ?? null,
-        fulfillment: o.fulfillmentStatus === 'SHIPPED' ? 'Shipped' : 'Not shipped',
-      })),
+      meta: {
+        generatedAt: new Date().toISOString(),
+        timezone: merchant.timezone,
+        /** True when a table hit its row limit, so totals built on it would be incomplete. */
+        truncated:
+          orders.length >= MAX_FACTS ||
+          payments.length >= MAX_FACTS ||
+          customers.length >= MAX_DIMENSION_ROWS ||
+          products.length >= MAX_DIMENSION_ROWS,
+      },
+      orders: orders.map((o) => {
+        const paid = o.status === 'PAID';
+        return {
+          orderId: o.reference,
+          customerId: o.customer.id,
+          customer: o.customer.name,
+          channel: o.source === 'web' ? 'Agent console' : 'WhatsApp',
+          inputMode: o.inputMode === 'VOICE' ? 'Voice' : 'Text',
+          source: sourceLabel(o.source, o.inputMode),
+          status: ORDER_STATUS_LABELS[o.status],
+          currency: o.currency,
+          subtotal: major(o.subtotalMinor, o.currency),
+          shipping: major(o.shippingMinor, o.currency),
+          total: major(o.totalMinor, o.currency),
+          refunded: major(o.refundedMinor, o.currency),
+          net: paid ? major(o.totalMinor - o.refundedMinor, o.currency) : 0,
+          itemCount: o.items.reduce((sum, i) => sum + i.quantity, 0),
+          createdAt: o.createdAt.toISOString(),
+          createdOn: day(o.createdAt),
+          paidAt: o.payments[0]?.completedAt?.toISOString() ?? null,
+          paidOn: day(o.payments[0]?.completedAt),
+          fulfillment: o.fulfillmentStatus === 'SHIPPED' ? 'Shipped' : 'Not shipped',
+          // Paid but awaiting fulfilment is its own question merchants ask constantly.
+          toShip: paid && o.fulfillmentStatus === 'NOT_SHIPPED' ? 'Yes' : 'No',
+          attention: o.attention ?? 'None',
+        };
+      }),
       shipments: shipments.map((s) => ({
         shipmentId: s.id,
         orderId: s.order.reference,
@@ -432,65 +512,279 @@ export class AnalyticsService {
         orderId: d.order?.reference ?? null,
         reason: d.reason,
         status: d.status,
+        active: ACTIVE_DISPUTE_STATUSES.includes(d.status) ? 'Yes' : 'No',
         amount: d.amountMinor !== null && d.currency ? major(d.amountMinor, d.currency) : null,
         currency: d.currency,
         openedAt: d.openedAt?.toISOString() ?? null,
         responseDue: d.sellerResponseDueAt?.toISOString() ?? null,
       })),
       orderItems: orders.flatMap((o) =>
-        o.items.map((i) => ({
-          itemId: i.id,
-          orderId: o.reference,
-          product: i.description,
-          inCatalog: i.productId !== null,
-          quantity: i.quantity,
-          unitPrice: major(i.unitPriceMinor, o.currency),
-          lineTotal: major(i.lineTotalMinor, o.currency),
-          orderStatus: ORDER_STATUS_LABELS[o.status],
-        })),
+        o.items.map((i) => {
+          const paid = o.status === 'PAID';
+          return {
+            itemId: i.id,
+            orderId: o.reference,
+            product: i.description,
+            inCatalog: i.productId !== null,
+            quantity: i.quantity,
+            unitPrice: major(i.unitPriceMinor, o.currency),
+            lineTotal: major(i.lineTotalMinor, o.currency),
+            soldUnits: paid ? i.quantity : 0,
+            soldAmount: paid ? major(i.lineTotalMinor, o.currency) : 0,
+            orderStatus: ORDER_STATUS_LABELS[o.status],
+            currency: o.currency,
+            source: sourceLabel(o.source, o.inputMode),
+            paidOn: day(o.payments[0]?.completedAt),
+          };
+        }),
       ),
-      payments: payments.map((p) => ({
-        paymentId: p.id,
-        orderId: p.order.reference,
-        customerId: p.order.customerId,
-        provider: 'PayPal',
-        status: PAYMENT_STATUS_LABELS[p.status],
-        amount: major(p.amountMinor, p.currency),
-        refunded: major(p.refundedMinor, p.currency),
-        currency: p.currency,
-        createdAt: p.createdAt.toISOString(),
-        completedAt: p.completedAt?.toISOString() ?? null,
-      })),
+      payments: payments.map((p) => {
+        // COMPLETED or fully REFUNDED, and not a duplicate: real sales, gross of refunds.
+        const sale = (p.status === 'COMPLETED' || p.status === 'REFUNDED') && !p.duplicate;
+        const open = p.status === 'CREATED' || p.status === 'APPROVED';
+        return {
+          paymentId: p.id,
+          orderId: p.order.reference,
+          customerId: p.order.customerId,
+          customer: p.order.customer.name,
+          source: sourceLabel(p.order.source, p.order.inputMode),
+          provider: 'PayPal',
+          status: PAYMENT_STATUS_LABELS[p.status],
+          amount: major(p.amountMinor, p.currency),
+          gross: sale ? major(p.amountMinor, p.currency) : 0,
+          refunded: sale ? major(p.refundedMinor, p.currency) : 0,
+          net: sale ? major(p.amountMinor - p.refundedMinor, p.currency) : 0,
+          pending: open ? major(p.amountMinor, p.currency) : 0,
+          paidOrders: sale && p.status === 'COMPLETED' ? 1 : 0,
+          duplicate: p.duplicate ? 'Yes' : 'No',
+          currency: p.currency,
+          createdAt: p.createdAt.toISOString(),
+          completedAt: p.completedAt?.toISOString() ?? null,
+          paidOn: sale ? day(p.completedAt) : null,
+        };
+      }),
       customers: customers.map((c) => ({
         customerId: c.id,
         name: c.name,
         country: c.country,
         createdAt: c.createdAt.toISOString(),
       })),
-      products: products.map((p) => ({
-        sku: p.sku,
-        product: p.name,
-        price: major(p.unitPriceMinor, p.currency),
-        currency: p.currency,
-        stock: p.stockQuantity,
-        active: p.active,
-      })),
+      products: products.map((p) => {
+        const stats = sold.get(p.id);
+        return {
+          sku: p.sku,
+          product: p.name,
+          category: p.category ?? 'Uncategorised',
+          price: major(p.unitPriceMinor, p.currency),
+          currency: p.currency,
+          stock: p.stockQuantity,
+          reorderLevel: p.reorderLevel,
+          stockStatus: STOCK_LABELS[stockStatus(p)],
+          active: p.active,
+          unitsSold: stats?.units ?? 0,
+          revenue: major(stats?.revenueMinor ?? 0, p.currency),
+        };
+      }),
     };
   }
 
-  async dashboardSummary(merchant: Pick<Merchant, 'id' | 'timezone'>) {
+  /** Net sales and paid orders for one period and the comparable earlier window, per currency. */
+  private async periodPulse(
+    merchant: Pick<Merchant, 'id' | 'timezone'>,
+    period: PulsePeriod,
+    now: Date,
+  ) {
+    const current = resolvePeriod(period, now, merchant.timezone);
+    const previous = previousPeriod(period, now, merchant.timezone);
+    const [cur, prev] = await Promise.all([
+      this.revenueBetween(merchant.id, current.start, current.end),
+      previous ? this.revenueBetween(merchant.id, previous.start, previous.end) : [],
+    ]);
+    return { period, comparedWith: previous?.label ?? null, cur, prev };
+  }
+
+  /**
+   * The Overview's business pulse, one block per currency: amounts in different currencies are
+   * never added together. Every figure and percentage is computed here, never by a browser or LLM.
+   */
+  private async pulse(merchant: Pick<Merchant, 'id' | 'timezone'>, now: Date) {
+    const [periods, sales, outstanding, disputed] = await Promise.all([
+      Promise.all(PULSE_PERIODS.map((period) => this.periodPulse(merchant, period, now))),
+      this.db.payment.groupBy({
+        by: ['currency', 'status'],
+        where: {
+          merchantId: merchant.id,
+          status: { in: ['COMPLETED', 'REFUNDED'] },
+          duplicate: false,
+        },
+        _sum: { amountMinor: true, refundedMinor: true },
+        _count: { _all: true },
+      }),
+      this.outstanding(merchant.id),
+      this.db.dispute.groupBy({
+        by: ['currency'],
+        where: {
+          merchantId: merchant.id,
+          status: { in: ACTIVE_DISPUTE_STATUSES },
+          currency: { not: null },
+        },
+        _sum: { amountMinor: true },
+      }),
+    ]);
+    const currencies = [
+      ...new Set([...sales.map((s) => s.currency), ...outstanding.map((o) => o.currency)]),
+    ].sort();
+    return currencies.map((currency) => {
+      const rows = sales.filter((s) => s.currency === currency);
+      const grossMinor = rows.reduce((sum, r) => sum + (r._sum.amountMinor ?? 0), 0);
+      const refundsMinor = rows.reduce((sum, r) => sum + (r._sum.refundedMinor ?? 0), 0);
+      const netMinor = grossMinor - refundsMinor;
+      const paidOrders = rows.find((r) => r.status === 'COMPLETED')?._count._all ?? 0;
+      const completedNet = rows
+        .filter((r) => r.status === 'COMPLETED')
+        .reduce((sum, r) => sum + (r._sum.amountMinor ?? 0) - (r._sum.refundedMinor ?? 0), 0);
+      const open = outstanding.find((o) => o.currency === currency);
+      const held = disputed.find((d) => d.currency === currency)?._sum.amountMinor ?? 0;
+      return {
+        currency,
+        gross: formatMoney(grossMinor, currency),
+        refunds: formatMoney(refundsMinor, currency),
+        net: formatMoney(netMinor, currency),
+        netMinor,
+        paidOrders,
+        averageOrderValue:
+          paidOrders > 0 ? formatMoney(Math.round(completedNet / paidOrders), currency) : null,
+        outstanding: formatMoney(open?.amountMinor ?? 0, currency),
+        outstandingOrders: open?.count ?? 0,
+        disputed: formatMoney(held, currency),
+        periods: periods.map(({ period, comparedWith, cur, prev }) => {
+          const c = cur.find((r) => r.currency === currency);
+          const p = prev.find((r) => r.currency === currency);
+          const value = c?.amountMinor ?? 0;
+          const before = p?.amountMinor ?? 0;
+          return {
+            period,
+            net: formatMoney(value, currency),
+            netMinor: value,
+            paidOrders: c?.count ?? 0,
+            previousNet: formatMoney(before, currency),
+            comparedWith,
+            // null, not 100%: growth from nothing has no meaningful percentage.
+            changePercent: before > 0 ? Math.round(((value - before) / before) * 1000) / 10 : null,
+          };
+        }),
+      };
+    });
+  }
+
+  /** The counts behind the Overview's "needs attention" list. */
+  private async attentionFacts(merchantId: string, now: Date): Promise<AttentionFacts> {
+    const soon = new Date(now.getTime() + DAY_MS);
+    const weekAgo = new Date(now.getTime() - 7 * DAY_MS);
+    const [
+      disputeDue,
+      needsResponse,
+      duplicates,
+      paidAfterCancel,
+      toShip,
+      oldestToShip,
+      toApprove,
+      awaiting,
+      dueSoon,
+      expired,
+      products,
+    ] = await Promise.all([
+      this.db.dispute.findFirst({
+        where: {
+          merchantId,
+          status: 'WAITING_FOR_SELLER_RESPONSE',
+          sellerResponseDueAt: { not: null },
+        },
+        orderBy: { sellerResponseDueAt: 'asc' },
+        select: { sellerResponseDueAt: true },
+      }),
+      this.db.dispute.count({ where: { merchantId, status: 'WAITING_FOR_SELLER_RESPONSE' } }),
+      this.db.order.count({ where: { merchantId, attention: 'DUPLICATE_PAYMENT' } }),
+      this.db.order.count({ where: { merchantId, attention: 'PAID_AFTER_CANCEL' } }),
+      this.db.order.count({
+        where: { merchantId, status: 'PAID', fulfillmentStatus: 'NOT_SHIPPED' },
+      }),
+      this.db.payment.findFirst({
+        where: {
+          merchantId,
+          ...SALE,
+          order: { status: 'PAID', fulfillmentStatus: 'NOT_SHIPPED' },
+        },
+        orderBy: { completedAt: 'asc' },
+        select: { completedAt: true },
+      }),
+      this.db.order.count({
+        where: {
+          merchantId,
+          status: 'DRAFT',
+          placedBy: 'CUSTOMER',
+          customerConfirmedAt: { not: null },
+        },
+      }),
+      this.db.order.count({ where: { merchantId, status: 'AWAITING_PAYMENT' } }),
+      this.db.order.count({
+        where: { merchantId, status: 'AWAITING_PAYMENT', paymentDueAt: { gte: now, lte: soon } },
+      }),
+      this.db.order.count({
+        where: { merchantId, cancelReason: 'PAYMENT_EXPIRED', cancelledAt: { gte: weekAgo } },
+      }),
+      this.db.product.findMany({
+        where: { merchantId, active: true, stockQuantity: { not: null } },
+        select: { stockQuantity: true, reorderLevel: true },
+        take: MAX_DIMENSION_ROWS,
+      }),
+    ]);
+    const statuses = products.map(stockStatus);
+    return {
+      disputesNeedingResponse: needsResponse,
+      nextDisputeDue: disputeDue?.sellerResponseDueAt?.toISOString() ?? null,
+      duplicatePayments: duplicates,
+      paidAfterCancel,
+      toShip,
+      oldestToShipDays: oldestToShip?.completedAt
+        ? Math.floor((now.getTime() - oldestToShip.completedAt.getTime()) / DAY_MS)
+        : null,
+      toApprove,
+      awaitingPayment: awaiting,
+      paymentDueSoon: dueSoon,
+      expiredThisWeek: expired,
+      outOfStock: statuses.filter((s) => s === 'OUT_OF_STOCK').length,
+      lowStock: statuses.filter((s) => s === 'LOW').length,
+    };
+  }
+
+  /** A value that changes whenever the data behind the Overview does; cheap to poll. */
+  private async dataVersion(merchantId: string) {
+    const where = { where: { merchantId }, _max: { updatedAt: true } } as const;
+    const latest = await Promise.all([
+      this.db.order.aggregate(where),
+      this.db.payment.aggregate(where),
+      this.db.product.aggregate(where),
+      this.db.shipment.aggregate(where),
+      this.db.dispute.aggregate(where),
+    ]);
+    return latest.map((row) => row._max.updatedAt?.getTime() ?? 0).join('-');
+  }
+
+  async dashboardSummary(merchant: Pick<Merchant, 'id' | 'timezone'>, now = new Date()) {
     const [
       allTime,
-      week,
+      revenueThisWeek,
       statusCounts,
       customersCount,
       productsCount,
       operations,
-      recentOrders,
-      recentPayments,
+      pulse,
+      attentionFacts,
+      dataVersion,
     ] = await Promise.all([
-      this.salesSummary(merchant, 'all_time'),
-      this.salesSummary(merchant, 'this_week'),
+      this.salesSummary(merchant, 'all_time', now),
+      this.salesSummary(merchant, 'this_week', now).then((week) => week.revenue),
       // Open customer carts are not orders yet.
       this.db.order.groupBy({
         by: ['status'],
@@ -500,24 +794,19 @@ export class AnalyticsService {
       this.db.customer.count({ where: { merchantId: merchant.id } }),
       this.db.product.count({ where: { merchantId: merchant.id, active: true } }),
       this.operations(merchant.id),
-      this.db.order.findMany({
-        where: { merchantId: merchant.id, ...NOT_OPEN_CART },
-        include: { customer: { select: { name: true } } },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-      }),
-      this.db.payment.findMany({
-        where: { merchantId: merchant.id },
-        include: { order: { select: { reference: true, customer: { select: { name: true } } } } },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-      }),
+      this.pulse(merchant, now),
+      this.attentionFacts(merchant.id, now),
+      this.dataVersion(merchant.id),
     ]);
     const byStatus = Object.fromEntries(statusCounts.map((s) => [s.status, s._count._all]));
 
     return {
+      generatedAt: now.toISOString(),
+      dataVersion,
+      pulse,
+      attention: buildAttention(attentionFacts, now),
       revenue: allTime.revenue,
-      revenueThisWeek: week.revenue,
+      revenueThisWeek,
       outstanding: allTime.outstanding,
       averageOrderValue: allTime.averageOrderValue,
       topProducts: allTime.topProducts,
@@ -532,8 +821,6 @@ export class AnalyticsService {
         products: productsCount,
       },
       operations,
-      recentOrders,
-      recentPayments,
     };
   }
 

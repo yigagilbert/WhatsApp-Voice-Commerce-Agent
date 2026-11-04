@@ -38,6 +38,7 @@ model Merchant {
 
   operators        MerchantOperator[]
   customers        Customer[]
+  dashboardLayouts DashboardLayout[]
   products         Product[]
   orders           Order[]
   payments         Payment[]
@@ -1141,4 +1142,20 @@ model CartTransfer {
   @@index([merchantId, clientKey, status])
   @@index([expiresAt])
   @@map("cart_transfers")
+}
+
+/// A dashboard person's saved Overview: an AG Studio report state. Removing it restores the default.
+model DashboardLayout {
+  id         String   @id @default(cuid())
+  merchantId String
+  /// DashboardUser id, or "bootstrap" for the setup login.
+  userKey    String
+  state      Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, userKey])
+  @@map("dashboard_layouts")
 }

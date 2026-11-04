@@ -1,7 +1,20 @@
+import type { Prisma } from '@vca/database';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Container } from '../../container';
 import { parse } from '../../http/validation';
+
+const MAX_LAYOUT_BYTES = 512 * 1024;
+
+/** An AG Studio report state. Studio validates the contents when it loads one. */
+const layoutSchema = z.object({
+  state: z.looseObject({
+    pages: z
+      .array(z.looseObject({ id: z.string() }))
+      .min(1)
+      .max(20),
+  }),
+});
 
 export async function dashboardRoutes(
   app: FastifyInstance,
@@ -21,6 +34,34 @@ export async function dashboardRoutes(
   app.get('/api/dashboard/dataset', async (request) =>
     container.analytics.dataset(request.merchant),
   );
+
+  /** The signed-in person's saved Overview layout (null = use the default). */
+  app.get('/api/dashboard/layout', async (request) => {
+    const saved = await container.db.dashboardLayout.findUnique({
+      where: {
+        merchantId_userKey: { merchantId: request.merchant.id, userKey: request.dashboardUser.id },
+      },
+    });
+    return { state: saved?.state ?? null, updatedAt: saved?.updatedAt ?? null };
+  });
+
+  app.put('/api/dashboard/layout', { bodyLimit: MAX_LAYOUT_BYTES }, async (request) => {
+    const { state } = parse(layoutSchema, request.body);
+    const key = { merchantId: request.merchant.id, userKey: request.dashboardUser.id };
+    const saved = await container.db.dashboardLayout.upsert({
+      where: { merchantId_userKey: key },
+      create: { ...key, state: state as Prisma.InputJsonValue },
+      update: { state: state as Prisma.InputJsonValue },
+    });
+    return { updatedAt: saved.updatedAt };
+  });
+
+  app.delete('/api/dashboard/layout', async (request) => {
+    await container.db.dashboardLayout.deleteMany({
+      where: { merchantId: request.merchant.id, userKey: request.dashboardUser.id },
+    });
+    return { state: null };
+  });
 
   /** Audit trail: AI decisions, confirmations, payments — the "responsible AI" activity log. */
   app.get('/api/dashboard/activity', async (request) => {

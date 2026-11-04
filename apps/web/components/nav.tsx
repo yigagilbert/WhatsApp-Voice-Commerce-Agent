@@ -11,7 +11,6 @@ const LINKS = [
   { href: '/customers', label: 'Customers' },
   { href: '/products', label: 'Products' },
   { href: '/bargaining', label: 'Bargaining' },
-  { href: '/analytics', label: 'Analytics' },
   { href: '/activity', label: 'Activity' },
   { href: '/console', label: 'Agent console' },
   { href: '/reports', label: 'Reports' },

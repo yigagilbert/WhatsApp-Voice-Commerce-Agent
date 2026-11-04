@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { FilteredView } from '@/components/filtered-view';
 import { ErrorNotice, PageHeader } from '@/components/ui';
 import { describeEvent } from '@/lib/activity';
 import { apiGet } from '@/lib/api';
@@ -142,9 +143,10 @@ function Detail({ d }: { d: DisputeDetail }) {
 export default async function DisputesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ d?: string; refresh?: string; refreshed?: string }>;
+  searchParams: Promise<{ d?: string; refresh?: string; refreshed?: string; view?: string }>;
 }) {
-  const { d, refresh, refreshed } = await searchParams;
+  const { d, refresh, refreshed, view } = await searchParams;
+  const needsResponse = view === 'needs-response';
   const [list, detail] = await Promise.all([
     apiGet<{
       disputes: DisputeRow[];
@@ -176,7 +178,24 @@ export default async function DisputesPage({
       {!list.ok ? (
         <ErrorNotice message={list.error} />
       ) : (
-        <DisputesGrid disputes={list.data.disputes} />
+        <>
+          {needsResponse && (
+            <FilteredView
+              label="waiting for your response"
+              count={
+                list.data.disputes.filter((x) => x.status === 'WAITING_FOR_SELLER_RESPONSE').length
+              }
+              clearHref="/disputes"
+            />
+          )}
+          <DisputesGrid
+            disputes={
+              needsResponse
+                ? list.data.disputes.filter((x) => x.status === 'WAITING_FOR_SELLER_RESPONSE')
+                : list.data.disputes
+            }
+          />
+        </>
       )}
       {detail && !detail.ok && <ErrorNotice message={detail.error} />}
       {detail?.ok && <Detail d={detail.data} />}

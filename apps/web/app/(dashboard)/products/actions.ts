@@ -73,6 +73,7 @@ export async function saveProduct(
     minPrice: bargainingEnabled ? minPrice : null,
     quantityDiscounts,
     description: text(form, 'description') || null,
+    category: text(form, 'category').slice(0, 60) || null,
     visibleToCustomers: form.get('visibleToCustomers') === 'on',
     reorderLevel,
   };
@@ -118,9 +119,21 @@ export async function removeProductPhoto(id: string): Promise<ProductFormState> 
  */
 export async function saveProductCell(
   id: string,
-  change: { price: string } | { stock: number },
+  change: { price: string } | { stock: number } | { category: string } | { shown: boolean },
 ): Promise<ProductFormState> {
   await requireUser();
+  if ('category' in change || 'shown' in change) {
+    const result = await apiPatch(
+      `/api/products/${encodeURIComponent(id)}`,
+      'category' in change
+        ? { category: change.category.trim().slice(0, 60) || null }
+        : { visibleToCustomers: change.shown },
+    );
+    if (!result.ok) return { ok: false, message: result.error };
+    revalidatePath('/products');
+    revalidatePath(`/products/${id}`);
+    return { ok: true, message: 'Saved.' };
+  }
   if ('price' in change) {
     if (!/^\d+(\.\d{1,2})?$/.test(change.price) || Number(change.price) <= 0)
       return { ok: false, message: 'Enter a price such as 12 or 12.50.' };

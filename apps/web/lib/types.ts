@@ -26,6 +26,7 @@ export interface Product {
   stockQuantity: number | null;
   active: boolean;
   visibleToCustomers?: boolean;
+  category?: string | null;
   /** Customers may bargain on WhatsApp (needs minPriceMinor). */
   bargainingEnabled?: boolean;
   /** Lowest price the merchant accepts; dashboard only, never shown to customers. */
@@ -194,6 +195,7 @@ export interface ProductStat {
   active: boolean;
   reorderLevel?: number | null;
   visibleToCustomers?: boolean;
+  category?: string | null;
   /** Changes with each new photo (thumbnail cache key); null = no photo. */
   imageVersion?: string | null;
   unitsSold: number;
@@ -330,4 +332,17 @@ export interface AnalyticsDataset {
   products: Record<string, string | number | boolean | null>[];
   shipments: Record<string, string | number | boolean | null>[];
   disputes: Record<string, string | number | boolean | null>[];
+}
+
+export interface StorefrontSettings {
+  slug: string;
+  saved: boolean;
+  enabled: boolean;
+  tagline: string | null;
+  about: string | null;
+  logoVersion: string | null;
+  /** Why customers can't be sent to WhatsApp yet; null when checkout works. */
+  checkoutBlocker: string | null;
+  products: { shown: number; hidden: number; withoutPhoto: number; withoutCategory: number };
+  categories: { name: string; count: number }[];
 }

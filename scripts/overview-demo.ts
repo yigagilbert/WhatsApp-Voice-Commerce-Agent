@@ -9,7 +9,7 @@
  *
  * A third, empty shop shows the first-run experience.
  *
- * Replaces only these shops and refuses to run against a live PayPal configuration. Generated
+ * Replaces only these shops. Runs only against a local database, and never with live PayPal. Generated
  * with a fixed seed, so figures are comparable between runs on the same day.
  */
 import { randomUUID } from 'node:crypto';
@@ -290,6 +290,10 @@ async function main() {
     throw new Error('Refusing to generate demo data against a live PayPal configuration.');
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is not set');
+  // These accounts share a password that is in this file, so they must never reach a shared server.
+  // PayPal Sandbox alone doesn't prove that: a hosted environment can run on Sandbox too.
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(databaseUrl).hostname))
+    throw new Error('Refusing to generate demo accounts outside a local database.');
   const db = createPrismaClient({ databaseUrl });
   const size = Number(process.argv[2] ?? 480);
   try {

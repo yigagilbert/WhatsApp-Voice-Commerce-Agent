@@ -124,7 +124,8 @@ real phones, and production. The assistant is non-deterministic, so answers vary
 
 ## 6. Demo for the AG Studio prize (about 2 minutes)
 
-Load the data: `pnpm overview:demo`. Sign in as `overview-demo`.
+Load the data on a local database: `pnpm overview:demo` (it refuses any other, because its accounts
+share a password kept in the script). Sign in as `overview-demo`.
 
 1. **Land (15 s).** "A shop owner signs in. Net revenue today, this week and this month with changes.
    On the right, what needs attention, and the single thing to do next."

@@ -14,16 +14,21 @@ export function AddButton({ productId, name }: { productId: string; name: string
       type="button"
       className={`${s.quickAdd} ${inCart ? s.quickAddOn : ''}`}
       disabled={full}
-      onClick={() => add(productId)}
+      onClick={() => add(productId, 1, name)}
       aria-label={
         inCart ? `Add another ${name}. ${inCart} in your cart` : `Add ${name} to your cart`
       }
     >
       {inCart ? (
-        <span>{inCart}</span>
+        <span key={inCart}>{inCart}</span>
       ) : (
-        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-          <path d="M9 3v12M3 9h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path
+            d="M8 2.5v11M2.5 8h11"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
         </svg>
       )}
     </button>

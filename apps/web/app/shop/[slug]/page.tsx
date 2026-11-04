@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { siteUrl } from '@/lib/public-site';
 import { fetchProducts, fetchShop } from '@/lib/storefront';
-import { SortAndStock, type Current } from './_components/filters';
+import { SearchBox, SortAndStock, type Current } from './_components/filters';
 import { LoadMore } from './_components/load-more';
+import { ResultsArea, ShopLink } from './_components/navigation';
 import { ProductCard } from './_components/product-card';
 import { ShopShell } from './_components/shop-shell';
 import s from './shop.module.css';
@@ -88,48 +88,21 @@ export default async function ShopPage({
 
   const current: Current = { q, category, sort, inStock, preview };
   const narrowed = !!(q || category || inStock || result.page > 1);
-  const categoryHref = (name: string | null) => {
-    const params = new URLSearchParams();
-    if (q) params.set('q', q);
-    if (name) params.set('category', name);
-    if (sort !== 'name') params.set('sort', sort);
-    if (inStock) params.set('inStock', '1');
-    if (preview) params.set('preview', '1');
-    const text = params.toString();
-    return `/shop/${slug}${text ? `?${text}` : ''}`;
-  };
-
   return (
     <ShopShell shop={shop} current={current} liveSearch>
-      <section className={narrowed ? s.mastheadCompact : s.masthead}>
-        <div className={s.mastheadInner}>
-          <h1>{category || shop.name}</h1>
-          {!narrowed && shop.tagline && <p className={s.tagline}>{shop.tagline}</p>}
-          {!narrowed && shop.about && <p className={s.about}>{shop.about}</p>}
-        </div>
+      <section className={narrowed ? s.introCompact : s.intro}>
+        <h1>{category || (q ? 'Search results' : shop.name)}</h1>
+        {!narrowed && shop.tagline && <p className={s.tagline}>{shop.tagline}</p>}
+        {!narrowed && shop.about && <p className={s.about}>{shop.about}</p>}
       </section>
 
-      {shop.categories.length > 0 && (
-        <nav className={s.chips} aria-label="Categories">
-          <Link
-            href={categoryHref(null)}
-            className={!category ? s.chipOn : s.chip}
-            aria-current={!category ? 'page' : undefined}
-          >
-            All
-          </Link>
-          {shop.categories.map((c) => (
-            <Link
-              key={c.name}
-              href={categoryHref(c.name)}
-              className={category.toLowerCase() === c.name.toLowerCase() ? s.chipOn : s.chip}
-              aria-current={category.toLowerCase() === c.name.toLowerCase() ? 'page' : undefined}
-            >
-              {c.name}
-            </Link>
-          ))}
-        </nav>
-      )}
+      <SearchBox
+        slug={slug}
+        current={current}
+        live
+        id="shop-search-mobile"
+        className={s.searchMobile}
+      />
 
       <div className={s.toolbar} id="products">
         <p className={s.count} role="status">
@@ -139,38 +112,50 @@ export default async function ShopPage({
         <SortAndStock slug={slug} current={current} />
       </div>
 
-      {result.products.length ? (
-        <>
-          <ul className={s.grid} key={baseQuery}>
-            {result.products.map((product, index) => (
-              <ProductCard
-                key={product.id}
-                slug={slug}
-                product={product}
-                preview={preview}
-                eager={index < 4}
-              />
-            ))}
-          </ul>
-          <LoadMore
-            key={`${baseQuery}:${result.page}`}
-            slug={slug}
-            query={baseQuery}
-            page={result.page}
-            pages={result.pages}
-            preview={preview}
-          />
-        </>
-      ) : (
-        <div className={s.empty}>
-          <p>{q ? `Nothing matches “${q}”.` : 'No products here yet.'}</p>
-          {(q || category || inStock) && (
-            <Link href={`/shop/${slug}${preview ? '?preview=1' : ''}`} className={s.ghostButton}>
-              See all products
-            </Link>
-          )}
-        </div>
-      )}
+      <ResultsArea>
+        {result.products.length ? (
+          <>
+            <ul className={s.grid} key={baseQuery}>
+              {result.products.map((product, index) => (
+                <ProductCard
+                  key={product.id}
+                  slug={slug}
+                  product={product}
+                  preview={preview}
+                  eager={index < 4}
+                />
+              ))}
+            </ul>
+            <LoadMore
+              key={`${baseQuery}:${result.page}`}
+              slug={slug}
+              query={baseQuery}
+              page={result.page}
+              pages={result.pages}
+              pageSize={result.pageSize}
+              total={result.total}
+              preview={preview}
+            />
+          </>
+        ) : (
+          <div className={s.empty}>
+            <h2>{q ? `Nothing matches “${q}”` : 'No products here yet'}</h2>
+            <p>
+              {q
+                ? 'Check the spelling, or try a shorter word.'
+                : 'Try another category, or see everything in the shop.'}
+            </p>
+            {(q || category || inStock) && (
+              <ShopLink
+                href={`/shop/${slug}${preview ? '?preview=1' : ''}`}
+                className={s.secondary}
+              >
+                See all products
+              </ShopLink>
+            )}
+          </div>
+        )}
+      </ResultsArea>
     </ShopShell>
   );
 }

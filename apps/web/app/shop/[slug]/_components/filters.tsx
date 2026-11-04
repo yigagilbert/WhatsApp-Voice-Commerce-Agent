@@ -1,66 +1,48 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useTransition } from 'react';
+import { useEffect, useRef } from 'react';
+import { catalogueUrl, type CatalogueState } from '@/lib/storefront-types';
+import { useShopNavigation } from './navigation';
 import s from '../shop.module.css';
 
 const SORTS = [
   { value: 'name', label: 'Name' },
-  { value: 'price_asc', label: 'Price, low to high' },
-  { value: 'price_desc', label: 'Price, high to low' },
+  { value: 'price_asc', label: 'Price: low to high' },
+  { value: 'price_desc', label: 'Price: high to low' },
   { value: 'newest', label: 'Newest' },
 ];
 
-export interface Current {
-  q: string;
-  category: string;
-  sort: string;
-  inStock: boolean;
-  preview: boolean;
-}
+export type { CatalogueState as Current };
 
-const catalogueUrl = (slug: string, c: Partial<Current>) => {
-  const params = new URLSearchParams();
-  if (c.q) params.set('q', c.q);
-  if (c.category) params.set('category', c.category);
-  if (c.sort && c.sort !== 'name') params.set('sort', c.sort);
-  if (c.inStock) params.set('inStock', '1');
-  if (c.preview) params.set('preview', '1');
-  const query = params.toString();
-  return `/shop/${slug}${query ? `?${query}` : ''}`;
-};
-
-/** Searches as the customer types on the catalogue; from a product page, submits to the catalogue. */
+/** Searches as the customer types on the catalogue; elsewhere it submits to the catalogue. */
 export function SearchBox({
   slug,
   current,
   live,
+  id,
+  className,
 }: {
   slug: string;
-  current: Current;
+  current: CatalogueState;
   live: boolean;
+  id: string;
+  className?: string;
 }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
+  const { go } = useShopNavigation();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
 
   return (
-    <form
-      action={`/shop/${slug}`}
-      role="search"
-      className={s.search}
-      data-pending={pending || undefined}
-    >
+    <form action={`/shop/${slug}`} role="search" className={`${s.search} ${className ?? ''}`}>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-        <circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" strokeWidth="1.6" />
-        <path d="m11 11 3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <path d="m11 11 3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
-      <label htmlFor="shop-search" className="sr-only">
+      <label htmlFor={id} className="sr-only">
         Search products
       </label>
       <input
-        id="shop-search"
+        id={id}
         name="q"
         type="search"
         defaultValue={current.q}
@@ -73,7 +55,11 @@ export function SearchBox({
           if (timer.current) clearTimeout(timer.current);
           timer.current = setTimeout(
             () =>
-              start(() => router.replace(catalogueUrl(slug, { ...current, q }), { scroll: false })),
+              go(catalogueUrl(slug, { ...current, q }), {
+                kind: 'results',
+                replace: true,
+                scroll: false,
+              }),
             280,
           );
         }}
@@ -83,24 +69,27 @@ export function SearchBox({
   );
 }
 
-export function SortAndStock({ slug, current }: { slug: string; current: Current }) {
-  const router = useRouter();
-  const [, start] = useTransition();
-  const go = (change: Partial<Current>) =>
-    start(() => router.replace(catalogueUrl(slug, { ...current, ...change }), { scroll: false }));
+export function SortAndStock({ slug, current }: { slug: string; current: CatalogueState }) {
+  const { go } = useShopNavigation();
+  const change = (next: Partial<CatalogueState>) =>
+    go(catalogueUrl(slug, { ...current, ...next }), {
+      kind: 'results',
+      replace: true,
+      scroll: false,
+    });
   return (
     <div className={s.controls}>
       <label className={s.inStock}>
         <input
           type="checkbox"
           checked={current.inStock}
-          onChange={(event) => go({ inStock: event.target.checked })}
+          onChange={(event) => change({ inStock: event.target.checked })}
         />
-        In stock only
+        In stock
       </label>
       <label className={s.sort}>
         <span className="sr-only">Sort products</span>
-        <select value={current.sort} onChange={(event) => go({ sort: event.target.value })}>
+        <select value={current.sort} onChange={(event) => change({ sort: event.target.value })}>
           {SORTS.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}

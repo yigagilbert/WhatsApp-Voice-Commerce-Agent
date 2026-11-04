@@ -112,7 +112,31 @@ and Shown/Hidden in place. Product page: view on storefront and share on WhatsAp
 Preview works for the signed-in owner only: the dashboard server presents its service token and the
 user's session, and the API checks that user belongs to that shop.
 
-## 5. Configuration and deployment
+## 5. Visual design
+
+The storefront is white first and always renders in light mode, so a merchant's shop looks the same
+for every customer. Tokens live at the top of `apps/web/app/shop/[slug]/shop.module.css`:
+
+| Token      | Value     | Used for                                                   |
+| ---------- | --------- | ---------------------------------------------------------- |
+| Background | `#FFFFFF` | Page, header, cards                                        |
+| Surface    | `#F8FAFC` | Photo tiles, search field, order summary, footer           |
+| Text       | `#111827` | Headings, prices, Add to cart                              |
+| Muted text | `#64748B` | Descriptions, categories, secondary information            |
+| Green      | `#15803D` | Checkout on WhatsApp, active category, savings, focus ring |
+| Border     | `#E5E7EB` | Structure                                                  |
+
+Green marks the step that continues on WhatsApp, so **Add to cart** is charcoal and **Checkout on
+WhatsApp** is the only large green button. Geist is the only typeface, which also keeps page weight
+down.
+
+Page changes run as React transitions, with a progress line and result placeholders. A route-level
+`loading.tsx` isn't used because it would turn every missing shop or product into a `200` response.
+
+`pnpm storefront:demo` draws simple placeholder illustrations. They aren't photographs, so upload
+real photos for a merchant's shop and for the demo video.
+
+## 6. Configuration and deployment
 
 - Run the migration.
 - Set `WEB_PUBLIC_URL` for the API as well as the web app. Without it, the assistant sends no links.
@@ -120,7 +144,7 @@ user's session, and the API checks that user belongs to that shop.
 - `pnpm storefront:demo 120` fills the seeded demo shop with generated products and images. It
   touches only the demo merchant and refuses to run with `PAYPAL_ENV=live`.
 
-## 6. Test results
+## 7. Test results
 
 Automated, against real Postgres with simulated PayPal (`pnpm test:integration`):
 [`tests/integration/storefront.test.ts`](../../tests/integration/storefront.test.ts) has 39 tests,
@@ -155,7 +179,7 @@ In the browser, against the running web app and API on a local database with 1,0
 | Response times, 1,053 products      | API about 6–11 ms. Full page about 80–90 ms from the Next.js dev server    |
 
 Screenshots: [`docs/hackathon/storefront/`](../hackathon/storefront/). Their products use generated
-placeholder images, not real photography.
+placeholder illustrations, not real photography.
 
 ### Not yet tested
 
@@ -169,11 +193,13 @@ These need real accounts or devices, and should be done before the demo:
 - **Opening WhatsApp in a new tab on real phones.** The test browser pane doesn't open new tabs; the
   **Open WhatsApp** button is the fallback if a browser blocks it.
 - **Production build behind Nginx**, including client IP forwarding for rate limits.
-- **A screen reader pass.** Semantics were built in (native dialog, labels, live regions, 44 px
-  controls), but no assistive technology or axe audit was run.
+- **A screen reader pass.** Text contrast was calculated (at least 4.55:1) and the keyboard path
+  through the header and cart was checked, but no assistive technology or axe audit was run.
+- **Slow networks and real phones.** Page weight was measured locally (about 141 KB of scripts and
+  98 KB of images on first view), but nothing was throttled or tried on a real device.
 
-## 7. Not built
+## 8. Not built
 
-Product variations (not in the schema), advanced filters, wishlists, customer accounts,
+Product variations and multiple photos per product (neither is in the schema), advanced filters, wishlists, customer accounts,
 recommendations and storefront theming. Search is word matching rather than typo-tolerant. Fuzzy
 matching would be the first thing to add.

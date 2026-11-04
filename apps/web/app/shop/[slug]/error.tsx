@@ -7,7 +7,7 @@ export default function ShopError({ reset }: { reset: () => void }) {
     <main className={s.missing}>
       <h1>The shop isn&apos;t responding</h1>
       <p>Your cart is saved in this browser. Try loading the page again.</p>
-      <button type="button" className={s.ghostButton} onClick={reset}>
+      <button type="button" className={s.secondary} onClick={reset}>
         Try again
       </button>
     </main>

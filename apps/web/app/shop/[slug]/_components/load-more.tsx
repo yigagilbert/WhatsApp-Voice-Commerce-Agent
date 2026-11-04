@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { ProductPage, PublicProduct } from '@/lib/storefront-types';
+import { ProductSkeleton } from './navigation';
 import { ProductCard } from './product-card';
 import s from '../shop.module.css';
 
@@ -14,12 +15,16 @@ export function LoadMore({
   query,
   page,
   pages,
+  pageSize,
+  total,
   preview,
 }: {
   slug: string;
   query: string;
   page: number;
   pages: number;
+  pageSize: number;
+  total: number;
   preview: boolean;
 }) {
   const [extra, setExtra] = useState<PublicProduct[]>([]);
@@ -64,13 +69,20 @@ export function LoadMore({
           ))}
         </ul>
       )}
+      {state === 'loading' && <ProductSkeleton count={4} />}
       <div className={s.more} aria-live="polite">
-        {state === 'error' && <p className={s.stockOut}>Products could not load. Try again.</p>}
+        {total > pageSize && (
+          <p className={s.count}>
+            Showing {Math.min(current * pageSize, total).toLocaleString('en')} of{' '}
+            {total.toLocaleString('en')}
+          </p>
+        )}
+        {state === 'error' && <p className={s.lineIssue}>Products didn&apos;t load. Try again.</p>}
         {current < pages && (
           <a
             href={nextHref()}
             onClick={loadNext}
-            className={s.ghostButton}
+            className={s.secondary}
             aria-disabled={state === 'loading'}
           >
             {state === 'loading' ? 'Loading products…' : 'Show more products'}

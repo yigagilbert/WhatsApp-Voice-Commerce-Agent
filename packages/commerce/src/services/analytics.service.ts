@@ -350,6 +350,7 @@ export class AnalyticsService {
         active: p.active,
         reorderLevel: p.reorderLevel,
         visibleToCustomers: p.visibleToCustomers,
+        category: p.category,
         /** Changes with each new photo (cache key for thumbnails); null = no photo. */
         imageVersion: p.image ? `${p.image.id}-${p.image.updatedAt.getTime()}` : null,
         unitsSold: s?._sum.quantity ?? 0,

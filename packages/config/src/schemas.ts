@@ -161,6 +161,8 @@ export const apiSchema = baseSchema
     API_HOST: z.string().default('0.0.0.0'),
     API_PORT: port.default(4000),
     API_PUBLIC_URL: z.string().url().default('http://localhost:4000'),
+    /** The website's public address: the WhatsApp assistant uses it to link to the storefront. */
+    WEB_PUBLIC_URL: optionalString.pipe(z.string().url().optional()),
     API_AUTH_TOKEN: z.string().min(16, 'API_AUTH_TOKEN must be at least 16 characters'),
     INTERNAL_SERVICE_TOKEN: z
       .string()

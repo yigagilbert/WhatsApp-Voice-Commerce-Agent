@@ -25,6 +25,7 @@ const createProductSchema = z.object({
   stockQuantity: z.number().int().nonnegative().optional(),
   reorderLevel: z.number().int().nonnegative().nullable().optional(),
   visibleToCustomers: z.boolean().optional(),
+  category: z.string().trim().max(60).nullable().optional(),
   ...productPricingFields,
 });
 
@@ -96,6 +97,7 @@ export async function catalogRoutes(app: FastifyInstance, { container }: { conta
     const product = await container.products.create(request.merchant.id, {
       name: body.name,
       description: body.description ?? null,
+      category: body.category ?? null,
       sku: body.sku ?? null,
       currency,
       unitPriceMinor: toMinorUnits(body.unitPrice, currency),

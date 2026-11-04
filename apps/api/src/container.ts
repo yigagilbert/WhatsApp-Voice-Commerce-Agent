@@ -52,6 +52,8 @@ import { ReportService } from './modules/reports/report.service';
 import { BusinessReportBuilder } from './modules/reports/business-report';
 import { ReportScheduler } from './modules/reports/report-scheduler';
 import { StatusAdService } from './modules/status-ads/status-ad.service';
+import { StorefrontService } from './modules/storefront/storefront.service';
+import { linkedBot } from './modules/whatsapp/linked-bot';
 import { HttpStatusPoster, type StatusPoster } from './modules/status-ads/status-poster';
 
 export interface ContainerOverrides {
@@ -287,11 +289,13 @@ export function createContainer(
   // Customer commerce: its own catalog view, tools and conversation flow (admin tools never used).
   const whatsappAccounts = new WhatsAppAccountService(db, audit);
   const customerIdentity = new CustomerIdentityService(db, audit, config.DEFAULT_PHONE_REGION);
+  const objectStore =
+    overrides.objectStore !== undefined ? overrides.objectStore : createObjectStore(config);
   const productImages = new ProductImageService(
     db,
     audit,
     logger.child({ component: 'product-images' }),
-    overrides.objectStore !== undefined ? overrides.objectStore : createObjectStore(config),
+    objectStore,
     config.IMAGE_MAX_UPLOAD_BYTES,
   );
   const customerCatalog = new CustomerCatalog(db, productImages);
@@ -304,14 +308,26 @@ export function createContainer(
     logger.child({ component: 'shop-orders' }),
   );
   const bargaining = new BargainingService(db, shopOrders, audit);
+  const storefront = new StorefrontService({
+    db,
+    audit,
+    accounts: whatsappAccounts,
+    shop: shopOrders,
+    logger: logger.child({ component: 'storefront' }),
+    store: objectStore,
+    customerCommerceAvailable: config.CUSTOMER_COMMERCE_ENABLED,
+    linkedBot: () => linkedBot(config),
+    webPublicUrl: config.WEB_PUBLIC_URL,
+  });
   const customerChats = new CustomerConversationService({
     db,
     audit,
     catalog: customerCatalog,
     shop: shopOrders,
     bargaining,
+    storefront,
     perMinute: config.CUSTOMER_MESSAGES_PER_MINUTE,
-    tools: createCustomerTools(customerCatalog, shopOrders, bargaining),
+    tools: createCustomerTools(customerCatalog, shopOrders, bargaining, storefront),
     chatModel,
     notifications,
     lifecycle: orderLifecycle,
@@ -367,6 +383,12 @@ export function createContainer(
         run: async (now) => {
           const expired = await orderLifecycle.expireDue(config.UNPAID_ORDER_EXPIRY_HOURS, now);
           if (expired.length) logger.info({ orders: expired }, 'unpaid orders expired');
+        },
+      },
+      {
+        name: 'storefront-references',
+        run: async (now: Date) => {
+          await storefront.purgeTransfers(now);
         },
       },
       // Prepares Status adverts; posts them to the shop's own Status only when the merchant chose
@@ -440,6 +462,7 @@ export function createContainer(
     customerChats,
     shopOrders,
     bargaining,
+    storefront,
     shipments,
     disputes,
     webhooks,

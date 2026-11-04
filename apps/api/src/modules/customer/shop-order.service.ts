@@ -120,8 +120,13 @@ export class ShopOrderService {
   // ─── Cart ───────────────────────────────────────────────────────────────
 
   /** The customer's open cart (expired carts are cancelled on the way). */
-  async cart(merchantId: string, customerId: string, now = new Date()): Promise<Cart | null> {
-    await this.db.order.updateMany({
+  async cart(
+    merchantId: string,
+    customerId: string,
+    now = new Date(),
+    tx: DatabaseTx = this.db,
+  ): Promise<Cart | null> {
+    await tx.order.updateMany({
       where: {
         merchantId,
         customerId,
@@ -132,7 +137,7 @@ export class ShopOrderService {
       },
       data: { status: 'CANCELLED' },
     });
-    return this.db.order.findFirst({
+    return tx.order.findFirst({
       where: {
         merchantId,
         customerId,
@@ -252,6 +257,111 @@ export class ShopOrderService {
       quantity: wanted,
       cart: (await this.cart(actor.merchant.id, actor.customer.id, now))!,
     };
+  }
+
+  /**
+   * A cart from the public storefront joins this customer's WhatsApp cart, inside the caller's
+   * transaction. Each line is checked against the catalogue as it is now; what can't be added
+   * becomes a note, never an error, so the rest of the cart still arrives. A product already in
+   * the cart takes the website's quantity. Prices are the shop's own (repriced by recompute), so
+   * accepted bargains on an existing cart still apply.
+   */
+  async importLines(
+    tx: DatabaseTx,
+    actor: ShopActor,
+    lines: { productId: string; name: string; quantity: number; seenUnitMinor: number }[],
+    now = new Date(),
+  ) {
+    const merchantId = actor.merchant.id;
+    const notes: string[] = [];
+    let cart = await this.cart(merchantId, actor.customer.id, now, tx);
+    const accepted: { line: (typeof lines)[number]; product: Product }[] = [];
+    for (const line of lines) {
+      const product = await tx.product.findFirst({
+        where: { id: line.productId, merchantId, active: true, visibleToCustomers: true },
+      });
+      if (!product) {
+        notes.push(`${line.name} is no longer available, so it isn't in your cart.`);
+        continue;
+      }
+      if (cart && cart.currency !== product.currency) {
+        notes.push(`${product.name} is priced in ${product.currency}. Please order it separately.`);
+        continue;
+      }
+      const left = await this.available(product.id, cart?.id, tx);
+      if (left < line.quantity) {
+        notes.push(
+          left <= 0
+            ? `${product.name} just sold out, so it isn't in your cart.`
+            : `We can't offer ${line.quantity} ${product.name} right now, so it isn't in your cart. Tell me how many you'd like.`,
+        );
+        continue;
+      }
+      accepted.push({ line, product });
+    }
+    if (!accepted.length) return { orderId: cart?.id ?? null, added: 0, notes };
+
+    if (!cart) {
+      if ((await this.unpaidOrders(merchantId, actor.customer.id, tx)) >= MAX_UNPAID_ORDERS)
+        throw new ConflictError(
+          `You have ${MAX_UNPAID_ORDERS} unpaid orders. Please pay one (reply *orders*) or ask us for help, then send your cart reference again.`,
+        );
+      const created = await tx.order.create({
+        data: {
+          reference: generateOrderReference(),
+          merchantId,
+          customerId: actor.customer.id,
+          conversationId: actor.conversationId,
+          status: 'DRAFT',
+          placedBy: 'CUSTOMER',
+          currency: accepted[0]!.product.currency,
+          subtotalMinor: 0,
+          totalMinor: 0,
+          source: 'storefront',
+          expiresAt: new Date(now.getTime() + CART_TTL_HOURS * HOUR),
+        },
+      });
+      cart = { ...created, items: [] };
+    }
+    let position = cart.items.length;
+    let added = 0;
+    for (const { line, product } of accepted) {
+      const existing = cart.items.find((i) => i.productId === product.id);
+      if (existing) {
+        await tx.orderItem.update({
+          where: { id: existing.id },
+          data: { quantity: line.quantity },
+        });
+      } else if (position >= MAX_CART_LINES) {
+        notes.push(
+          `Your cart can hold ${MAX_CART_LINES} products, so ${product.name} wasn't added.`,
+        );
+        continue;
+      } else {
+        await tx.orderItem.create({
+          data: {
+            orderId: cart.id,
+            productId: product.id,
+            description: product.name,
+            quantity: line.quantity,
+            unitPriceMinor: product.unitPriceMinor,
+            lineTotalMinor: product.unitPriceMinor * line.quantity,
+            position: position++,
+          },
+        });
+      }
+      added++;
+    }
+    notes.push(...(await this.recompute(tx, cart.id, 0, now)));
+    const priced = await tx.orderItem.findMany({ where: { orderId: cart.id } });
+    for (const { line, product } of accepted) {
+      const item = priced.find((i) => i.productId === product.id);
+      if (item && item.unitPriceMinor !== line.seenUnitMinor)
+        notes.push(
+          `${product.name} is now ${formatMoney(item.unitPriceMinor, cart.currency)} each (it was ${formatMoney(line.seenUnitMinor, cart.currency)} on the website).`,
+        );
+    }
+    return { orderId: cart.id, added, notes };
   }
 
   /** Sets the quantity of cart line `line` (1-based) or of a product; 0 removes it. */

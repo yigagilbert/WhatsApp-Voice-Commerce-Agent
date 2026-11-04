@@ -47,6 +47,27 @@ export class WhatsAppAccountService {
     return account?.listedOnHomepage && account.customerCommerceEnabled ? wid.split('@')[0]! : null;
   }
 
+  /**
+   * The number a merchant's storefront sends customers to: an account of that merchant with
+   * customer shopping on, and the one linked to the worker. While the worker can't be reached the
+   * number is still used, since WhatsApp delivers the message once the bot is back; a worker linked
+   * to some other number means this shop's messages would never be answered.
+   */
+  async storefrontNumber(
+    merchantId: string,
+    linkedWid: string | null,
+    options: { customerCommerceAvailable: boolean },
+  ): Promise<string | null> {
+    if (!options.customerCommerceAvailable) return null;
+    const accounts = await this.db.whatsAppAccount.findMany({
+      where: { merchantId, customerCommerceEnabled: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const usable = accounts.filter((a) => BOT_ID.test(a.wid));
+    const account = linkedWid ? usable.find((a) => a.wid === linkedWid) : usable[0];
+    return account ? account.wid.split('@')[0]! : null;
+  }
+
   forMerchant(merchantId: string) {
     return this.db.whatsAppAccount.findMany({
       where: { merchantId },

@@ -9,14 +9,16 @@ import s from '../shop.module.css';
 /** Quantity and add-to-cart on a product page. */
 export function BuyPanel({
   productId,
+  name,
   disabled,
   disabledLabel,
 }: {
   productId: string;
+  name: string;
   disabled: boolean;
   disabledLabel?: string;
 }) {
-  const { add, items, openDrawer } = useCart();
+  const { add, items } = useCart();
   const [quantity, setQuantity] = useState(1);
   const inCart = items.find((i) => i.productId === productId)?.quantity ?? 0;
   if (disabled)
@@ -38,9 +40,8 @@ export function BuyPanel({
         type="button"
         className={s.primary}
         onClick={() => {
-          add(productId, quantity);
+          add(productId, quantity, name);
           setQuantity(1);
-          openDrawer();
         }}
       >
         Add to cart

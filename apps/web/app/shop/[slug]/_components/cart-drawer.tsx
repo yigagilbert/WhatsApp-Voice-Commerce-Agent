@@ -9,6 +9,7 @@ import {
   type QuotedLine,
 } from '@/lib/storefront-types';
 import { useCart } from './cart-context';
+import { NoPhoto } from './product-card';
 import { WhatsAppIcon } from './whatsapp-icon';
 import s from '../shop.module.css';
 
@@ -72,19 +73,20 @@ function CartLine({ line, shop }: { line: QuotedLine; shop: string }) {
             loading="lazy"
           />
         ) : (
-          <span className={s.noPhoto} aria-hidden="true">
-            {name.slice(0, 1)}
-          </span>
+          <NoPhoto />
         )}
       </div>
       <div className={s.lineBody}>
-        <p className={s.lineName}>
-          {line.name ? (
-            <a href={shopHref(shop, false, `/p/${line.productId}`)}>{line.name}</a>
-          ) : (
-            name
-          )}
-        </p>
+        <div className={s.lineTop}>
+          <p className={s.lineName}>
+            {line.name ? (
+              <a href={shopHref(shop, false, `/p/${line.productId}`)}>{line.name}</a>
+            ) : (
+              name
+            )}
+          </p>
+          {!line.issue && <p className={s.lineTotal}>{line.lineTotal}</p>}
+        </div>
         {line.issue ? (
           <p className={s.lineIssue}>{line.message}</p>
         ) : (
@@ -121,13 +123,12 @@ function CartLine({ line, shop }: { line: QuotedLine; shop: string }) {
           </button>
         </div>
       </div>
-      {!line.issue && <p className={s.lineTotal}>{line.lineTotal}</p>}
     </li>
   );
 }
 
 /**
- * The floating cart bubble and the cart itself. Checkout never trusts this page: the backend
+ * The cart, its phone bar and the "added" message. Checkout never trusts this page: the backend
  * re-prices the cart, and the customer sees any change before a reference is created. Opening
  * WhatsApp changes nothing on the server; the status here changes only when the message arrives.
  */
@@ -269,20 +270,41 @@ export function CartDrawer({
     closeDrawer();
   };
 
+  const toast = cart.added;
+  const { dismissAdded } = cart;
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(dismissAdded, 3200);
+    return () => clearTimeout(timer);
+  }, [toast, dismissAdded]);
+
   if (!cart.ready) return null;
-  const showBar = count > 0 && !drawerOpen;
 
   return (
     <>
-      {showBar && (
-        <button type="button" className={s.bubble} onClick={openDrawer}>
-          <span className={s.bubbleCount}>{count}</span>
-          <span className={s.bubbleText}>
-            {count === 1 ? '1 item' : `${count} items`}
-            {quote?.ready ? `, ${quote.subtotal}` : ''}
-          </span>
-          <span className={s.bubbleAction}>View cart</span>
-        </button>
+      <div className={s.toastRegion} role="status" aria-live="polite">
+        {toast && !drawerOpen && (
+          <div key={toast.at} className={s.toast}>
+            <p>
+              Added to cart: <strong>{toast.name}</strong>
+              {toast.quantity > 1 ? ` × ${toast.quantity}` : ''}
+            </p>
+            <button type="button" onClick={openDrawer}>
+              View cart
+            </button>
+          </div>
+        )}
+      </div>
+      {count > 0 && !drawerOpen && (
+        <div className={s.cartBar}>
+          <p>
+            <span>{count === 1 ? '1 item' : `${count} items`}</span>
+            <strong>{quote?.ready ? quote.subtotal : ''}</strong>
+          </p>
+          <button type="button" className={s.primarySmall} onClick={openDrawer}>
+            View cart
+          </button>
+        </div>
       )}
       <dialog
         ref={dialog}
@@ -295,13 +317,24 @@ export function CartDrawer({
       >
         <div className={s.drawerInner}>
           <header className={s.drawerHead}>
-            <h2>{handoff || received ? 'Continue on WhatsApp' : 'Your cart'}</h2>
-            <button type="button" className={s.close} onClick={closeDrawer} aria-label="Close cart">
+            <h2>
+              {handoff || received
+                ? 'Continue on WhatsApp'
+                : count
+                  ? `Your cart (${count})`
+                  : 'Your cart'}
+            </h2>
+            <button
+              type="button"
+              className={s.iconButton}
+              onClick={closeDrawer}
+              aria-label="Close cart"
+            >
               <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
                 <path
                   d="m3 3 10 10M13 3 3 13"
                   stroke="currentColor"
-                  strokeWidth="1.8"
+                  strokeWidth="1.5"
                   strokeLinecap="round"
                 />
               </svg>
@@ -309,23 +342,39 @@ export function CartDrawer({
           </header>
 
           {received ? (
-            <div className={s.handoff} role="status">
-              <p className={s.handoffDone}>{shopName} has your cart.</p>
+            <div className={s.panel} role="status">
+              <p className={s.panelLead}>{shopName} has your cart</p>
               <p className={s.muted}>
-                Finish your order in the WhatsApp chat: confirm your delivery details and pay
-                securely with PayPal.
+                Finish your order in the WhatsApp chat. Katale AI will confirm your delivery details
+                and send a secure PayPal link.
               </p>
-              <button type="button" className={s.ghostButton} onClick={reset}>
+              <button type="button" className={s.secondary} onClick={reset}>
                 Keep browsing
               </button>
             </div>
           ) : handoff ? (
-            <div className={s.handoff}>
-              <p className={s.muted}>Send this message in WhatsApp to continue your order.</p>
-              <div className={s.messagePreview}>
-                <p>Hi {shopName}! I&apos;d like to check out my cart from your website.</p>
-                <p className={s.reference}>Cart reference: {handoff.reference}</p>
-              </div>
+            <div className={s.panel}>
+              <ol className={s.handoffSteps}>
+                <li>
+                  <strong>Send this message in WhatsApp</strong>
+                  <div className={s.messagePreview}>
+                    <p>Hi {shopName}! I&apos;d like to check out my cart from your website.</p>
+                    <p className={s.reference}>
+                      Cart reference:<span>{handoff.reference}</span>
+                    </p>
+                  </div>
+                </li>
+                <li>
+                  <strong>Confirm your order</strong>
+                  <span>
+                    Katale AI, the assistant for {shopName}, checks your delivery details.
+                  </span>
+                </li>
+                <li>
+                  <strong>Pay securely</strong>
+                  <span>You&apos;ll get a PayPal link in the chat.</span>
+                </li>
+              </ol>
               <a className={s.send} href={handoff.url} target="_blank" rel="noopener noreferrer">
                 <WhatsAppIcon />
                 Open WhatsApp
@@ -339,16 +388,29 @@ export function CartDrawer({
               </button>
             </div>
           ) : !items.length ? (
-            <div className={s.handoff}>
-              <p className={s.muted}>Your cart is empty. Add products to see them here.</p>
-              <button type="button" className={s.ghostButton} onClick={closeDrawer}>
+            <div className={s.panel}>
+              <p className={s.panelLead}>Your cart is empty</p>
+              <p className={s.muted}>Products you add will appear here.</p>
+              <button type="button" className={s.secondary} onClick={closeDrawer}>
                 Browse products
               </button>
             </div>
           ) : (
             <>
               <div className={s.lines}>
-                {!quote && !error && <p className={s.muted}>Checking prices…</p>}
+                {!quote && !error && (
+                  <div role="status" aria-label="Checking prices">
+                    {items.map((item) => (
+                      <div key={item.productId} className={s.lineSkeleton}>
+                        <div className={s.skeletonPhoto} />
+                        <div>
+                          <div className={s.skeletonLine} />
+                          <div className={s.skeletonShort} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {quote && (
                   <ul>
                     {quote.lines.map((line) => (
@@ -365,19 +427,23 @@ export function CartDrawer({
                       : (notice ?? error ?? quote?.notice)}
                   </p>
                 )}
-                {quote?.savings && (
+                <section aria-labelledby="order-summary" className={s.summary}>
+                  <h3 id="order-summary">Order summary</h3>
+                  {quote?.savings && (
+                    <p className={s.totalRow}>
+                      <span>You save</span>
+                      <span className={s.lineDeal}>{quote.savings}</span>
+                    </p>
+                  )}
                   <p className={s.totalRow}>
-                    <span>You save</span>
-                    <span className={s.lineDeal}>{quote.savings}</span>
+                    <span>Delivery</span>
+                    <span className={s.mutedInline}>Confirmed on WhatsApp</span>
                   </p>
-                )}
-                <p className={`${s.totalRow} ${s.subtotal}`}>
-                  <span>Subtotal</span>
-                  <span>{quote?.subtotal ?? ''}</span>
-                </p>
-                <p className={s.muted}>
-                  Confirm delivery and pay securely with PayPal in the WhatsApp chat.
-                </p>
+                  <p className={`${s.totalRow} ${s.subtotal}`} data-loading={loading || undefined}>
+                    <span>Subtotal</span>
+                    <span>{quote?.subtotal ?? ''}</span>
+                  </p>
+                </section>
                 <button
                   type="button"
                   className={s.send}
@@ -387,7 +453,12 @@ export function CartDrawer({
                   <WhatsAppIcon />
                   {submitting ? 'Preparing your order…' : 'Checkout on WhatsApp'}
                 </button>
-                {!checkoutAvailable && (
+                {checkoutAvailable ? (
+                  <p className={s.sendNote}>
+                    You&apos;ll continue in WhatsApp, where Katale AI, the assistant for {shopName},
+                    confirms delivery and sends a secure PayPal link.
+                  </p>
+                ) : (
                   <p className={s.notice}>
                     {shopName} isn&apos;t taking WhatsApp orders right now. Your cart is saved.
                   </p>

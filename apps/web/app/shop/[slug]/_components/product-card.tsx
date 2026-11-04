@@ -1,7 +1,26 @@
-import Link from 'next/link';
 import { productImage, shopHref, type PublicProduct } from '@/lib/storefront-types';
 import { AddButton } from './add-button';
+import { ShopLink } from './navigation';
 import s from '../shop.module.css';
+
+export function NoPhoto() {
+  return (
+    <span className={s.noPhoto} aria-hidden="true">
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 32 32"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.25"
+      >
+        <rect x="4.5" y="6.5" width="23" height="19" rx="2.5" />
+        <circle cx="11.5" cy="13" r="2" />
+        <path d="m5 22 6.5-5.5 4.5 3.5 4-3 7 5.5" strokeLinejoin="round" />
+      </svg>
+    </span>
+  );
+}
 
 export function ProductPhoto({
   slug,
@@ -16,12 +35,7 @@ export function ProductPhoto({
   sizes: string;
   eager?: boolean;
 }) {
-  if (!product.imageVersion)
-    return (
-      <span className={s.noPhoto} aria-hidden="true">
-        {product.name.slice(0, 1)}
-      </span>
-    );
+  if (!product.imageVersion) return <NoPhoto />;
   const url = (size: 'thumb' | 'card') =>
     productImage(slug, product.id, product.imageVersion!, size, preview);
   return (
@@ -52,23 +66,24 @@ export function ProductCard({
   eager?: boolean;
 }) {
   const soldOut = product.availability === 'Out of stock';
+  const href = shopHref(slug, preview, `/p/${product.id}`);
   return (
     <li className={s.card}>
       <div className={`${s.cardPhoto} ${soldOut ? s.cardPhotoOut : ''}`}>
-        <Link href={shopHref(slug, preview, `/p/${product.id}`)} tabIndex={-1} aria-hidden="true">
+        <ShopLink href={href} tabIndex={-1} aria-hidden="true">
           <ProductPhoto
             slug={slug}
             product={product}
             preview={preview}
             eager={eager ?? false}
-            sizes="(min-width: 1100px) 270px, (min-width: 700px) 32vw, 50vw"
+            sizes="(min-width: 1100px) 320px, (min-width: 700px) 32vw, 50vw"
           />
-        </Link>
+        </ShopLink>
         {!soldOut && !preview && <AddButton productId={product.id} name={product.name} />}
       </div>
-      <Link href={shopHref(slug, preview, `/p/${product.id}`)} className={s.cardName}>
+      <ShopLink href={href} className={s.cardName}>
         {product.name}
-      </Link>
+      </ShopLink>
       <p className={s.cardPrice}>{product.price}</p>
       {product.availability !== 'In stock' && (
         <p className={soldOut ? s.stockOut : s.stockLow}>{product.availability}</p>

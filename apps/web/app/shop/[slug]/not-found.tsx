@@ -6,7 +6,7 @@ export default function ShopNotFound() {
     <main className={s.missing}>
       <h1>This page isn&apos;t here</h1>
       <p>The shop may have moved, or the product is no longer on sale.</p>
-      <Link href="/" className={s.ghostButton}>
+      <Link href="/" className={s.secondary}>
         Go to Katale AI
       </Link>
     </main>

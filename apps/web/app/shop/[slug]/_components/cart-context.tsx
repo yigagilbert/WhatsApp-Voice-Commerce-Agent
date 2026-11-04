@@ -59,7 +59,10 @@ interface CartValue {
   quote: CartQuote | null;
   loading: boolean;
   error: string | null;
-  add: (productId: string, quantity?: number) => void;
+  add: (productId: string, quantity?: number, name?: string) => void;
+  /** The last thing added, for the short "Added" message. */
+  added: { name: string; quantity: number; at: number } | null;
+  dismissAdded: () => void;
   setQuantity: (productId: string, quantity: number) => void;
   clear: () => void;
   setQuote: (quote: CartQuote) => void;
@@ -89,6 +92,7 @@ export function CartProvider({ slug, children }: { slug: string; children: React
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [added, setAdded] = useState<CartValue['added']>(null);
   const keyRef = useRef('');
   // Always the latest cart, so quick taps between renders never overwrite each other.
   const itemsRef = useRef<CartItem[]>([]);
@@ -163,7 +167,8 @@ export function CartProvider({ slug, children }: { slug: string; children: React
       loading,
       error,
       setQuote,
-      add: (productId, quantity = 1) => {
+      add: (productId, quantity = 1, name) => {
+        if (name) setAdded({ name, quantity, at: Date.now() });
         const current = itemsRef.current;
         const line = current.find((i) => i.productId === productId);
         commit(
@@ -193,11 +198,16 @@ export function CartProvider({ slug, children }: { slug: string; children: React
         setClientKey(keyRef.current);
         commit([]);
       },
+      added,
+      dismissAdded: () => setAdded(null),
       drawerOpen,
-      openDrawer: () => setDrawerOpen(true),
+      openDrawer: () => {
+        setAdded(null);
+        setDrawerOpen(true);
+      },
       closeDrawer: () => setDrawerOpen(false),
     }),
-    [slug, items, ready, clientKey, quote, loading, error, drawerOpen, commit],
+    [slug, items, ready, clientKey, quote, loading, error, added, drawerOpen, commit],
   );
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

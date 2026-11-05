@@ -940,9 +940,71 @@ describe('public storefront (integration)', () => {
       const menu = await say(shopper, 'hi');
       expect(menu).toContain('*1* Browse products');
       expect(menu).toContain(`https://kataleai.test/shop/${slug}`);
-      expect(await say(shopper, '1')).toContain('1. Banana Fibre Mat');
-      expect(await say(shopper, 'add 1 of 2')).toContain('Barkcloth Wallet');
+      const list = await say(shopper, '1');
+      expect(list).toContain('Barkcloth Wallet');
+      const line = /(\d+)\. Barkcloth Wallet/.exec(list)![1];
+      expect(await say(shopper, `add 1 of ${line}`)).toContain('Barkcloth Wallet');
       expect(await say(shopper, 'checkout')).toContain('What name');
+    });
+
+    it('lists best sellers with the storefront link, and no "more"', async () => {
+      const shopper = `25677${digits.slice(0, 4)}997@c.us`;
+      await container.db.product.update({
+        where: { id: ids.coffee! },
+        data: { stockQuantity: 50 },
+      });
+      const customer = await container.db.customer.findFirstOrThrow({
+        where: { merchantId: shop, source: 'WHATSAPP' },
+      });
+      await container.db.order.create({
+        data: {
+          reference: `SB${digits}1`.slice(0, 16),
+          merchantId: shop,
+          customerId: customer.id,
+          status: 'PAID',
+          placedBy: 'CUSTOMER',
+          currency: 'USD',
+          subtotalMinor: 100,
+          totalMinor: 100,
+          source: 'whatsapp',
+          items: {
+            create: {
+              productId: ids.coffee!,
+              description: 'Coffee Gift Pack',
+              quantity: 500,
+              unitPriceMinor: 2500,
+              lineTotalMinor: 1_250_000,
+            },
+          },
+        },
+      });
+      await say(shopper, 'hi');
+      const list = await say(shopper, '1');
+      expect(list).toContain('*Our best sellers*');
+      expect(list).toMatch(/^\*Our best sellers\*\n1\. Coffee Gift Pack/);
+      expect(list).not.toContain('*more*');
+      expect(list).not.toContain('Banana Fibre Mat');
+      expect(list).toContain(`https://kataleai.test/shop/${slug}`);
+      expect(list).toContain('*Checkout on WhatsApp*');
+      expect(await say(shopper, '1')).toContain('*Coffee Gift Pack*');
+    });
+
+    it('keeps a long list short with a link in the AI tool and in search', async () => {
+      const catalog = container.customerCatalog;
+      const big = await catalog.listing(bigShop, null, 1, {
+        link: async () => 'https://kataleai.test/shop/big',
+      });
+      expect(big.result.products).toHaveLength(7);
+      expect(big.text).toContain('See all 1050 products');
+      const search = await catalog.listing(bigShop, 'item', 1, {
+        link: async (_id, target) => `https://kataleai.test/shop/big?q=${target?.query ?? ''}`,
+      });
+      expect(search.text).not.toContain('*more*');
+      expect(search.text).toContain(
+        'See all the results with photos: https://kataleai.test/shop/big?q=item',
+      );
+      const noShop = await catalog.listing(bigShop, null, 1);
+      expect(noShop.text).toContain('*more*');
     });
 
     it('sends no links for an unpublished shop', async () => {

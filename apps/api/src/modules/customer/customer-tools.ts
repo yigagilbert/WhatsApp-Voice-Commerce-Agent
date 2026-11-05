@@ -4,7 +4,7 @@ import type { Conversation, Customer, Merchant, WhatsAppAccount } from '@vca/dat
 import { AppError, type OutboundMedia } from '@vca/shared';
 import { z } from 'zod';
 import type { BargainingService, BargainResult } from './bargaining.service';
-import { CustomerCatalog } from './catalog';
+import type { CustomerCatalog } from './catalog';
 import { ShopOrderService, type CheckoutStep, type ShopActor } from './shop-order.service';
 import type { StorefrontService } from '../storefront/storefront.service';
 
@@ -103,7 +103,7 @@ export function createCustomerTools(
   bargaining?: BargainingService,
   storefront?: Pick<StorefrontService, 'link'>,
 ): ToolRegistry<CustomerAgentContext> {
-  const registry = createShoppingTools(catalog, shop);
+  const registry = createShoppingTools(catalog, shop, storefront);
   if (storefront) registerCatalogueLink(registry, catalog, storefront);
   return bargaining ? registerBargainingTools(registry, catalog, shop, bargaining) : registry;
 }
@@ -147,6 +147,7 @@ function registerCatalogueLink(
 function createShoppingTools(
   catalog: CustomerCatalog,
   shop: ShopOrderService,
+  storefront?: Pick<StorefrontService, 'link'>,
 ): ToolRegistry<CustomerAgentContext> {
   return new ToolRegistry<CustomerAgentContext>()
     .register(
@@ -161,14 +162,19 @@ function createShoppingTools(
           page: z.number().int().min(1).max(50).optional(),
         }),
         async execute({ query, page }, ctx) {
-          const result = await catalog.search(ctx.merchant.id, query, page ?? 1);
+          const { result, text } = await catalog.listing(
+            ctx.merchant.id,
+            query ?? null,
+            page ?? 1,
+            storefront,
+          );
           // Numbers in the list refer to the whole result, page after page.
           ctx.shownList = result.ids;
           return {
             total: result.total,
             page: result.page,
             pages: result.pages,
-            numbered_list: CustomerCatalog.formatList(result),
+            numbered_list: text,
             products: result.products.map((p) => ({
               name: p.name,
               price: p.price,

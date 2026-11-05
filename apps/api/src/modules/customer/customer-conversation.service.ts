@@ -1,4 +1,10 @@
-import { runAgent, type ChatMessage, type ChatModel, type ToolRegistry } from '@vca/ai';
+import {
+  chatModelReady,
+  runAgent,
+  type ChatMessage,
+  type ChatModel,
+  type ToolRegistry,
+} from '@vca/ai';
 import { chatIdToPhone, type AuditService, type IdentifiedCustomer } from '@vca/commerce';
 import type { Conversation, Customer, Database, Merchant, WhatsAppAccount } from '@vca/database';
 import {
@@ -665,7 +671,8 @@ export class CustomerConversationService {
     state: ShopState | null,
   ) {
     const merchant = account.merchant;
-    if (!this.deps.chatModel) return this.showList(conversation, merchant.id, text, 1, state);
+    if (!chatModelReady(this.deps.chatModel))
+      return this.showList(conversation, merchant.id, text, 1, state);
     const recent = await this.deps.db.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: 'desc' },

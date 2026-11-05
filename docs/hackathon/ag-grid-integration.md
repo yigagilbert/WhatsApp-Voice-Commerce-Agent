@@ -43,12 +43,13 @@ The Overview is the analytics experience: AG Studio in view mode every day, edit
 _Customize_. See [overview-redesign.md](overview-redesign.md) for the design, accounting rules, test
 results and demo. Code: [`app/(dashboard)/overview`](<../../apps/web/app/(dashboard)/overview>).
 
-Each assistant turn goes through the dashboard server, which holds the key:
+Each assistant turn goes through the dashboard server and the API, which alone holds the key:
 
 ```text
 Katale AI assistant on AG Studio's harness (browser)
   → POST /studio-ai (same origin, dashboard session cookie required, rate limited)
-  → OpenAI-compatible model (AI_BASE_URL / AI_API_KEY / AI_MODEL, server-side only)
+  → API (adds the key, from the API keys page or the server's .env)
+  → OpenAI-compatible model
   ← text and tool calls
   → the harness runs the tool in the browser against this merchant's records
 ```
@@ -57,7 +58,7 @@ Katale AI assistant on AG Studio's harness (browser)
 
 **Licence.** AG Studio is commercial. Without `AG_STUDIO_LICENSE_KEY` it runs with all features
 unlocked but shows a watermark and a console notice. A trial key is available from info@ag-grid.com;
-set it in the VM `.env` ([steps](overview-redesign.md#8-deploying)). The operational grids use AG Grid Community (MIT) and need no key.
+save it on the dashboard's API keys page ([details](overview-redesign.md#8-deploying)). The operational grids use AG Grid Community (MIT) and need no key.
 
 ## Verification
 

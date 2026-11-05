@@ -30,6 +30,8 @@ export const aiSchema = z.object({
   ),
   AI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
   AI_API_KEY: optionalString,
+  /** Optional AG Studio licence key (removes the evaluation watermark). */
+  AG_STUDIO_LICENSE_KEY: optionalString,
   AI_MODEL: z.string().min(1).default('gpt-4.1-mini'),
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 });
@@ -163,6 +165,8 @@ export const apiSchema = baseSchema
     API_PUBLIC_URL: z.string().url().default('http://localhost:4000'),
     /** The website's public address: the WhatsApp assistant uses it to link to the storefront. */
     WEB_PUBLIC_URL: optionalString.pipe(z.string().url().optional()),
+    /** Encrypts API keys saved from the dashboard. Defaults to a key derived from API_AUTH_TOKEN. */
+    SETTINGS_ENCRYPTION_KEY: optionalString.pipe(z.string().min(16).optional()),
     API_AUTH_TOKEN: z.string().min(16, 'API_AUTH_TOKEN must be at least 16 characters'),
     INTERNAL_SERVICE_TOKEN: z
       .string()
@@ -262,11 +266,6 @@ export const webSchema = baseSchema.extend({
   WEB_PUBLIC_URL: optionalString.pipe(z.string().url().optional()),
   /** Shown as a "PayPal Sandbox" badge so nobody mistakes demo payments for real money. */
   PAYPAL_ENV: paypalSchema.shape.PAYPAL_ENV,
-  /** AG Studio's analytics assistant calls the LLM through the dashboard server (key stays server-side). */
-  ...aiSchema.pick({ AI_BASE_URL: true, AI_API_KEY: true, AI_MODEL: true, AI_TIMEOUT_MS: true })
-    .shape,
-  /** Optional AG Studio licence key (removes the evaluation watermark). */
-  AG_STUDIO_LICENSE_KEY: optionalString,
   API_AUTH_TOKEN: z.string().min(16),
   /**
    * Bootstrap ("setup") login, accepted only while no dashboard account exists, so the first owner

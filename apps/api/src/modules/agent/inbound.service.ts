@@ -1,4 +1,10 @@
-import { runAgent, type ChatMessage, type ChatModel, type ToolRegistry } from '@vca/ai';
+import {
+  chatModelReady,
+  runAgent,
+  type ChatMessage,
+  type ChatModel,
+  type ToolRegistry,
+} from '@vca/ai';
 import {
   canApprove,
   chatIdToPhone,
@@ -491,7 +497,7 @@ export class InboundMessageService {
     fromVoice = false,
     operatorRole: 'OWNER' | 'STAFF' = 'OWNER',
   ): Promise<AgentReply> {
-    if (!this.deps.chatModel) {
+    if (!chatModelReady(this.deps.chatModel)) {
       return { text: copy.aiNotConfigured, attachments: [] };
     }
 

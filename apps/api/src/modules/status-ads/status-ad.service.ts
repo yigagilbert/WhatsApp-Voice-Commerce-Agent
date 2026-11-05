@@ -1,4 +1,4 @@
-import type { ChatModel } from '@vca/ai';
+import { chatModelReady, type ChatModel } from '@vca/ai';
 import { formatMoney, latestSlot, localDate, nextSlot, type AuditService } from '@vca/commerce';
 import type { Database, Merchant, StatusAd, StatusAdSettings } from '@vca/database';
 import { ConflictError, NotFoundError, ValidationError, type Logger } from '@vca/shared';
@@ -99,7 +99,7 @@ export class StatusAdService {
       ...settings,
       merchantTimezone: merchant.timezone,
       nextAt: settings.enabled ? this.nextAt(settings, merchant.timezone, now) : null,
-      aiCopy: !!this.chatModel,
+      aiCopy: chatModelReady(this.chatModel),
       posting: !!this.poster,
       katalePostsToday: await this.katalePostsToday(
         merchant.id,
@@ -358,7 +358,12 @@ export class StatusAdService {
       const facts = { name: product.name, description: product.description };
       let copy: AdCopy | null = null;
       try {
-        const result = await aiCopy(this.chatModel, facts, cta, recentHeadlines);
+        const result = await aiCopy(
+          chatModelReady(this.chatModel) ? this.chatModel : null,
+          facts,
+          cta,
+          recentHeadlines,
+        );
         copy = result.copy;
         if (result.rejected)
           this.logger.info({ adId: ad.id, reason: result.rejected }, 'AI status copy rejected');

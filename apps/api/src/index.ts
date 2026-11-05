@@ -1,3 +1,4 @@
+import { chatModelReady } from '@vca/ai';
 import { ConfigError, loadApiConfig, type ApiConfig } from '@vca/config';
 import { createLogger } from '@vca/shared';
 import { buildApp } from './app';
@@ -22,10 +23,14 @@ async function main() {
   });
   const container = createContainer(config, logger);
   const app = await buildApp(container);
+  // Keys saved from the dashboard. If they can't be read, the environment's keys still apply.
+  await container.secrets
+    .refresh()
+    .catch((error: unknown) => logger.error({ error }, 'could not load saved API keys'));
 
   logger.info(
     {
-      ai: container.chatModel?.id ?? 'not configured',
+      ai: chatModelReady(container.chatModel) ? container.chatModel.id : 'not configured',
       speech: container.speech ? 'configured' : 'not configured',
       paypal: container.paypal.configured ? config.PAYPAL_ENV : 'not configured',
       whatsappGateway: config.WHATSAPP_GATEWAY_URL ?? 'not configured',

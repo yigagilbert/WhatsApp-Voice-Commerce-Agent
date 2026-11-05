@@ -1,4 +1,4 @@
-import { OpenAICompatibleChatModel, type ChatModel } from '@vca/ai';
+import type { ChatModel } from '@vca/ai';
 import {
   AnalyticsService,
   InventoryService,
@@ -26,6 +26,8 @@ import {
   SunbirdSpeechToText,
   SunbirdTranslator,
 } from '@vca/speech';
+import { AppSecretsService } from './modules/settings/app-secrets.service';
+import { SwitchableChatModel } from './modules/settings/switchable-chat-model';
 import { ConfirmationExecutor } from './modules/agent/confirmation-executor';
 import { InboundMessageService } from './modules/agent/inbound.service';
 import { createCommerceTools } from './modules/agent/tools';
@@ -67,16 +69,6 @@ export interface ContainerOverrides {
   statusPoster?: StatusPoster | null;
   /** null = keep photos in the database. */
   objectStore?: ObjectStore | null;
-}
-
-function createChatModel(config: ApiConfig): ChatModel | null {
-  if (!config.AI_API_KEY) return null;
-  return new OpenAICompatibleChatModel({
-    baseUrl: config.AI_BASE_URL,
-    apiKey: config.AI_API_KEY,
-    model: config.AI_MODEL,
-    timeoutMs: config.AI_TIMEOUT_MS,
-  });
 }
 
 /**
@@ -164,8 +156,20 @@ export function createContainer(
       environment: config.PAYPAL_ENV,
       logger: logger.child({ component: 'paypal' }),
     });
+  const secrets = new AppSecretsService(
+    db,
+    { AI_API_KEY: config.AI_API_KEY, AG_STUDIO_LICENSE_KEY: config.AG_STUDIO_LICENSE_KEY },
+    config.SETTINGS_ENCRYPTION_KEY ?? config.API_AUTH_TOKEN,
+  );
   const chatModel =
-    overrides.chatModel !== undefined ? overrides.chatModel : createChatModel(config);
+    overrides.chatModel !== undefined
+      ? overrides.chatModel
+      : new SwitchableChatModel({
+          baseUrl: config.AI_BASE_URL,
+          model: config.AI_MODEL,
+          timeoutMs: config.AI_TIMEOUT_MS,
+          apiKey: () => secrets.get('AI_API_KEY'),
+        });
   const speech =
     overrides.speech !== undefined ? overrides.speech : createSpeechPipeline(config, logger);
 
@@ -434,6 +438,7 @@ export function createContainer(
   });
 
   return {
+    secrets,
     config,
     logger,
     db,

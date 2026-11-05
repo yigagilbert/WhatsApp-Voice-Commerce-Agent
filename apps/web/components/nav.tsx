@@ -18,6 +18,7 @@ const LINKS = [
   { href: '/admins', label: 'Admins' },
   { href: '/whatsapp', label: 'WhatsApp' },
   { href: '/storefront', label: 'Storefront' },
+  { href: '/settings', label: 'API keys' },
 ];
 
 export function Nav() {

@@ -1,3 +1,4 @@
+import { chatModelReady } from '@vca/ai';
 import type { FastifyInstance } from 'fastify';
 import type { Container } from '../../container';
 
@@ -21,7 +22,7 @@ export async function healthRoutes(app: FastifyInstance, { container }: { contai
       status: database === 'ok' ? 'ok' : 'degraded',
       checks: { database },
       providers: {
-        ai: container.chatModel ? container.chatModel.id : 'not_configured',
+        ai: chatModelReady(container.chatModel) ? container.chatModel.id : 'not_configured',
         speech: container.speech ? 'configured' : 'not_configured',
         paypal: container.paypal.configured ? container.config.PAYPAL_ENV : 'not_configured',
         whatsappGateway: container.config.WHATSAPP_GATEWAY_URL ? 'configured' : 'not_configured',

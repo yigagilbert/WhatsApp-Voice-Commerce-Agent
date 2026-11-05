@@ -159,21 +159,39 @@ share a password kept in the script). Sign in as `overview-demo`.
    (Studio reports "AG Studio Pro with AI"). The console notice also gives info@ag-grid.com.
 2. Check the key with the validation tool on the
    [licence install page](https://www.ag-grid.com/studio/react/licence-install/).
-3. On the VM, set it in the deployment `.env` (never in git):
-   `AG_STUDIO_LICENSE_KEY=<key>`. The web server reads it at runtime, so no image rebuild is needed,
-   and `vm-deploy.sh` recreates the container with it. It is sent to the browser, as AG Studio
-   licence keys are, so it isn't a secret like `AI_API_KEY`. Keep it out of the repository anyway.
+3. After deploying, save it on the dashboard's **API keys** page. See below.
 
 The trial lasts 45 days from issue. Note the end date: renew or buy before then, or the watermark
 returns.
+
+### API keys page
+
+Owners of the installation's first merchant can set the OpenAI key and AG Studio licence at
+`/settings`. Both apply immediately, with no restart.
+
+- **Encrypted at rest** with AES-256-GCM, so a stolen database or backup doesn't reveal them. The
+  encryption key stays in the server's environment: `SETTINGS_ENCRYPTION_KEY`, or one derived from
+  `API_AUTH_TOKEN` if that isn't set. **Changing whichever is in use makes saved keys unreadable.**
+  The page then says so, and they must be entered again.
+- **Write-only:** no route returns a saved value, only its last four characters. Saves and removals
+  are in the audit log, without the value.
+- **Who:** these keys serve the whole installation, so staff and owners of other shops can't see or
+  change them. Otherwise one shop could redirect every shop's conversations to its own AI account.
+- **Precedence:** a saved key is used instead of the `.env` value. Removing it falls back to `.env`,
+  so existing deployments are unaffected until someone saves a key. Once a saved key works, its
+  `.env` line can be deleted.
+- The OpenAI key is held only by the API service; the web tier forwards assistant requests through
+  it. The licence key does reach browsers, as AG Studio requires.
+- Voice transcription still uses `STT_API_KEY` from `.env`, as do the PayPal and other credentials.
 
 ### Release
 
 1. Merge the PR once CI is green.
 2. From `main`: `KATALE_IMAGE_NAMESPACE=yigagilbert ./scripts/release-images.sh`.
 3. On the VM: `./deployment/vm-deploy.sh <tag>`. It backs up, then runs the additive
-   `dashboard_layouts` migration and starts the services.
-4. Check: sign in, confirm no watermark and no licence notice in the console, ask the assistant
+   migrations and starts the services.
+4. Sign in as the installation's owner, open **API keys**, and save the keys.
+5. Check: confirm no watermark and no licence notice in the console, ask the assistant
    "Which PayPal payments are still pending?" and compare the answer with the Payments page. Then
    open the storefront, which ships in the same release.
 

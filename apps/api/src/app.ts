@@ -11,6 +11,7 @@ import type { Container } from './container';
 import type {} from './fastify-augment';
 import { rateLimitOptions } from './http/rate-limit';
 import { registerErrorHandler } from './http/errors';
+import { settingsRoutes } from './modules/settings/settings.routes';
 import { registerDashboardScope } from './http/merchant-scope';
 import { agentRoutes } from './modules/agent/agent.routes';
 import { catalogRoutes } from './modules/catalog/catalog.routes';
@@ -103,6 +104,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
     await scope.register(dashboardUserRoutes, { container });
     await scope.register(statusAdRoutes, { container });
     await scope.register(storefrontDashboardRoutes, { container });
+    await scope.register(settingsRoutes, { container });
   });
 
   return app;

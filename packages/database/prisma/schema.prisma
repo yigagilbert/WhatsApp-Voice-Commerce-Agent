@@ -1159,3 +1159,17 @@ model DashboardLayout {
   @@unique([merchantId, userKey])
   @@map("dashboard_layouts")
 }
+
+/// An installation-wide API key set from the dashboard, encrypted with a key from the server's environment.
+model AppSecret {
+  /// e.g. AI_API_KEY
+  name       String   @id
+  ciphertext String
+  /// Last four characters, to recognise the key without revealing it.
+  hint       String
+  updatedBy  String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("app_secrets")
+}

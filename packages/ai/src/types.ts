@@ -37,5 +37,11 @@ export interface ChatCompletionResponse {
 export interface ChatModel {
   /** e.g. "openai-compatible:gpt-4.1-mini" — for logs and audit. */
   readonly id: string;
+  /** false when it has no credentials right now. Undefined means always available. */
+  readonly available?: boolean;
   complete(request: ChatCompletionRequest): Promise<ChatCompletionResponse>;
 }
+
+/** Whether a model can be called now. */
+export const chatModelReady = (model: ChatModel | null | undefined): model is ChatModel =>
+  !!model && model.available !== false;

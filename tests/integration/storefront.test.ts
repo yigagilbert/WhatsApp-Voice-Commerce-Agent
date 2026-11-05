@@ -85,6 +85,7 @@ describe('public storefront (integration)', () => {
 
   const get = (url: string) => app.inject({ method: 'GET', url });
   const post = (url: string, payload: object) => app.inject({ method: 'POST', url, payload });
+  let visitors = 0;
   const price = async (items: { productId: string; quantity: number }[], at = slug) =>
     (await post(`/api/public/shop/${at}/cart`, { items })).json() as Quote;
   const checkout = async (
@@ -93,10 +94,16 @@ describe('public storefront (integration)', () => {
   ) => {
     const at = extra.at ?? slug;
     const quote = extra.quote ?? (await price(items, at)).quote;
-    const res = await post(`/api/public/shop/${at}/checkout`, {
-      items,
-      quote,
-      ...(extra.clientKey ? { clientKey: extra.clientKey } : {}),
+    // Each call is its own visitor, so this suite stays under the per-visitor checkout limit.
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/public/shop/${at}/checkout`,
+      remoteAddress: `10.9.0.${++visitors}`,
+      payload: {
+        items,
+        quote,
+        ...(extra.clientKey ? { clientKey: extra.clientKey } : {}),
+      },
     });
     return res.json() as {
       status: string;
@@ -864,6 +871,142 @@ describe('public storefront (integration)', () => {
       expect(after!.items[0]!.unitPriceMinor).toBeLessThan(3000);
     });
 
+    describe('asking for a discount during checkout', () => {
+      const negotiate = (price?: number) => () => ({
+        role: 'assistant' as const,
+        content: null,
+        toolCalls: [
+          {
+            id: `n-${price ?? 'ask'}`,
+            name: 'negotiate_price',
+            arguments: JSON.stringify(price ? { offer_price: price } : {}),
+          },
+        ],
+      });
+      const phrase = () => (req: { messages: { content?: string | null }[] }) => ({
+        role: 'assistant' as const,
+        content: JSON.parse(req.messages.at(-1)!.content ?? '{}').suggested_reply as string,
+      });
+      const start = async (shopper: string) => {
+        const { reference } = await checkout([{ productId: ids.basket!, quantity: 1 }]);
+        expect(await say(shopper, reference)).toContain('What name should we put on your order?');
+      };
+
+      it('is not saved as the name, and the agreed price reaches the order', async () => {
+        const shopper = `25677${digits.slice(0, 4)}981@c.us`;
+        await start(shopper);
+        model.enqueue(negotiate(), phrase());
+        const offer = await say(shopper, 'Can you give me a discount?');
+        expect(offer).not.toContain('What name');
+        const [cart] = await ordersOf(shopper);
+        expect(cart!.contactName).toBeNull();
+        expect(cart!.items[0]!.unitPriceMinor).toBe(3000);
+
+        expect(await say(shopper, 'deal')).toContain('Handmade Basket');
+        const [agreed] = await ordersOf(shopper);
+        expect(agreed!.items[0]!.pricing).toBe('NEGOTIATED');
+        expect(agreed!.items[0]!.unitPriceMinor).toBeLessThan(3000);
+        expect(agreed!.items[0]!.unitPriceMinor).toBeGreaterThanOrEqual(2400);
+
+        expect(await say(shopper, 'checkout')).toContain('What name');
+        expect(await say(shopper, 'Jane Achieng')).toContain('Where should we deliver?');
+        const summary = await say(shopper, 'Plot 5, Kampala Road, near the mosque');
+        expect(summary).toContain('agreed price');
+        const before = paypal.created.length;
+        expect(await say(shopper, 'ORDER')).toContain('checkoutnow');
+        expect(paypal.created.length).toBe(before + 1);
+        const [placed] = await ordersOf(shopper);
+        expect(placed!.subtotalMinor).toBe(agreed!.items[0]!.unitPriceMinor);
+      });
+
+      it('works at the address and summary steps, and keeps what was already answered', async () => {
+        const shopper = `25677${digits.slice(0, 4)}982@c.us`;
+        await start(shopper);
+        await say(shopper, 'Peter Okello');
+        model.enqueue(negotiate(26), phrase());
+        await say(shopper, 'I will pay $26');
+        const [cart] = await ordersOf(shopper);
+        expect(cart!.deliveryAddress).toBeNull();
+        expect(cart!.contactName).toBe('Peter Okello');
+        await say(shopper, 'no deal');
+        expect(await say(shopper, 'checkout')).toContain('Where should we deliver?');
+        expect(await say(shopper, 'Plot 9, near the market gate')).toContain('Reply *ORDER*');
+        model.enqueue(negotiate(), phrase());
+        await say(shopper, 'Any discount?');
+        const [still] = await ordersOf(shopper);
+        expect(still!.customerConfirmedAt).toBeNull();
+        expect(still!.contactName).toBe('Peter Okello');
+      });
+
+      it('still accepts real answers that look like price talk', async () => {
+        const shopper = `25677${digits.slice(0, 4)}983@c.us`;
+        await start(shopper);
+        await say(shopper, 'Grace Best');
+        expect(await say(shopper, 'Lower Kololo Terrace, Plot 20')).toContain('Reply *ORDER*');
+        const [cart] = await ordersOf(shopper);
+        expect(cart!.contactName).toBe('Grace Best');
+        expect(cart!.deliveryAddress).toBe('Lower Kololo Terrace, Plot 20');
+      });
+
+      it('answers a question mid-checkout and carries on', async () => {
+        const shopper = `25677${digits.slice(0, 4)}984@c.us`;
+        await start(shopper);
+        model.enqueue(() => ({ role: 'assistant' as const, content: 'Yes, we deliver there.' }));
+        expect(await say(shopper, 'Do you deliver to Jinja?')).toContain('we deliver there');
+        expect((await ordersOf(shopper))[0]!.contactName).toBeNull();
+        expect(await say(shopper, 'Sarah Nambi')).toContain('Where should we deliver?');
+      });
+
+      it('still offers a price when the AI is unavailable', async () => {
+        const shopper = `25677${digits.slice(0, 4)}985@c.us`;
+        const noAi = createContainer(
+          parseConfig(
+            apiSchema,
+            testEnv({ CUSTOMER_COMMERCE_ENABLED: 'true', CUSTOMER_MESSAGES_PER_MINUTE: '1000' }),
+          ),
+          createLogger({ name: 'it-sf-noai', level: 'silent' }),
+          { paypal, chatModel: null, speech: null, channels: new ChannelRegistry() },
+        );
+        const noAiApp = await buildApp(noAi);
+        await start(shopper);
+        const res = await noAiApp.inject({
+          method: 'POST',
+          url: '/api/agent/message',
+          headers: { 'x-internal-token': 'test-internal-token-123456' },
+          payload: {
+            channel: 'whatsapp',
+            externalMessageId: randomUUID(),
+            externalChatId: shopper,
+            senderId: shopper,
+            sentAt: new Date(),
+            type: 'text',
+            text: 'Can I get a discount',
+            recipientId: bot,
+          },
+        });
+        const reply = (res.json() as { replies: { text: string }[] }).replies[0]!.text;
+        expect(reply).toMatch(/\$\d+\.\d{2}/);
+        expect((await ordersOf(shopper))[0]!.contactName).toBeNull();
+        await noAiApp.close();
+        await noAi.close();
+      });
+
+      it('stops once the customer has placed the order', async () => {
+        const shopper = `25677${digits.slice(0, 4)}986@c.us`;
+        await start(shopper);
+        await say(shopper, 'Ali Kato');
+        await say(shopper, 'Plot 3, near the market gate');
+        await say(shopper, 'ORDER');
+        const [placed] = await ordersOf(shopper);
+        const total = placed!.totalMinor;
+        model.enqueue(negotiate(), phrase());
+        await say(shopper, 'Any discount on my order?');
+        const [after] = await ordersOf(shopper);
+        expect(after!.totalMinor).toBe(total);
+        expect(after!.items[0]!.pricing).not.toBe('NEGOTIATED');
+      });
+    });
+
     it('still accepts a reference when the customer has too many unpaid orders, once they pay', async () => {
       const shopper = `25677${digits.slice(0, 4)}991@c.us`;
       await say(shopper, 'hi');
@@ -922,6 +1065,7 @@ describe('public storefront (integration)', () => {
 
   describe('WhatsApp assistant', () => {
     it('suggests the catalogue when asked for everything, without an AI call', async () => {
+      model.requests.length = 0;
       const shopper = `25677${digits.slice(0, 4)}993@c.us`;
       for (const ask of [
         'Show me all your products.',

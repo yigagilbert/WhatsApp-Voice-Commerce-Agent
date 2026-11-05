@@ -57,6 +57,13 @@ const CANCEL_ORDER = /^cancel\s+(?:my\s+)?(?:order\s+)?(ORD-[A-Z0-9]{6})[\s!.]*$
 const DEAL =
   /^(deal|it'?s a deal|accept|i accept|ok(ay)?,? deal|yes,? deal|deal done)[\s!.👍🤝]*$/iu;
 const NO_DEAL = /^(no deal|regular price|normal price)[\s!.]*$/i;
+/**
+ * Asking about the price mid-checkout, which must not be taken as a name or an address. Words that
+ * appear in real addresses ("Lower Kololo") only count as part of a phrase.
+ */
+const PRICE_TALK =
+  /\b(discounts?|bargain|negotiate|cheaper|expensive|reduce|reduction|too (much|high)|(better|best|last|final|good|lower) price|price (lower|down)|go lower|can you do|would you (do|take)|i('| wi)ll (pay|give)|any offers?)\b|\$\s?\d|\b(ugx|usd|shs?)\s?\d/i;
+const QUESTION = /\?\s*$/;
 /** "show me all your products", "see the catalogue", "website": the web catalogue is easier. */
 const CATALOGUE =
   /^(?:(?:please|pls|can i|could i|can you|could you)\s+)?(?:(?:show|see|send|view|list|browse|share|give)(?:\s+me)?(?:\s+(?:all|everything|your|the|full|whole|entire|complete|of|link|to|a|whole))*\s+(?:products?|items?|catalog(?:ue)?|website|online (?:shop|store)|everything)|(?:full |your )?catalog(?:ue)?|(?:your )?website|all (?:your )?products|everything you (?:have|sell))(?:\s+(?:please|pls))?[\s!.?]*$/i;
@@ -250,7 +257,13 @@ export class CustomerConversationService {
         );
       }
       const command = CART.test(text) || ORDERS.test(text) || CHECKOUT.test(text);
-      if (state?.checkout && state.checkout.step !== 'confirm' && !command) {
+      // Until the customer replies ORDER they may still ask for a better price or ask a question.
+      const aiReady = chatModelReady(this.deps.chatModel);
+      const priceTalk = PRICE_TALK.test(text);
+      if (state?.checkout && priceTalk && !aiReady && this.deps.bargaining)
+        return await this.bargainOnCart(conversation, actor, state);
+      const forTheAssistant = aiReady && (priceTalk || QUESTION.test(text));
+      if (state?.checkout && state.checkout.step !== 'confirm' && !command && !forTheAssistant) {
         const error = await this.deps.shop.answer(
           actor,
           state.checkout.orderId,
@@ -441,6 +454,17 @@ export class CustomerConversationService {
       conversation,
       `🛒 Got your cart from our website!\n\n${notes}${items}${next.text}`,
     );
+  }
+
+  /** Without the AI, a request for a better price still gets the shop's offers on the cart. */
+  private async bargainOnCart(conversation: Conversation, actor: ShopActor, state: ShopState) {
+    const cart = await this.deps.shop.cart(actor.merchant.id, actor.customer.id);
+    const ids = (cart?.items ?? []).map((i) => i.productId).filter((id): id is string => !!id);
+    const replies: string[] = [];
+    for (const id of ids.slice(0, 5))
+      replies.push((await this.deps.bargaining!.ask(actor, id, {})).message);
+    await this.saveState(conversation, { ...state, checkout: undefined });
+    return this.reply(conversation, replies.join('\n\n') || ShopOrderService.formatCart(cart));
   }
 
   /** The customer cancels one of their own unpaid orders. */

@@ -8,6 +8,7 @@ import {
 import type { Database, Product } from '@vca/database';
 import type { OutboundMedia } from '@vca/shared';
 import type { ProductImageService } from '../images/product-image.service';
+import type { StorefrontService } from '../storefront/storefront.service';
 import { RESERVING } from './shop-order.service';
 
 export type Availability = 'In stock' | 'Low stock' | 'Out of stock';
@@ -36,6 +37,10 @@ export interface CustomerProduct {
 }
 
 export const PAGE_SIZE = 8;
+/** How many products a chat lists when the full catalogue is one link away. */
+export const BEST_SELLER_COUNT = 7;
+/** Sales ranks read, so hidden or sold-out top sellers still leave a full list. */
+const SALES_RANKS_READ = 40;
 
 /**
  * The merchant's catalog as customers see it: active products the merchant chose to show, with
@@ -52,10 +57,15 @@ export class CustomerCatalog {
    * Visible products, with tracked stock reduced by unpaid orders: the same units the cart can
    * still promise, so a product is never shown "In stock" and then refused.
    */
-  private async visible(merchantId: string) {
+  private async visible(merchantId: string, only?: string[]) {
     const [products, reserved] = await Promise.all([
       this.db.product.findMany({
-        where: { merchantId, active: true, visibleToCustomers: true },
+        where: {
+          merchantId,
+          active: true,
+          visibleToCustomers: true,
+          ...(only ? { id: { in: only } } : {}),
+        },
         include: { image: { select: { id: true } } },
         orderBy: { name: 'asc' },
         take: 500,
@@ -140,6 +150,70 @@ export class CustomerCatalog {
     };
   }
 
+  /**
+   * The products a customer can buy now that sold most (units on paid orders), topped up by name
+   * while a shop has too few sales. Same shape as `search`, so a number reply works the same.
+   */
+  async bestSellers(merchantId: string, limit = BEST_SELLER_COUNT) {
+    const [sold, total] = await Promise.all([
+      this.db.orderItem.groupBy({
+        by: ['productId'],
+        where: { productId: { not: null }, order: { merchantId, status: 'PAID' } },
+        _sum: { quantity: true },
+        orderBy: { _sum: { quantity: 'desc' } },
+        take: SALES_RANKS_READ,
+      }),
+      this.db.product.count({ where: { merchantId, active: true, visibleToCustomers: true } }),
+    ]);
+    const ranked = sold.map((row) => row.productId!);
+    const inStock = (await this.visible(merchantId, ranked)).filter(
+      (p) => availability(p) !== 'Out of stock',
+    );
+    const top = ranked.flatMap((id) => inStock.filter((p) => p.id === id)).slice(0, limit);
+    const others =
+      top.length < limit
+        ? (await this.purchasable(merchantId)).filter((p) => !top.some((t) => t.id === p.id))
+        : [];
+    const products = [...top, ...others.slice(0, limit - top.length)];
+    return {
+      query: null,
+      total,
+      page: 1,
+      pages: 1,
+      hasSales: top.length > 0,
+      products: products.map((p) => this.view(p)),
+      ids: products.map((p) => p.id),
+    };
+  }
+
+  /**
+   * What a customer sees when they ask for products. With a published storefront the chat stays
+   * short (best sellers, or the first page of a search) and the link carries the rest; without one
+   * they page through the numbered list as before.
+   */
+  async listing(
+    merchantId: string,
+    query: string | null,
+    page: number,
+    storefront?: Pick<StorefrontService, 'link'>,
+  ) {
+    const shop = (await storefront?.link(merchantId)) ?? null;
+    if (shop && !query?.trim()) {
+      const result = await this.bestSellers(merchantId);
+      if (result.products.length)
+        return { result, text: CustomerCatalog.formatBestSellers(result, shop) };
+    }
+    const result = await this.search(merchantId, query, page);
+    if (!shop || result.pages <= 1) return { result, text: CustomerCatalog.formatList(result) };
+    const link = query?.trim()
+      ? ((await storefront?.link(merchantId, { query: query.trim() })) ?? shop)
+      : shop;
+    return {
+      result,
+      text: `${CustomerCatalog.formatList(result, { oneLinkAway: true })}\n\n🛍️ See all the results with photos: ${link}`,
+    };
+  }
+
   /** One visible product of this merchant, by ID or by name. */
   async find(merchantId: string, idOrName: string): Promise<CustomerProduct | null> {
     const products = await this.visible(merchantId);
@@ -174,7 +248,25 @@ export class CustomerCatalog {
   }
 
   /** The numbered list customers reply to ("Reply 2 to see details"). */
-  static formatList(result: Awaited<ReturnType<CustomerCatalog['search']>>): string {
+  static formatBestSellers(
+    result: Awaited<ReturnType<CustomerCatalog['bestSellers']>>,
+    link: string,
+  ): string {
+    return [
+      result.hasSales ? '*Our best sellers*' : '*Some of our products*',
+      ...result.products.map((p, i) => `${i + 1}. ${p.name} — ${p.price} · ${p.availability}`),
+      '',
+      'Reply with a number for details, or tell me what you need.',
+      '',
+      `🛍️ See all ${result.total} products with photos: ${link}`,
+      'Add what you like to your cart there, then tap *Checkout on WhatsApp* to finish your order here.',
+    ].join('\n');
+  }
+
+  static formatList(
+    result: Awaited<ReturnType<CustomerCatalog['search']>>,
+    options: { oneLinkAway?: boolean } = {},
+  ): string {
     if (!result.total)
       return result.query
         ? `I couldn't find anything matching "${result.query}". Reply *1* to see everything we sell, or describe what you're looking for.`
@@ -188,7 +280,7 @@ export class CustomerCatalog {
       '',
       [
         'Reply with a number for details',
-        result.page < result.pages ? '*more* for the next page' : null,
+        result.page < result.pages && !options.oneLinkAway ? '*more* for the next page' : null,
         'or ask me anything.',
       ]
         .filter(Boolean)

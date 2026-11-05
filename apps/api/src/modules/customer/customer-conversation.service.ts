@@ -603,7 +603,12 @@ export class CustomerConversationService {
     page: number,
     state: ShopState | null = null,
   ) {
-    const result = await this.deps.catalog.search(merchantId, query, page);
+    const { result, text } = await this.deps.catalog.listing(
+      merchantId,
+      query,
+      page,
+      this.deps.storefront,
+    );
     await this.saveState(conversation, {
       mode: 'list',
       list: result.ids,
@@ -611,13 +616,7 @@ export class CustomerConversationService {
       page: result.page,
       ...(state?.lastProductId ? { lastProductId: state.lastProductId } : {}),
     });
-    const link = result.pages > 1 ? await this.deps.storefront?.link(merchantId) : null;
-    return this.reply(
-      conversation,
-      link
-        ? `${CustomerCatalog.formatList(result)}\n\n🛍️ Prefer photos? See all ${result.total} here: ${link}`
-        : CustomerCatalog.formatList(result),
-    );
+    return this.reply(conversation, text);
   }
 
   private async showDetails(

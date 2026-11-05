@@ -654,7 +654,10 @@ export class StorefrontService {
   // ─── Links for the WhatsApp assistant ────────────────────────────────────
 
   /** The public link to the shop, a product or a category; null unless the shop is published. */
-  async link(merchantId: string, target: { productId?: string; category?: string } = {}) {
+  async link(
+    merchantId: string,
+    target: { productId?: string; category?: string; query?: string } = {},
+  ) {
     const base = this.deps.webPublicUrl?.replace(/\/$/, '');
     if (!base) return null;
     const shop = await this.deps.db.storefront.findUnique({
@@ -665,6 +668,7 @@ export class StorefrontService {
     const root = `${base}/shop/${shop.slug}`;
     if (target.productId) return `${root}/p/${encodeURIComponent(target.productId)}`;
     if (target.category) return `${root}?category=${encodeURIComponent(target.category)}`;
+    if (target.query) return `${root}?q=${encodeURIComponent(target.query)}`;
     return root;
   }
 

@@ -18,7 +18,9 @@ export const approvalWord = (action: ConfirmationAction | undefined) =>
       ? 'SUBMIT'
       : action === 'SEND_PAYMENT_REMINDER'
         ? 'REMIND'
-        : 'CONFIRM';
+        : action === 'CANCEL_ORDER'
+          ? 'CANCEL ORDER'
+          : 'CONFIRM';
 
 /** Prefixes a system message with the Katale AI header. */
 export const branded = (body: string): string => `*${BRAND}*\n\n${body}`;

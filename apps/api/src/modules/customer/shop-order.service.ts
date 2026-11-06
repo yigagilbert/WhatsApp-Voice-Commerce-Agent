@@ -5,6 +5,7 @@ import {
   calculateOrderTotals,
   formatMoney,
   generateOrderReference,
+  isPayPalSupportedCurrency,
   pricingRulesOf,
   type AuditService,
   type OrderService,
@@ -27,6 +28,7 @@ import {
   ValidationError,
   type Logger,
 } from '@vca/shared';
+import { readAddress } from './intents';
 import { carrierDisplay } from '../shipments/shipment.service';
 import type { NotificationService } from '../notifications/notification.service';
 import type { PaymentService } from '../payments/payment.service';
@@ -38,6 +40,8 @@ export const MAX_UNPAID_ORDERS = 3;
 export const MAX_CART_LINES = 15;
 export const MAX_LINE_QUANTITY = 20;
 const DEFAULT_NAME = 'WhatsApp customer';
+const ADDRESS_HELP =
+  'Please send just your delivery address: area, street and a landmark, e.g. *Plot 12 Kampala Road, near Shell*.';
 
 type Cart = Order & { items: (OrderItem & { product: { name: string } | null })[] };
 type PricedItem = Pick<
@@ -195,49 +199,46 @@ export class ShopOrderService {
     });
     if (!product) throw new NotFoundError('Product', productId);
 
-    let cart = await this.cart(actor.merchant.id, actor.customer.id, now);
-    if (!cart) {
-      if ((await this.unpaidOrders(actor.merchant.id, actor.customer.id)) >= MAX_UNPAID_ORDERS)
-        throw new ConflictError(
-          `You have ${MAX_UNPAID_ORDERS} unpaid orders. Please pay one (reply *orders*) or ask us for help before starting a new one.`,
-        );
-      const created = await this.db.order.create({
-        data: {
-          reference: generateOrderReference(),
-          merchantId: actor.merchant.id,
-          customerId: actor.customer.id,
-          conversationId: actor.conversationId,
-          status: 'DRAFT',
-          placedBy: 'CUSTOMER',
-          currency: product.currency,
-          subtotalMinor: 0,
-          totalMinor: 0,
-          source: 'whatsapp',
-          expiresAt: new Date(now.getTime() + CART_TTL_HOURS * HOUR),
-        },
-      });
-      cart = { ...created, items: [] };
-    }
-    if (cart.currency !== product.currency)
-      throw new ValidationError(
-        `${product.name} is priced in ${product.currency}; your cart is in ${cart.currency}. Please order it separately.`,
-      );
-    const line = cart.items.find((i) => i.productId === product.id);
-    const wanted = (line?.quantity ?? 0) + quantity;
-    if (wanted > MAX_LINE_QUANTITY)
-      throw new ValidationError(
-        `You can order up to ${MAX_LINE_QUANTITY} of one product here. For more, ask to talk to a person.`,
-      );
-    if (!line && cart.items.length >= MAX_CART_LINES)
-      throw new ValidationError(`Your cart can hold ${MAX_CART_LINES} different products.`);
-    this.assertStock(product.name, wanted, await this.available(product.id, cart.id));
-
-    await this.db.$transaction(async (tx) => {
-      if (line)
-        await tx.orderItem.update({
-          where: { id: line.id },
-          data: { quantity: wanted },
+    // Under the cart lock, so overlapping messages can't lose an item or change a placed order.
+    const wanted = await this.withCartLock(actor, async (tx) => {
+      let cart = await this.cart(actor.merchant.id, actor.customer.id, now, tx);
+      if (!cart) {
+        if ((await this.unpaidOrders(actor.merchant.id, actor.customer.id, tx)) >= MAX_UNPAID_ORDERS)
+          throw new ConflictError(
+            `You have ${MAX_UNPAID_ORDERS} unpaid orders. Please pay one (reply *orders*) or ask us for help before starting a new one.`,
+          );
+        const created = await tx.order.create({
+          data: {
+            reference: generateOrderReference(),
+            merchantId: actor.merchant.id,
+            customerId: actor.customer.id,
+            conversationId: actor.conversationId,
+            status: 'DRAFT',
+            placedBy: 'CUSTOMER',
+            currency: product.currency,
+            subtotalMinor: 0,
+            totalMinor: 0,
+            source: 'whatsapp',
+            expiresAt: new Date(now.getTime() + CART_TTL_HOURS * HOUR),
+          },
         });
+        cart = { ...created, items: [] };
+      }
+      if (cart.currency !== product.currency)
+        throw new ValidationError(
+          `${product.name} is priced in ${product.currency}; your cart is in ${cart.currency}. Please order it separately.`,
+        );
+      const line = cart.items.find((i) => i.productId === product.id);
+      const total = (line?.quantity ?? 0) + quantity;
+      if (total > MAX_LINE_QUANTITY)
+        throw new ValidationError(
+          `You can order up to ${MAX_LINE_QUANTITY} of one product here. For more, ask to talk to a person.`,
+        );
+      if (!line && cart.items.length >= MAX_CART_LINES)
+        throw new ValidationError(`Your cart can hold ${MAX_CART_LINES} different products.`);
+      this.assertStock(product.name, total, await this.available(product.id, cart.id, tx));
+      if (line)
+        await tx.orderItem.update({ where: { id: line.id }, data: { quantity: total } });
       else
         await tx.orderItem.create({
           data: {
@@ -251,12 +252,29 @@ export class ShopOrderService {
           },
         });
       await this.recompute(tx, cart.id, 0, now);
+      return total;
     });
     return {
       product: product.name,
       quantity: wanted,
       cart: (await this.cart(actor.merchant.id, actor.customer.id, now))!,
     };
+  }
+
+  /**
+   * One customer's cart changes run one at a time, across every path (typed commands, the
+   * assistant, website carts, ORDER). The lock ends with the transaction, so it is held for
+   * milliseconds and never across an LLM or PayPal call.
+   */
+  private withCartLock<T>(actor: ShopActor, fn: (tx: DatabaseTx) => Promise<T>) {
+    return this.db.$transaction(async (tx) => {
+      await this.lockCart(tx, actor);
+      return fn(tx);
+    });
+  }
+
+  private async lockCart(tx: DatabaseTx, actor: ShopActor) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`cart:${actor.merchant.id}:${actor.customer.id}`}))`;
   }
 
   /**
@@ -274,6 +292,7 @@ export class ShopOrderService {
   ) {
     const merchantId = actor.merchant.id;
     const notes: string[] = [];
+    await this.lockCart(tx, actor);
     let cart = await this.cart(merchantId, actor.customer.id, now, tx);
     const accepted: { line: (typeof lines)[number]; product: Product }[] = [];
     for (const line of lines) {
@@ -371,29 +390,34 @@ export class ShopOrderService {
     quantity: number,
     now = new Date(),
   ) {
-    const cart = await this.cart(actor.merchant.id, actor.customer.id, now);
-    if (!cart || !cart.items.length) throw new ConflictError('Your cart is empty.');
-    const item =
-      target.line !== undefined
-        ? cart.items[target.line - 1]
-        : cart.items.find((i) => i.productId === target.productId);
-    if (!item)
-      throw new ValidationError(
+    const description = await this.withCartLock(actor, async (tx) => {
+      const cart = await this.cart(actor.merchant.id, actor.customer.id, now, tx);
+      if (!cart || !cart.items.length) throw new ConflictError('Your cart is empty.');
+      const item =
         target.line !== undefined
-          ? `Your cart has ${cart.items.length} item${cart.items.length === 1 ? '' : 's'}. Reply *cart* to see them.`
-          : "That product isn't in your cart.",
-      );
-    if (!Number.isInteger(quantity) || quantity < 0 || quantity > MAX_LINE_QUANTITY)
-      throw new ValidationError(`Please choose a quantity between 0 and ${MAX_LINE_QUANTITY}.`);
-    if (quantity > 0 && item.productId)
-      this.assertStock(item.description, quantity, await this.available(item.productId, cart.id));
-    await this.db.$transaction(async (tx) => {
+          ? cart.items[target.line - 1]
+          : cart.items.find((i) => i.productId === target.productId);
+      if (!item)
+        throw new ValidationError(
+          target.line !== undefined
+            ? `Your cart has ${cart.items.length} item${cart.items.length === 1 ? '' : 's'}. Reply *cart* to see them.`
+            : "That product isn't in your cart.",
+        );
+      if (!Number.isInteger(quantity) || quantity < 0 || quantity > MAX_LINE_QUANTITY)
+        throw new ValidationError(`Please choose a quantity between 0 and ${MAX_LINE_QUANTITY}.`);
+      if (quantity > 0 && item.productId)
+        this.assertStock(
+          item.description,
+          quantity,
+          await this.available(item.productId, cart.id, tx),
+        );
       if (quantity === 0) await tx.orderItem.delete({ where: { id: item.id } });
       else await tx.orderItem.update({ where: { id: item.id }, data: { quantity } });
       await this.recompute(tx, cart.id, 0, now);
+      return item.description;
     });
     return {
-      product: item.description,
+      product: description,
       quantity,
       cart: await this.cart(actor.merchant.id, actor.customer.id, now),
     };
@@ -406,9 +430,10 @@ export class ShopOrderService {
 
   /** Re-applies the shop's current prices, discounts and agreed bargains to the open cart. */
   async reprice(actor: ShopActor, now = new Date()) {
-    const cart = await this.cart(actor.merchant.id, actor.customer.id, now);
-    if (!cart) return null;
-    await this.db.$transaction((tx) => this.recompute(tx, cart.id, 0, now));
+    await this.withCartLock(actor, async (tx) => {
+      const cart = await this.cart(actor.merchant.id, actor.customer.id, now, tx);
+      if (cart) await this.recompute(tx, cart.id, 0, now);
+    });
     return this.cart(actor.merchant.id, actor.customer.id, now);
   }
 
@@ -593,7 +618,7 @@ export class ShopOrderService {
     const cart = await this.cart(actor.merchant.id, actor.customer.id, now);
     if (!cart || !cart.items.length) return { cart: null, notes: [] as string[] };
     const notes: string[] = [];
-    await this.db.$transaction(async (tx) => {
+    await this.withCartLock(actor, async (tx) => {
       for (const item of cart.items) {
         const product = item.productId
           ? await tx.product.findFirst({
@@ -626,6 +651,33 @@ export class ShopOrderService {
     return { cart: fresh, notes };
   }
 
+  /** Why an order in this currency can't be paid online, in the customer's words. */
+  private unpayableReason(currency: string): string | null {
+    if (isPayPalSupportedCurrency(currency)) return null;
+    return `We can't take online payments in ${currency} yet, so I can't complete this order here. Nothing has been charged and your cart is saved. Reply *person* and the team will arrange payment with you.`;
+  }
+
+  /** The shop should know customers are being turned away. Once per cart. */
+  private async reportUnpayable(actor: ShopActor, cart: Pick<Order, 'id' | 'currency'>) {
+    const already = await this.db.auditEvent.findFirst({
+      where: { type: 'checkout.currency_unsupported', entityId: cart.id },
+      select: { id: true },
+    });
+    if (already) return;
+    await this.audit.record({
+      merchantId: actor.merchant.id,
+      actor: 'SYSTEM',
+      type: 'checkout.currency_unsupported',
+      entityType: 'order',
+      entityId: cart.id,
+      data: { currency: cart.currency },
+    });
+    await this.notifications.toAdmins(
+      actor.merchant.id,
+      `⚠️ A customer tried to check out, but PayPal doesn't accept ${cart.currency}, so they couldn't pay. Their cart is saved. Prices must be in a PayPal currency such as USD for online payment.`,
+    );
+  }
+
   /** The next thing checkout needs from the customer, and the prompt for it. */
   async nextStep(
     actor: ShopActor,
@@ -634,6 +686,11 @@ export class ShopOrderService {
     const { cart, notes } = await this.refresh(actor);
     if (!cart)
       return { step: null, text: [...notes, ShopOrderService.formatCart(null)].join('\n\n') };
+    const unpayable = this.unpayableReason(cart.currency);
+    if (unpayable) {
+      await this.reportUnpayable(actor, cart);
+      return { step: null, text: unpayable };
+    }
     const blocking = notes.filter((n) => /out of stock|can't offer/.test(n));
     if (blocking.length)
       return { step: null, text: [...notes, ShopOrderService.formatCart(cart)].join('\n\n') };
@@ -670,7 +727,7 @@ export class ShopOrderService {
       return {
         step: 'address',
         orderId: cart.id,
-        text: `${prefix}Where should we deliver? Please send your full address (area, street, landmark).`,
+        text: `${prefix}Where should we deliver? Please send your address (area, street, landmark), or share your location pin.`,
       };
     const summary = await this.summary(cart.id, account);
     return {
@@ -721,12 +778,44 @@ export class ShopOrderService {
       return null;
     }
     if (step === 'address') {
-      if (clean.length < 8 || clean.length > 300)
-        return 'Please send your full delivery address (area, street, landmark).';
+      if (readAddress(clean).kind !== 'address') return ADDRESS_HELP;
       await this.db.order.update({ where: { id: orderId }, data: { deliveryAddress: clean } });
       return null;
     }
     return null;
+  }
+
+  /**
+   * Changes how an open cart gets delivered. The next summary shows it and needs a fresh ORDER, so
+   * a correction can never slip past the customer. Returns an error message or null.
+   */
+  async changeDelivery(
+    actor: ShopActor,
+    account: Account,
+    change: { address?: string | null; method?: 'DELIVERY' | 'PICKUP' },
+  ): Promise<string | null> {
+    return this.withCartLock(actor, async (tx) => {
+      const cart = await this.cart(actor.merchant.id, actor.customer.id, new Date(), tx);
+      if (!cart) return "You don't have an open cart. Reply *browse* to see our products.";
+      const data: { deliveryAddress?: string | null; deliveryMethod?: 'DELIVERY' | 'PICKUP' } = {};
+      if (change.method === 'DELIVERY' && !account.deliveryEnabled)
+        return "This shop doesn't offer delivery.";
+      if (change.method === 'PICKUP' && !account.pickupEnabled)
+        return "This shop doesn't offer pick up.";
+      if (change.method) data.deliveryMethod = change.method;
+      if (change.address === null) data.deliveryAddress = null;
+      else if (change.address !== undefined) {
+        const clean = change.address
+          .replace(/\p{Cc}/gu, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (readAddress(clean).kind !== 'address') return ADDRESS_HELP;
+        data.deliveryAddress = clean;
+        data.deliveryMethod ??= 'DELIVERY';
+      }
+      await tx.order.update({ where: { id: cart.id }, data });
+      return null;
+    });
   }
 
   /** The exact order summary the customer confirms, and a fingerprint of it. */
@@ -763,8 +852,8 @@ export class ShopOrderService {
       `Name: ${order.contactName}`,
       '',
       account.paymentLinkMode === 'AUTO'
-        ? 'Reply *ORDER* to place your order and get a secure PayPal payment link, or *cart* to make changes.'
-        : 'Reply *ORDER* to place your order. The shop will confirm it and send a secure PayPal payment link. Reply *cart* to make changes.',
+        ? `Reply *ORDER* to place your order and get a secure PayPal payment link${order.deliveryMethod === 'DELIVERY' ? ', *change address* to fix the address,' : ''} or *cart* to make changes.`
+        : `Reply *ORDER* to place your order. The shop will confirm it and send a secure PayPal payment link. Reply ${order.deliveryMethod === 'DELIVERY' ? '*change address* to fix the address, or ' : ''}*cart* to make changes.`,
     ].join('\n');
     const quote = createHash('sha256')
       .update(
@@ -799,6 +888,7 @@ export class ShopOrderService {
         | PlaceResult
         | { status: 'confirmed'; order: Order; fresh: boolean; paymentKey: string | null }
       > => {
+        await this.lockCart(tx, actor);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`checkout:${merchantId}`}))`;
         const order = await tx.order.findFirst({
           where: { id: orderId, merchantId, customerId: actor.customer.id, placedBy: 'CUSTOMER' },
@@ -815,6 +905,8 @@ export class ShopOrderService {
         if (order.status !== 'DRAFT') return { status: 'expired' };
         if (order.customerConfirmedAt) return this.claim(tx, account, order, false);
         if (order.expiresAt && order.expiresAt < new Date()) return { status: 'expired' };
+        const unpayable = this.unpayableReason(order.currency);
+        if (unpayable) return { status: 'refused', reason: unpayable };
 
         // What the customer saw must still be exactly true. Reprice the cart with the catalog's
         // current prices, discounts and still-valid bargains, then compare with the summary they
@@ -960,14 +1052,25 @@ export class ShopOrderService {
       };
     } catch (error) {
       if (error instanceof PolicyViolationError) {
-        await this.db.order.update({
-          where: { id: orderId },
-          data: { customerConfirmedAt: null, paymentDueAt: null },
-        });
+        // Back to an open cart, and the reserved payment attempt goes, so the customer can change
+        // the order and try again instead of being told it's "already placed".
+        await this.db.$transaction([
+          this.db.payment.updateMany({
+            where: { orderId, idempotencyKey: paymentKey, status: 'CREATED' },
+            data: { status: 'FAILED' },
+          }),
+          this.db.order.update({
+            where: { id: orderId },
+            data: {
+              customerConfirmedAt: null,
+              paymentDueAt: null,
+              expiresAt: new Date(Date.now() + CART_TTL_HOURS * HOUR),
+            },
+          }),
+        ]);
         return {
           status: 'refused',
-          reason:
-            'This order is above what we can take on WhatsApp. Reply *4* to talk to a person.',
+          reason: `We can't take this order online: ${error.message} Nothing has been charged and your cart is saved. Reply *cart* to change it, or *person* to talk to the shop.`,
         };
       }
       if (error instanceof AppError && error.code.startsWith('PROVIDER')) {

@@ -159,3 +159,15 @@ The vocabulary is a starter list to validate with native speakers.
 - Code-switched speech (Luganda with English product names) transcribes inconsistently; the agent asks.
 - Conversation history can pull follow-ups toward earlier topics (seen with "jams").
 - English with a strong accent is sometimes routed to Sunbird. Sunbird still transcribed English well.
+
+## Customer voice notes and noise
+
+Customers can use voice notes wherever typing would browse, ask or fill a cart. Placing an order, accepting a price and cancelling an order must be typed: speech can mishear, and the same applies to merchants' approvals and their replies to customers.
+
+Each transcript gets one of three verdicts (`judgeTranscript`):
+
+- **Noise:** empty, confidence under 0.15, a known Whisper invention such as "Thank you for watching." below the confidence threshold, or the biasing prompt echoed back. The sender is asked to try again and nothing is read back.
+- **Unclear:** confidence under `VOICE_MIN_CONFIDENCE`, or another language. It's read back first, and a typed yes continues.
+- **Clear:** processed like text, and the reply shows what was heard.
+
+The shop's product names and local places are sent as a `prompt`, which fixed "Ntinda" being heard as "Nintendo" on synthetic clips. On silence or heavy noise the prompt made Whisper noticeably slower, up to about 10 s against about 1.5 s, so a silent note waits longer for its retry message. Accuracy on real Ugandan accents is still unmeasured.

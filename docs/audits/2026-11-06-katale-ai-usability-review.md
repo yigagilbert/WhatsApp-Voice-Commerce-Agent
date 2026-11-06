@@ -1,7 +1,9 @@
 # Katale AI: Usability, Conversational AI and UX Review
 
 **Date:** 2026-11-06 · **Commit reviewed:** `742e4ef` · **Scope:** WhatsApp merchant assistant, customer shopping assistant, public storefront, merchant dashboard.
-**Status:** research and planning only. No application code was changed, merged or deployed.
+**Status:** research and planning only. No application code was changed, merged or deployed. What was then built is in the [implementation report](2026-11-06-implementation-report.md).
+
+> **Correction.** The audit reports about 30 ms for a customer's first "hi" and dismisses a first measurement of 4.5 ms as not credible. The 4.5 ms was right. An identical script run on this commit afterwards measured p50 5 ms; the 30 ms included the audit harness's per-query timing wrapper. The conclusion that exact greetings aren't slow inside the API doesn't change. See [`before-after-latency.log.txt`](evidence/2026-11-06/before-after-latency.log.txt).
 
 ## 1. Executive summary
 

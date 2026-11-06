@@ -39,9 +39,9 @@
       "language": "en",
       "audio": "tests/fixtures/voice/en-cancel-004.ogg",
       "reference": "Cancel Sarah's last order.",
-      "expectedIntent": "unsupported_cancel",
+      "expectedIntent": "cancel_needs_reference",
       "expectedTool": null,
-      "expectedReplyPattern": "cannot|can't|not able|unable"
+      "expectedReplyPattern": "cannot|can't|not able|unable|order reference|order number|which order"
     },
     {
       "id": "en-sales-005",

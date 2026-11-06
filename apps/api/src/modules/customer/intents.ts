@@ -26,7 +26,7 @@ export const isGreeting = (text: string): boolean => {
 
 /** A bare wave with no words: the customer is saying hello. */
 export const isWave = (text: string): boolean =>
-  /^[\p{Extended_Pictographic}\p{Emoji_Modifier}‍️\s]+$/u.test(text) &&
+  /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|‍|️|\s)+$/u.test(text) &&
   /👋|🙏|🤝|😀|😃|😊|🙂/u.test(text);
 
 /** Show-me-the-menu words, which never greet the customer again. */

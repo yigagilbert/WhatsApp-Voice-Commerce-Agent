@@ -187,7 +187,7 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
         expect(req.tools?.map((t) => t.name)).toContain('create_draft_order');
         return { role: 'assistant', content: 'Admin here.' };
       });
-      expect(texts(await send(adminA, 'hello'))).toContain('Admin here.');
+      expect(texts(await send(adminA, 'what can you do'))).toContain('Admin here.');
     });
 
     it("an admin of another shop is a customer on this shop's number", async () => {
@@ -196,7 +196,9 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
       expect(await customer(adminB)).toMatchObject({ source: 'WHATSAPP' });
       // …and still an admin on their own shop's number.
       model.enqueue(() => ({ role: 'assistant', content: 'Admin B here.' }));
-      expect(texts(await send(adminB, 'hello', { recipientId: botB }))).toContain('Admin B here.');
+      expect(texts(await send(adminB, 'what can you do', { recipientId: botB }))).toContain(
+        'Admin B here.',
+      );
     });
 
     it('deactivated admins, unknown bot numbers and disabled shops get the generic welcome', async () => {
@@ -380,6 +382,7 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
             'add_to_cart',
             'browse_products',
             'catalogue_link',
+            'change_delivery',
             'decline_offer',
             'my_orders',
             'negotiate_price',
@@ -446,8 +449,8 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
 
       const during = await send(shopper, 'Is the blue one available?');
       expect(during.replies).toEqual([]);
-      expect(sender.to(adminA).at(-1)).toContain('💬 *Peter*');
-      expect(sender.to(adminA).at(-1)).toContain('Is the blue one available?');
+      expect(sender.to(adminA).at(-1)).toContain('💬 *Message from customer Peter*');
+      expect(sender.to(adminA).at(-1)).toContain('“Is the blue one available?”');
     });
 
     it('admins reply and resume from their WhatsApp', async () => {
@@ -465,7 +468,31 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
         }),
         () => ({ role: 'assistant', content: 'Sent.' }),
       );
-      await send(adminA, 'reply to Peter: Yes, we have it in blue!');
+      // Peter is only a WhatsApp profile name, so the merchant must point at the number first.
+      const check = texts(await send(adminA, 'reply to Peter: Yes, we have it in blue!'));
+      expect(check).toContain('Nothing was sent');
+      expect(sender.to(shopper).at(-1)).not.toBe('Yes, we have it in blue!');
+      const fullNumber = shopper.split('@')[0]!;
+      const lastDigits = fullNumber.slice(-4);
+      expect(check).toContain(`…${lastDigits}`);
+      model.enqueue(
+        () => ({
+          role: 'assistant',
+          content: null,
+          toolCalls: [
+            {
+              id: 'r1b',
+              name: 'reply_to_customer',
+              arguments: JSON.stringify({
+                customer: fullNumber,
+                message: 'Yes, we have it in blue!',
+              }),
+            },
+          ],
+        }),
+        () => ({ role: 'assistant', content: 'Sent.' }),
+      );
+      await send(adminA, `reply to ${fullNumber}: Yes, we have it in blue!`);
       expect(sender.to(shopper).at(-1)).toBe('Yes, we have it in blue!');
 
       model.enqueue(

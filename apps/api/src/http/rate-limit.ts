@@ -1,4 +1,5 @@
 import type { FastifyRequest } from 'fastify';
+import { HEADERS } from '@vca/shared';
 import { DASHBOARD_USER_HEADER } from './merchant-scope';
 import { safeEqual } from './auth';
 
@@ -12,8 +13,14 @@ const DASHBOARD_MULTIPLIER = 5;
  * would make all staff share one allowance. Requests carrying the dashboard token are limited per
  * account; the user header only counts with that token, so outsiders can't choose their own key.
  */
-export function rateLimitOptions(dashboardToken: string, max: number) {
+export function rateLimitOptions(dashboardToken: string, max: number, internalToken?: string) {
   return {
+    // The WhatsApp worker speaks for every customer of every shop from one address. It must not
+    // share one visitor's allowance: customers are limited one by one in the conversation service.
+    allowList: (request: FastifyRequest) => {
+      const token = request.headers[HEADERS.internalToken];
+      return !!internalToken && typeof token === 'string' && safeEqual(token, internalToken);
+    },
     keyGenerator: (request: FastifyRequest) => {
       const header = request.headers.authorization;
       if (!header?.startsWith('Bearer ') || !safeEqual(header.slice(7), dashboardToken))

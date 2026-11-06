@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { toMajorString } from '@vca/commerce/money';
 import { siteUrl } from '@/lib/public-site';
 import { fetchProduct, fetchShop } from '@/lib/storefront';
 import { productImage, shopHref } from '@/lib/storefront-types';
@@ -76,7 +77,8 @@ export default async function ProductPage({ params, searchParams }: Props) {
       : {}),
     offers: {
       '@type': 'Offer',
-      price: (product.priceMinor / 100).toFixed(2),
+      // Currency-aware: UGX has no minor unit, so dividing by 100 would publish 500 for 50,000.
+      price: toMajorString(product.priceMinor, product.currency),
       priceCurrency: product.currency,
       availability: soldOut ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
       url: `${origin}/shop/${slug}/p/${id}`,

@@ -1,0 +1,76 @@
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+const W = '/Users/sunbird/Documents/Workshop/Apps/WhatsAppVoiceCommerceAgent/.claude/worktrees/katale-ai-usability-review-0c9fda';
+const { apiSchema, parseConfig } = await import(W + '/packages/config/src/index.ts');
+const { createLogger } = await import(W + '/packages/shared/src/index.ts');
+const { buildApp } = await import(W + '/apps/api/src/app.ts');
+const { createContainer } = await import(W + '/apps/api/src/container.ts');
+const { FakePayPal, testEnv } = await import(W + '/tests/support/fakes.ts');
+const { OpenAICompatibleChatModel } = await import(W + '/packages/ai/src/openai-compatible.ts');
+const { ChannelRegistry } = await import(W + '/apps/api/src/modules/notifications/channel-registry.ts');
+const { createPrismaClient } = await import(W + '/packages/database/src/index.ts');
+
+function mainEnv(k: string) {
+  const line = readFileSync(W + '/../../../.env', 'utf8').split('\n').find((l) => l.startsWith(k + '='));
+  return line?.slice(k.length + 1).trim().replace(/^["']|["']$/g, '');
+}
+export type Ev = { t: number; label: string; ms: number; kind: string };
+export const events: Ev[] = [];
+let origin = 0;
+export const mark = () => { origin = performance.now(); events.length = 0; };
+export function record(kind: string, label: string, started: number) {
+  events.push({ t: started - origin, label, ms: performance.now() - started, kind });
+}
+export function timedDb() {
+  const base = createPrismaClient({ databaseUrl: process.env.DATABASE_URL! });
+  return base.$extends({ query: { $allModels: { async $allOperations({ model, operation, args, query }: any) {
+    const s = performance.now();
+    try { return await query(args); } finally { record('db', `${model}.${operation}`, s); }
+  } } } });
+}
+export class TimedModel {
+  id: string; inner: any; usage: any[] = [];
+  constructor(inner: any) { this.inner = inner; this.id = inner.id; }
+  async complete(req: any) {
+    const s = performance.now();
+    const r = await this.inner.complete(req);
+    record('llm', `llm(msgs=${req.messages.length},tools=${req.tools?.length ?? 0})`, s);
+    this.usage.push({ ms: performance.now() - s, ...(r.usage ?? {}), promptChars: JSON.stringify(req.messages).length, toolChars: JSON.stringify(req.tools ?? []).length, toolCalls: r.message.toolCalls?.map((c: any) => c.name) ?? [] });
+    return r;
+  }
+}
+export function realModel(model = mainEnv('AI_MODEL')!) {
+  return new TimedModel(new OpenAICompatibleChatModel({ baseUrl: mainEnv('AI_BASE_URL')!, apiKey: mainEnv('AI_API_KEY')!, model, timeoutMs: 30000 }));
+}
+export const sttEnv = () => ({ key: mainEnv('STT_API_KEY'), base: mainEnv('STT_BASE_URL'), model: mainEnv('STT_MODEL') });
+export const SHOP = 'seed_merchant_kampala_crafts';
+export const BOT = '256700000111@c.us';
+export const ADMIN = '256700000222@c.us';
+export async function boot(chatModel: any, extra: Record<string, string> = {}, speech: any = null) {
+  const sent: any[] = [];
+  const channels = new ChannelRegistry();
+  channels.register({ channel: 'whatsapp', async send(m: any) { sent.push(m); } });
+  const db = timedDb();
+  const container = createContainer(
+    parseConfig(apiSchema, testEnv({ CUSTOMER_COMMERCE_ENABLED: 'true', WEB_PUBLIC_URL: 'http://localhost:3000', ...extra })),
+    createLogger({ name: 'h', level: 'silent' }),
+    { db, paypal: new FakePayPal('H-' + randomUUID().slice(0, 6)), chatModel, speech, channels, objectStore: null, statusPoster: null },
+  );
+  const app = await buildApp(container);
+  const dbx = container.db;
+  await dbx.merchantOperator.upsert({ where: { channel_externalId: { channel: 'whatsapp', externalId: ADMIN } }, update: { merchantId: SHOP, active: true }, create: { merchantId: SHOP, name: 'Owner', channel: 'whatsapp', externalId: ADMIN } });
+  const acct = (await container.whatsappAccounts.forBot(BOT)) ?? (await container.whatsappAccounts.connect(SHOP, BOT), await container.whatsappAccounts.forBot(BOT));
+  await container.whatsappAccounts.update(SHOP, acct.id, { customerCommerceEnabled: true }, { customerCommerceAvailable: true });
+  await dbx.storefront.upsert({ where: { merchantId: SHOP }, update: { enabled: true }, create: { merchantId: SHOP, slug: 'kampala-crafts', enabled: true } });
+  const send = async (from: string, text: string, extra2: any = {}) => {
+    const message = { channel: 'whatsapp', externalMessageId: randomUUID(), externalChatId: from, senderId: from, senderName: extra2.senderName ?? 'Test Customer', sentAt: new Date(), type: 'text', text, recipientId: BOT, ...extra2 };
+    mark();
+    const s = performance.now();
+    const res = await app.inject({ method: 'POST', url: '/api/agent/message', headers: { 'x-internal-token': 'test-internal-token-123456' }, payload: message });
+    const total = performance.now() - s;
+    return { total, status: res.statusCode, body: res.json(), events: [...events] };
+  };
+  return { app, container, send, sent };
+}
+export const newChat = () => `2567${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}@c.us`;
+export const pct = (xs: number[], p: number) => { const a = [...xs].sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor((p / 100) * a.length))]; };

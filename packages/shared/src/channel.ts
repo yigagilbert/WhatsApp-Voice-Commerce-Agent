@@ -61,6 +61,24 @@ export const inboundChannelMessageSchema = z
     text: z.string().max(4096).optional(),
     media: inboundMediaSchema.optional(),
     unsupportedKind: z.enum(UNSUPPORTED_KINDS).optional(),
+    /**
+     * The message this one replies to. `stanzaId` is matched against our own records; `text` comes
+     * from the sender's device, can be forged, and is only ever treated as customer content.
+     */
+    quoted: z
+      .object({
+        stanzaId: z.string().min(1).max(128).optional(),
+        text: z.string().max(1000).optional(),
+      })
+      .optional(),
+    /** A shared location pin (unsupportedKind "location"). */
+    location: z
+      .object({
+        latitude: z.number().min(-90).max(90),
+        longitude: z.number().min(-180).max(180),
+        description: z.string().max(300).optional(),
+      })
+      .optional(),
   })
   .refine(
     (m) =>
@@ -82,6 +100,8 @@ export const outboundChannelMessageSchema = z.object({
   externalChatId: z.string().min(1).max(255),
   text: z.string().min(1).max(4096),
   media: outboundMediaSchema.optional(),
+  /** Our Message row, so the worker can report WhatsApp's ID for it after sending. */
+  messageId: z.string().min(1).max(64).optional(),
 });
 export type OutboundChannelMessage = z.infer<typeof outboundChannelMessageSchema>;
 
@@ -106,5 +126,14 @@ export interface InboundProcessingResult {
 /** Implemented by anything that can deliver messages on a channel. */
 export interface ChannelSender {
   readonly channel: Channel;
-  send(message: OutboundChannelMessage): Promise<void>;
+  /** May return the channel's short ID for the sent message, used to resolve quoted replies. */
+  send(message: OutboundChannelMessage): Promise<{ stanzaId?: string | null } | void>;
 }
+
+/** Reported by a channel worker after sending: which of our messages got which channel ID. */
+export const deliveryReportSchema = z.object({
+  deliveries: z
+    .array(z.object({ messageId: z.string().min(1).max(64), stanzaId: z.string().min(1).max(128) }))
+    .min(1)
+    .max(20),
+});

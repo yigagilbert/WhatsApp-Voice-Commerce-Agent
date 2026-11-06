@@ -1,0 +1,16 @@
+// Real STT on synthetic clips: with and without the shop's biasing prompt, then the transcript verdict.
+import { readFileSync } from 'node:fs';
+const [W, dir] = [process.argv[2]!, process.argv[3]!];
+const { OpenAICompatibleSpeechToText } = await import(W + '/packages/speech/src/openai-stt.ts');
+const { judgeTranscript } = await import(W + '/apps/api/src/modules/agent/voice-notes.ts');
+const stt = new OpenAICompatibleSpeechToText({ baseUrl: process.env.STT_BASE_URL!, apiKey: process.env.STT_API_KEY!, model: process.env.STT_MODEL! });
+const prompt = 'Handmade Basket, Barkcloth Wallet, Coffee Gift Pack. Kampala, Ntinda, Kololo, Nakasero, Bukoto, Kira, Najjera, Kansanga, Muyenga, Makindye, Nansana, Bweyogerere, Naalya, Entebbe, Jinja, Gulu, Mbarara, Wakiso, Mukono.';
+for (const clip of ['clean', 'noisy', 'heavy', 'noise', 'silence'])
+  for (const [mode, options] of [['no prompt', {}], ['prompt', { prompt }]] as const)
+    for (let i = 0; i < 3; i++) {
+      const audio = { data: readFileSync(`${dir}/${clip}.ogg`), mimeType: 'audio/ogg', filename: `${clip}.ogg` };
+      const s = performance.now();
+      const r = await stt.transcribe(audio, options);
+      const verdict = judgeTranscript({ transcript: r.text, ...(r.confidence !== undefined ? { confidence: r.confidence } : {}), ...(r.language ? { language: r.language } : {}) }, 0.5, ['en']);
+      console.log(`${clip}\t${mode}\t${(performance.now() - s).toFixed(0)} ms\tconf ${r.confidence}\t${verdict}\t${JSON.stringify(r.text)}`);
+    }

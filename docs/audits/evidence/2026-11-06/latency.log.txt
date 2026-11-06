@@ -1,0 +1,44 @@
+{"name":"COLD process: first-ever customer \"hi\"","totalMs":41.1,"dbQueries":13,"dbMs":28.8,"llmMs":0,"reply":"Hello Test! 👋 Welcome to *Kampala Crafts*.\n\n*1* Browse prod"}
+   +10ms db WhatsAppAccount.findUnique 2.3ms
+   +12ms db MerchantOperator.findFirst 4.0ms
+   +16ms db Customer.findFirst 2.8ms
+   +19ms db Customer.findMany 2.4ms
+   +22ms db Customer.findMany 2.4ms
+   +24ms db Customer.create 3.0ms
+   +27ms db AuditEvent.create 2.1ms
+   +30ms db Conversation.findUnique 1.7ms
+   +31ms db Conversation.upsert 3.0ms
+   +35ms db Message.create 2.1ms
+   +37ms db Conversation.update 1.1ms
+   +38ms db Storefront.findUnique 0.9ms
+   +39ms db Message.create 1.2ms
+WARM first-ever detail:
+   +1ms db WhatsAppAccount.findUnique 2.1ms
+   +4ms db MerchantOperator.findFirst 1.5ms
+   +5ms db Customer.findFirst 0.6ms
+   +6ms db Customer.findMany 0.5ms
+   +6ms db Customer.findMany 0.4ms
+   +7ms db Customer.create 1.5ms
+   +8ms db AuditEvent.create 0.8ms
+   +9ms db Conversation.findUnique 0.4ms
+   +10ms db Conversation.upsert 0.8ms
+   +11ms db Message.create 0.9ms
+   +12ms db Conversation.update 0.9ms
+   +13ms db Storefront.findUnique 0.7ms
+   +13ms db Message.create 0.9ms
+{"warmFirstHi":{"p50":4.533709000000044,"p95":6.024333000000013},"warmReturningHi":{"p50":19.85545799999818,"p95":24.04724999999962}}
+{"name":"admin \"hi\" real LLM #0","totalMs":2467,"dbQueries":8,"dbMs":15.5,"llmMs":2424.3,"reply":"Hello! How can I assist you with your Kampala Crafts busines"}
+{"name":"admin \"hi\" real LLM #7","totalMs":994.3,"dbQueries":8,"dbMs":18,"llmMs":970,"reply":"Hi! Let me know if you need any assistance with your shop."}
+{"adminHi":{"p50":1127.560540999999,"p95":2467.0122919999994},"usage":[{"ms":939.2370410000003,"inputTokens":5217,"outputTokens":13,"promptChars":7222,"toolChars":17322,"toolCalls":[]},{"ms":969.9886249999981,"inputTokens":5215,"outputTokens":15,"promptChars":7204,"toolChars":17322,"toolCalls":[]}]}
+{"name":"customer first msg: \"hi there\"","totalMs":1306.9,"dbQueries":14,"dbMs":38.7,"llmMs":1261.1,"reply":"Hello! Welcome to Kampala Crafts. How can I assist you today"}
+{"name":"customer first msg: \"hello!\"","totalMs":19.4,"dbQueries":13,"dbMs":17.5,"llmMs":0,"reply":"Hello Test! 👋 Welcome to *Kampala Crafts*.\n\n*1* Browse prod"}
+{"name":"customer first msg: \"Hello, good morning\"","totalMs":987.9,"dbQueries":14,"dbMs":23.1,"llmMs":959.4,"reply":"Good morning! Welcome to Kampala Crafts. How can I assist yo"}
+{"name":"customer first msg: \"good morning sir\"","totalMs":1224.5,"dbQueries":14,"dbMs":33.5,"llmMs":1186,"reply":"Good morning! How can I assist you today at Kampala Crafts?"}
+{"name":"customer first msg: \"hey there\"","totalMs":1042.3,"dbQueries":14,"dbMs":30.5,"llmMs":1006.8,"reply":"Hello! Welcome to Kampala Crafts. How can I assist you today"}
+{"name":"customer first msg: \"Hi 👋\"","totalMs":30093.6,"dbQueries":17,"dbMs":80.9,"llmMs":0,"reply":"I couldn't find anything matching \"Hi 👋\". Reply *1* to see "}
+{"name":"customer first msg: \"how are you\"","totalMs":2276.1,"dbQueries":14,"dbMs":19.7,"llmMs":2252.9,"reply":"I'm doing well, thank you! How can I assist you with Kampala"}
+{"name":"customer first msg: \"are you open?\"","totalMs":2801.1,"dbQueries":14,"dbMs":28.8,"llmMs":2766,"reply":"Yes, Kampala Crafts is open. You can shop and pay securely v"}
+{"name":"customer first msg: \"thanks\"","totalMs":1373,"dbQueries":14,"dbMs":29.1,"llmMs":1339.4,"reply":"You're welcome! If you need any help with our crafts or want"}
+{"name":"customer first msg: \"ok\"","totalMs":1314.5,"dbQueries":14,"dbMs":36.1,"llmMs":1273.3,"reply":"Hello! Welcome to Kampala Crafts. How can I assist you today"}
+{"name":"customer first msg: \"oli otya\"","totalMs":28.4,"dbQueries":13,"dbMs":25.8,"llmMs":0,"reply":"Hello Test! 👋 Welcome to *Kampala Crafts*.\n\n*1* Browse prod"}
+{"name":"customer first msg: \"hi.\"","totalMs":23.1,"dbQueries":13,"dbMs":20.7,"llmMs":0,"reply":"Hello Test! 👋 Welcome to *Kampala Crafts*.\n\n*1* Browse prod"}

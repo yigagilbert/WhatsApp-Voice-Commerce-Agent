@@ -2,6 +2,10 @@
 
 _Last updated: 2026-10-29 — production runs **`v0.1.0-202610291327`** (product photos with Cloudflare R2, commit `1556e00` from PR #4 before merge, deployed 2026-10-29; previous release `v0.1.0-202610260553` kept for rollback). Customer shopping remains switched off. Audit: [docs/audits/2026-10-25-katale-ai-system-audit.md](docs/audits/2026-10-25-katale-ai-system-audit.md)._
 
+## Reliability and conversation improvements (2026-11-06, branch `claude/katale-reliability-ux-improvements`)
+
+Fixes the audit's critical findings and adds reply-to-message and customer voice notes. **Not merged or deployed**, and real-device checks are outstanding. Details: [docs/audits/2026-11-06-implementation-report.md](docs/audits/2026-11-06-implementation-report.md).
+
 ## Overview redesign (2026-11-04, branch `claude/katale-overview-analytics-redesign-27e3a5`)
 
 Overview and Analytics are now one AG Studio-powered command center, with financial accuracy fixes

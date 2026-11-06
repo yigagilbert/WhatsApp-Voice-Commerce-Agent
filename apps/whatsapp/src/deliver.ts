@@ -4,11 +4,18 @@ export interface ReplyToSend {
   externalChatId: string;
   text: string;
   media?: OutgoingImage;
+  /** Our record of this reply, so its WhatsApp ID can be reported back. */
+  messageId?: string | undefined;
 }
 
 interface ReplyTransport {
-  sendText(chatId: string, text: string): Promise<void>;
-  sendImage(chatId: string, image: OutgoingImage, caption: string): Promise<void>;
+  sendText(chatId: string, text: string): Promise<string | null | void>;
+  sendImage(chatId: string, image: OutgoingImage, caption: string): Promise<string | null | void>;
+}
+
+export interface Delivery {
+  messageId: string;
+  stanzaId: string;
 }
 
 /**
@@ -21,17 +28,23 @@ export async function deliverReplies(
   transport: ReplyTransport,
   replies: ReplyToSend[],
   logger: { warn(details: object, message: string): void },
-): Promise<void> {
+): Promise<Delivery[]> {
+  const deliveries: Delivery[] = [];
+  const note = (reply: ReplyToSend, stanzaId: string | null | void) => {
+    if (reply.messageId && stanzaId) deliveries.push({ messageId: reply.messageId, stanzaId });
+  };
   for (const reply of replies) {
     if (!reply.media) {
-      await transport.sendText(reply.externalChatId, reply.text);
+      note(reply, await transport.sendText(reply.externalChatId, reply.text));
       continue;
     }
     try {
-      await transport.sendImage(reply.externalChatId, reply.media, reply.text);
+      note(reply, await transport.sendImage(reply.externalChatId, reply.media, reply.text));
     } catch (error) {
       logger.warn({ err: error }, 'image reply could not be sent; sending its text instead');
-      if (reply.text.trim()) await transport.sendText(reply.externalChatId, reply.text);
+      if (reply.text.trim())
+        note(reply, await transport.sendText(reply.externalChatId, reply.text));
     }
   }
+  return deliveries;
 }

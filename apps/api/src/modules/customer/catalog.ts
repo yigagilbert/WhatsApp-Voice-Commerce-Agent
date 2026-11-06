@@ -198,7 +198,8 @@ export class CustomerCatalog {
     storefront?: Pick<StorefrontService, 'link'>,
   ) {
     const shop = (await storefront?.link(merchantId)) ?? null;
-    if (shop && !query?.trim()) {
+    // "more" after the best sellers moves on to the full list instead of repeating them.
+    if (shop && !query?.trim() && page <= 1) {
       const result = await this.bestSellers(merchantId);
       if (result.products.length)
         return { result, text: CustomerCatalog.formatBestSellers(result, shop) };
@@ -214,12 +215,20 @@ export class CustomerCatalog {
     };
   }
 
+  /** Names of products by ID, in that order (for the assistant's view of what's on screen). */
+  async names(merchantId: string, ids: string[]) {
+    const products = await this.visible(merchantId, ids);
+    return ids.flatMap((id) => products.filter((p) => p.id === id).map((p) => p.name));
+  }
+
   /** One visible product of this merchant, by ID or by name. */
   async find(merchantId: string, idOrName: string): Promise<CustomerProduct | null> {
     const products = await this.visible(merchantId);
     const byId = products.find((p) => p.id === idOrName);
     if (byId) return this.view(byId);
-    const words = normalizeProductTokens(idOrName);
+    const words = normalizeProductTokens(
+      idOrName.replace(/^\s*(?:the|a|an|my|your|this|that)\s+/i, ''),
+    );
     const exact = products.find(
       (p) => normalizeProductTokens(p.name).join(' ') === words.join(' '),
     );
@@ -269,7 +278,7 @@ export class CustomerCatalog {
   ): string {
     if (!result.total)
       return result.query
-        ? `I couldn't find anything matching "${result.query}". Reply *1* to see everything we sell, or describe what you're looking for.`
+        ? `I couldn't find anything matching "${result.query}". Reply *browse* to see everything we sell, or describe what you're looking for.`
         : "We don't have products listed yet. Reply *3* to talk to the team.";
     const start = (result.page - 1) * PAGE_SIZE;
     return [
@@ -299,7 +308,7 @@ export class CustomerCatalog {
         : []),
       '',
       p.availability === 'Out of stock'
-        ? 'Reply *1* to see other products, *menu* for more options, or ask me a question.'
+        ? 'Reply *browse* to see other products, *menu* for more options, or ask me a question.'
         : 'Reply *add* to put one in your cart (or e.g. *add 3*), *menu* for more options, or ask me a question.',
     ].join('\n');
   }

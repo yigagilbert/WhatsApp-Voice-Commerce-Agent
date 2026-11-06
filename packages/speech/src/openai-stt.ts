@@ -72,7 +72,7 @@ export class OpenAICompatibleSpeechToText implements SpeechToTextProvider {
 
   async transcribe(
     audio: AudioInput,
-    options: { languageHint?: string } = {},
+    options: { languageHint?: string; prompt?: string } = {},
   ): Promise<TranscriptionResult> {
     // whisper-* models return the detected language with verbose_json; newer models only support json.
     const verbose = this.options.model.startsWith('whisper');
@@ -80,6 +80,7 @@ export class OpenAICompatibleSpeechToText implements SpeechToTextProvider {
     form.append('model', this.options.model);
     form.append('response_format', verbose ? 'verbose_json' : 'json');
     if (options.languageHint) form.append('language', options.languageHint);
+    if (options.prompt) form.append('prompt', options.prompt);
     form.append(
       'file',
       new Blob([new Uint8Array(audio.data)], { type: audio.mimeType }),

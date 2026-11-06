@@ -98,7 +98,13 @@ interface PaymentRow {
 
 type Pinned = { node: { rowPinned?: string | null } };
 
-export function PaymentsGrid({ payments }: { payments: Payment[] }) {
+export function PaymentsGrid({
+  payments,
+  initialSearch,
+}: {
+  payments: Payment[];
+  initialSearch?: string;
+}) {
   const [notice, setNotice] = useState<Notice>(null);
   const rows = useMemo<PaymentRow[]>(
     () =>
@@ -131,6 +137,18 @@ export function PaymentsGrid({ payments }: { payments: Payment[] }) {
         pinned: 'left',
         minWidth: 120,
         cellClass: 'font-medium',
+        cellRenderer: (p: { value?: string; node: { rowPinned?: string | null } }) =>
+          p.node.rowPinned || !p.value ? (
+            p.value
+          ) : (
+            <Link
+              href={`/orders?q=${encodeURIComponent(p.value)}`}
+              title="Open this order"
+              className="text-sky-700 hover:underline"
+            >
+              {p.value}
+            </Link>
+          ),
       },
       { field: 'customer', headerName: 'Customer', minWidth: 150 },
       {
@@ -289,6 +307,7 @@ export function PaymentsGrid({ payments }: { payments: Payment[] }) {
         }}
         exportName="katale-payments"
         searchPlaceholder="Search payments…"
+        initialSearch={initialSearch}
         emptyMessage="No payment requests yet. They appear after the merchant types CONFIRM."
       />
     </>

@@ -189,6 +189,7 @@ export default async function DisputesPage({
             />
           )}
           <DisputesGrid
+            filteredView={needsResponse ? 'waiting for your response' : undefined}
             disputes={
               needsResponse
                 ? list.data.disputes.filter((x) => x.status === 'WAITING_FOR_SELLER_RESPONSE')

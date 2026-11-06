@@ -23,6 +23,26 @@ const productDetails: ReplyToSend[] = [
 ];
 
 describe('deliverReplies', () => {
+  it('reports the WhatsApp ID each reply got, for quoted replies', async () => {
+    const ids = ['AAA', 'BBB'];
+    const deliveries = await deliverReplies(
+      {
+        sendText: async () => ids.shift()!,
+        sendImage: async () => ids.shift()!,
+      },
+      [
+        { externalChatId: 'c@c.us', text: 'photo', media: photo, messageId: 'm1' },
+        { externalChatId: 'c@c.us', text: 'details', messageId: 'm2' },
+        { externalChatId: 'c@c.us', text: 'no record' },
+      ],
+      { warn: () => undefined },
+    );
+    expect(deliveries).toEqual([
+      { messageId: 'm1', stanzaId: 'AAA' },
+      { messageId: 'm2', stanzaId: 'BBB' },
+    ]);
+  });
+
   it('sends the photo, then the details', async () => {
     const t = transport(false);
     await deliverReplies(t, productDetails, { warn: () => undefined });

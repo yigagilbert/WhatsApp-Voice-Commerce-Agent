@@ -133,7 +133,7 @@ export class BargainingService {
           return {
             result: this.result(
               'not_found',
-              "I couldn't find that product. Reply *1* to see what we have.",
+              "I couldn't find that product. Reply *browse* to see what we have.",
             ),
           };
         const cart = await this.shop.cart(merchantId, actor.customer.id, now);
@@ -143,7 +143,7 @@ export class BargainingService {
           return {
             result: this.result(
               'invalid',
-              `I can discuss prices for 1 to ${MAX_LINE_QUANTITY} units here. For more, reply *4* to talk to the team.`,
+              `I can discuss prices for 1 to ${MAX_LINE_QUANTITY} units here. For more, reply *person* to talk to the team.`,
             ),
           };
         const rules = pricingRulesOf(product);
@@ -204,9 +204,12 @@ export class BargainingService {
               (o.status === 'OPEN' ||
                 (o.status === 'ACCEPTED' && (!o.orderId || o.orderId === cart?.id))),
           )?.offerUnitMinor ?? null;
-        const customerUnit =
+        const stated =
           input.customerUnitMinor ??
           (input.customerTotalMinor ? unitFromTotal(input.customerTotalMinor, quantity) : null);
+        // "This bag is $30. Can you do better?" restates today's price: it's a request, not an offer
+        // to pay it. Reading it as an offer would "agree" the regular price and end the talk.
+        const customerUnit = stated !== null && stated >= auto.unitMinor ? null : stated;
         const decision = negotiate({
           baseUnitMinor: auto.unitMinor,
           floorMinor: rules.minPriceMinor!,

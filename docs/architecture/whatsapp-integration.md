@@ -292,3 +292,27 @@ unlink unused devices on the bot phone.
    payloads to `InboundChannelMessage`, and download media via the Graph media endpoint.
 2. Implement a `CloudApiWhatsAppSender implements ChannelSender` and register it instead of `HttpWhatsAppSender`.
 3. Retire `apps/whatsapp`. Nothing in `commerce`, `ai`, `paypal` or the inbound pipeline changes.
+
+## Message lifecycle
+
+On receipt the worker maps and de-duplicates the message, then sends read ticks and typing without waiting. Typing is renewed every 20 s and cleared at the end. Each chat's messages then run in order on an in-memory queue, and other chats aren't held up. The API has the same per-chat queue, and cart writes take a per-customer Postgres lock, so overlapping messages stay safe even if the worker restarts or a retry arrives.
+
+Replies are sent with `linkPreview: false`, because the library otherwise fetches any link in the text first, with no timeout, and holds the reply. Someone who just wrote to us needs no number lookup before we answer. A `message processed` log line records each stage's time; see [testing on a real number](../development/whatsapp-device-test.md).
+
+A message that arrives more than 6 hours late isn't acted on: an `ORDER` or code from yesterday isn't approval today. The sender is asked to resend.
+
+The worker authenticates with the internal token, so it isn't rate limited as one visitor. Customers are limited one by one in the conversation service.
+
+## Quoted replies
+
+A quote tells Katale what someone is pointing at. It never approves anything or sets a price.
+
+1. The backend records `refs` on each outbound message that's about something: `product`, `list`, `cart`, `summary`, `order`, `offer` or `customer_alert`. The model never writes these.
+2. After sending, the worker reports WhatsApp's short ID to `POST /api/agent/delivered`, stored as `stanzaId`. It is never overwritten.
+3. An inbound `quoted.stanzaId` is looked up in that conversation's own outbound messages only, so another chat's ID doesn't resolve.
+4. Current facts are re-read from the database. The old message's price is not honoured.
+5. Quoted text the lookup can't match is forgeable, so it reaches the model only as the customer's own words, and never on the merchant path.
+
+A merchant replying to a customer alert sends their typed words straight to that customer, with no model involved, and is told who it went to. Approval words are never forwarded, and spoken replies must be typed.
+
+The ID match is inferred from the library source and still needs [checking on a device](../development/whatsapp-device-test.md#quoted-replies).

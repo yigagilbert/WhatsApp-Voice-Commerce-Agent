@@ -19,11 +19,13 @@ describe('WhatsApp outbound gateway', () => {
     onMessage: () => undefined,
     onCall: () => undefined,
     isReady: () => ready,
-    sendText: async (chatId, text) => {
+    sendText: async (chatId, text): Promise<string | null> => {
       sent.push({ chatId, text });
+      return null;
     },
-    sendImage: async (chatId, image, caption) => {
+    sendImage: async (chatId, image, caption): Promise<string | null> => {
       sent.push({ chatId, text: caption, image: image.mimeType });
+      return null;
     },
     postStatus: async (image, caption) => {
       if (statusFails) throw new Error(`${statusFails}\n    at puppeteer frame`);

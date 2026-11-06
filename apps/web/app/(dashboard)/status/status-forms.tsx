@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
+import { DraftRestored, useFormAction } from '@/components/use-form-action';
 import { dateTime } from '@/lib/format';
 import {
   editStatusAd,
@@ -73,11 +74,16 @@ function Notice({ state }: { state: ActionState }) {
 }
 
 export function SettingsForm({ settings }: { settings: StatusSettings }) {
-  const [state, action, pending] = useActionState<ActionState, FormData>(saveStatusSettings, null);
+  const { state, pending, restored, formProps } = useFormAction<ActionState>(
+    saveStatusSettings,
+    null,
+    { draftKey: 'status-settings' },
+  );
   const [scope, setScope] = useState(settings.productIds.length ? 'chosen' : 'all');
   const times = [...settings.times, '', '', ''].slice(0, 3);
   return (
-    <form action={action} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+    <form {...formProps} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+      <DraftRestored show={restored} />
       <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
         <input type="checkbox" name="enabled" defaultChecked={settings.enabled} />
         Prepare Status adverts automatically
@@ -290,12 +296,15 @@ function ActionButton({
   action,
   label,
   primary: isPrimary,
+  confirmFirst,
   onDone,
 }: {
   id: string;
   action: Parameters<typeof statusAdAction>[1];
   label: string;
   primary?: boolean;
+  /** Asked before a public or final action. */
+  confirmFirst?: string;
   onDone: (state: ActionState) => void;
 }) {
   const [pending, start] = useTransition();
@@ -303,7 +312,10 @@ function ActionButton({
     <button
       type="button"
       disabled={pending}
-      onClick={() => start(async () => onDone(await statusAdAction(id, action)))}
+      onClick={() => {
+        if (confirmFirst && !window.confirm(confirmFirst)) return;
+        start(async () => onDone(await statusAdAction(id, action)));
+      }}
       className={isPrimary ? primary : secondary}
     >
       {pending ? '…' : label}
@@ -327,10 +339,14 @@ export function OpenAdCard({
   posting: boolean;
 }) {
   const [state, setState] = useState<ActionState>(null);
-  const [editState, editAction, saving] = useActionState<ActionState, FormData>(
-    editStatusAd.bind(null, ad.id),
-    null,
-  );
+  const {
+    state: editState,
+    pending: saving,
+    restored,
+    formProps: editForm,
+  } = useFormAction<ActionState>(editStatusAd.bind(null, ad.id), null, {
+    draftKey: `status-ad:${ad.id}`,
+  });
   const [copied, setCopied] = useState(false);
   const [broken, setBroken] = useState(false);
   const src = `/status/${ad.id}/image?v=${encodeURIComponent(ad.updatedAt)}`;
@@ -360,7 +376,8 @@ export function OpenAdCard({
             {ad.source === 'ai' ? 'AI wording' : ad.source === 'edited' ? 'Edited' : 'Template'}
           </span>
         </div>
-        <form action={editAction} className="space-y-2">
+        <form {...editForm} className="space-y-2">
+          <DraftRestored show={restored} />
           <label className="block text-sm">
             <span className="mb-1 block font-medium text-slate-700">Headline (on the image)</span>
             <input
@@ -437,6 +454,7 @@ export function OpenAdCard({
                   action="publish"
                   label="Post to my Status now"
                   primary
+                  confirmFirst="Post this advert to your WhatsApp Status now? Your contacts can see it right away."
                   onDone={setState}
                 />
               )}
@@ -456,7 +474,13 @@ export function OpenAdCard({
             </>
           )}
           {!ad.publishingAt && (
-            <ActionButton id={ad.id} action="skip" label="Skip" onDone={setState} />
+            <ActionButton
+              id={ad.id}
+              action="skip"
+              label="Skip"
+              confirmFirst="Skip this advert? It won't be posted."
+              onDone={setState}
+            />
           )}
         </div>
         {/* A posting failure is already shown above, from the advert itself. */}

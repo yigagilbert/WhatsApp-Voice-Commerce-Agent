@@ -1,0 +1,12 @@
+import { boot, newChat, pct, TimedModel } from './lib.mts';
+const stub = new TimedModel({ id: 'stub', async complete() { return { message: { role: 'assistant', content: 'x' } }; } });
+const { send, app } = await boot(stub, { RATE_LIMIT_MAX: '100000' });
+const c0 = await send(newChat(), 'hi'); console.log('cold first hi', c0.status, c0.total.toFixed(1), 'queries', c0.events.length);
+const run = async (label: string, n: number, f: () => Promise<any>) => { const t: number[] = [], codes: Record<string, number> = {}; const q: number[] = []; for (let i = 0; i < n; i++) { const r = await f(); codes[r.status] = (codes[r.status] ?? 0) + 1; if (r.status === 200) { t.push(r.total); q.push(r.events.filter((e: any) => e.kind === 'db').reduce((a: number, e: any) => a + e.ms, 0)); } await new Promise((r) => setTimeout(r, 50)); } console.log(label, JSON.stringify({ codes, p50: +pct(t, 50).toFixed(1), p95: +pct(t, 95).toFixed(1), max: +Math.max(...t).toFixed(1), dbP50: +pct(q, 50).toFixed(1) })); };
+await run('warm first-ever hi', 60, () => send(newChat(), 'hi'));
+const known = newChat(); await send(known, 'hi');
+await run('returning hello', 12, async () => { const r = await send(known, 'hello'); await new Promise((r) => setTimeout(r, 4200)); return r; });
+const r = await send(newChat(), 'hi'); console.log('link lookup', r.events.filter((e: any) => e.label === 'Storefront.findUnique').map((e: any) => e.ms.toFixed(2)), 'queries', r.events.length, 'status', r.status);
+const { boot: _b } = await import('./lib.mts');
+await app.close();
+const d = await boot(stub, {}); let codes: Record<string, number> = {}; for (let i = 0; i < 60; i++) { const r = await d.send(newChat(), 'hi'); codes[r.status] = (codes[r.status] ?? 0) + 1; } console.log('default limits, 60 rapid', JSON.stringify(codes)); await d.app.close(); process.exit(0);

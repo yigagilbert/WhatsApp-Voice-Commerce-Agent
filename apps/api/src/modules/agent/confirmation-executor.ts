@@ -28,12 +28,18 @@ import {
 } from '../payments/reminder.service';
 import { ShipmentService, shipmentPayloadSchema } from '../shipments/shipment.service';
 import { disputeResponsePayloadSchema, type DisputeService } from '../disputes/dispute.service';
+import type { OrderLifecycleService } from '../orders/order-lifecycle.service';
 
 const paymentRequestPayloadSchema = z.object({
   orderId: z.string(),
   orderReference: z.string(),
   totalMinor: z.number().int().positive(),
   currency: z.string().length(3),
+});
+
+const cancelOrderPayloadSchema = z.object({
+  orderId: z.string(),
+  orderReference: z.string(),
 });
 
 const orderReferenceOf = (confirmation: ActionConfirmation): string | null => {
@@ -65,6 +71,7 @@ export class ConfirmationExecutor {
       disputes: DisputeService;
       confirmations: ConfirmationService;
       notifications: NotificationService;
+      lifecycle?: Pick<OrderLifecycleService, 'cancel'>;
       audit: AuditService;
       policy: PaymentPolicyConfig;
       logger: Logger;
@@ -75,6 +82,7 @@ export class ConfirmationExecutor {
       ADD_SHIPMENT_TRACKING: (c, m) => this.addShipmentTracking(c, m),
       SUBMIT_DISPUTE_RESPONSE: (c, m) => this.submitDisputeResponse(c, m),
       SEND_PAYMENT_REMINDER: (c, m) => this.sendPaymentReminder(c, m),
+      CANCEL_ORDER: (c, m) => this.cancelOrder(c, m),
       // SEND_INVOICE and REFUND_PAYMENT: add handlers here when their tools are introduced.
     };
   }
@@ -143,13 +151,24 @@ export class ConfirmationExecutor {
   }
 
   /**
-   * The merchant cancelled a pending payment request: the draft it was for is discarded
-   * (DRAFT → CANCELLED) so it doesn't linger as open work. Returns the order reference.
+   * The merchant said no to a pending request. Their own unsent draft is discarded, since nobody
+   * else knows about it. An order a customer placed is left alone: "no" to sending a payment link
+   * is not "cancel this customer's order", which has its own code and tells the customer.
    */
-  async discard(confirmation: ActionConfirmation, merchant: Merchant): Promise<string | null> {
-    if (confirmation.action !== 'CREATE_PAYMENT_REQUEST') return null;
+  async discard(
+    confirmation: ActionConfirmation,
+    merchant: Merchant,
+  ): Promise<{ reference: string | null; kept: boolean }> {
+    if (confirmation.action === 'CANCEL_ORDER') {
+      const payload = cancelOrderPayloadSchema.safeParse(confirmation.payload);
+      return { reference: payload.success ? payload.data.orderReference : null, kept: true };
+    }
+    if (confirmation.action !== 'CREATE_PAYMENT_REQUEST') return { reference: null, kept: false };
     const payload = paymentRequestPayloadSchema.safeParse(confirmation.payload);
-    if (!payload.success) return null;
+    if (!payload.success) return { reference: null, kept: false };
+    const order = await this.deps.orders.getByReference(merchant.id, payload.data.orderId);
+    if (order.placedBy === 'CUSTOMER')
+      return { reference: payload.data.orderReference, kept: true };
     const moved = await this.deps.orders.transition(payload.data.orderId, 'DRAFT', 'CANCELLED');
     if (moved) {
       await this.deps.audit.record({
@@ -162,7 +181,36 @@ export class ConfirmationExecutor {
         data: { reference: payload.data.orderReference },
       });
     }
-    return payload.data.orderReference;
+    return { reference: payload.data.orderReference, kept: false };
+  }
+
+  /** An explicit, coded cancellation of an unpaid order. The lifecycle service tells the customer. */
+  private async cancelOrder(confirmation: ActionConfirmation, merchant: Merchant): Promise<string> {
+    const payload = cancelOrderPayloadSchema.parse(confirmation.payload);
+    if (!this.deps.lifecycle) throw new ConflictError('Cancelling orders is not available here.');
+    const outcome = await this.deps.lifecycle.cancel({
+      merchantId: merchant.id,
+      reference: payload.orderId,
+      by: 'MERCHANT',
+    });
+    await this.deps.confirmations.markExecuted(confirmation.id, {
+      outcome: outcome?.status ?? 'not_found',
+    });
+    const ref = payload.orderReference;
+    switch (outcome?.status) {
+      case 'cancelled':
+        return branded(
+          `✅ Order ${ref} is cancelled and the customer has been told. No money was taken.`,
+        );
+      case 'already_cancelled':
+        return branded(`Order ${ref} was already cancelled.`);
+      case 'paid':
+        return branded(`Order ${ref} has just been paid, so it wasn't cancelled.`);
+      case 'not_cancellable':
+        return branded(`Order ${ref} wasn't cancelled. ${outcome.reason}`);
+      default:
+        return branded(`I couldn't find order ${ref}.`);
+    }
   }
 
   /**
@@ -174,6 +222,10 @@ export class ConfirmationExecutor {
     if (confirmation.action === 'ADD_SHIPMENT_TRACKING') {
       const p = shipmentPayloadSchema.parse(confirmation.payload);
       return `That tracking was already added: ${p.orderReference}, ${p.carrierLabel} ${p.trackingNumber}. Nothing new was sent to PayPal.`;
+    }
+    if (confirmation.action === 'CANCEL_ORDER') {
+      const p = cancelOrderPayloadSchema.parse(confirmation.payload);
+      return `Order ${p.orderReference} was already handled. Nothing new was done.`;
     }
     if (confirmation.action === 'SEND_PAYMENT_REMINDER') {
       const p = reminderPayloadSchema.parse(confirmation.payload);

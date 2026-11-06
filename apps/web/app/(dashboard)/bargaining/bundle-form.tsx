@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useState } from 'react';
+import { DraftRestored, useFormAction } from '@/components/use-form-action';
 import { saveBundle, type BundleFormState } from './actions';
 
 const input =
@@ -12,10 +13,13 @@ export function BundleForm({
 }: {
   bundle: { minItems: number; percentOff: number } | null;
 }) {
-  const [state, action, pending] = useActionState<BundleFormState, FormData>(saveBundle, null);
+  const { state, pending, restored, formProps } = useFormAction<BundleFormState>(saveBundle, null, {
+    draftKey: 'bundle',
+  });
   const [enabled, setEnabled] = useState(!!bundle);
   return (
-    <form action={action} className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+    <form {...formProps} className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+      <DraftRestored show={restored} />
       <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
         <input
           type="checkbox"

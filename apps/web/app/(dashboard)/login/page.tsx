@@ -32,7 +32,7 @@ export default async function LoginPage({
         )}
         {expired && (
           <p role="status" className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            Your session has ended. Please sign in again.
+            Your session ended. Sign in again to carry on where you left off.
           </p>
         )}
         <LoginForm next={next} />

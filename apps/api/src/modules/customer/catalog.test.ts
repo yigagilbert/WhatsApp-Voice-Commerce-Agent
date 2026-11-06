@@ -26,7 +26,7 @@ describe('customer catalog', () => {
     );
     const soldOut = CustomerCatalog.formatDetails({ ...wallet, availability: 'Out of stock' });
     expect(soldOut).not.toContain('*add*');
-    expect(soldOut).toContain('Reply *1* to see other products');
+    expect(soldOut).toContain('Reply *browse* to see other products');
   });
 
   it('says when a price is open to offers and shows quantity deals, never the minimum', () => {

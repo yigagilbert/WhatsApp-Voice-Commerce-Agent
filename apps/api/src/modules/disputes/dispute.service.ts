@@ -224,8 +224,9 @@ export class DisputeService {
     // Every admin who opted in to alerts; otherwise the chat the order came from (or the most
     // recent admin chat).
     if (dispute.merchantId && (await this.notifications.toAdmins(dispute.merchantId, text))) return;
-    const conversationId =
-      full.order?.conversationId ?? (await this.merchantConversationId(dispute.merchantId));
+    // A customer's own order points at the customer's chat, which must never get a merchant notice.
+    const orderChat = full.order?.placedBy === 'CUSTOMER' ? null : full.order?.conversationId;
+    const conversationId = orderChat ?? (await this.merchantConversationId(dispute.merchantId));
     if (!conversationId) return;
     await this.notifications.toConversation(conversationId, text);
   }

@@ -1,5 +1,6 @@
 import { ConfigError, loadWhatsAppConfig, resolveFromRoot, type WhatsAppConfig } from '@vca/config';
 import {
+  KeyedQueue,
   createLogger,
   getCorrelationId,
   newCorrelationId,
@@ -10,11 +11,16 @@ import { CoreApiClient } from './api-client';
 import { RecentIds } from './dedupe';
 import { deliverReplies } from './deliver';
 import { createGatewayServer } from './gateway-server';
-import { durationHintSeconds, mapWhatsAppMessage } from './message-mapper';
+import { durationHintSeconds, mapWhatsAppMessage, type MappedMessage } from './message-mapper';
+import { StageClock, withTimeout } from './stages';
+import { WhatsAppWebTransport, type IncomingWhatsAppMessage } from './whatsapp-adapter';
 
 /** Voice notes still being processed after this long get a "processing…" acknowledgement. */
 const VOICE_ACK_DELAY_MS = 2500;
-import { WhatsAppWebTransport, type IncomingWhatsAppMessage } from './whatsapp-adapter';
+/** WhatsApp's typing indicator lapses after about 25 s, so it is renewed before then. */
+const TYPING_REFRESH_MS = 20_000;
+/** Reading a quote is a nice-to-have: it never holds up the reply for long. */
+const QUOTE_LOOKUP_MS = 1500;
 
 async function main() {
   let config: WhatsAppConfig;
@@ -44,29 +50,13 @@ async function main() {
   const api = new CoreApiClient(config.WHATSAPP_API_BASE_URL, config.INTERNAL_SERVICE_TOKEN);
   const recent = new RecentIds();
 
-  async function handle(msg: IncomingWhatsAppMessage) {
-    const mapped = mapWhatsAppMessage(msg, { voiceNotesEnabled: config.VOICE_NOTES_ENABLED });
-    if (mapped.kind === 'skip') {
-      if (mapped.reason === 'no_id') {
-        // Field names only — never the values (they contain phone numbers).
-        logger.warn(
-          { idFields: Object.keys(msg.id ?? {}) },
-          'message skipped: no usable message ID',
-        );
-      } else {
-        // Reason and type only — never the content. Groups/status are too noisy for info.
-        const level = mapped.reason === 'status' || mapped.reason === 'group' ? 'debug' : 'info';
-        logger[level]({ reason: mapped.reason, type: msg.type }, 'message skipped');
-      }
-      return;
-    }
-    const externalMessageId =
-      mapped.kind === 'audio' ? mapped.base.externalMessageId : mapped.message.externalMessageId;
-    if (!recent.add(externalMessageId)) {
-      logger.debug('duplicate WhatsApp event ignored'); // expected: message + message_create
-      return;
-    }
+  const chats = new KeyedQueue();
 
+  async function handle(
+    msg: IncomingWhatsAppMessage,
+    mapped: Exclude<MappedMessage, { kind: 'skip' }>,
+    clock: StageClock,
+  ) {
     let message: InboundChannelMessage;
     if (mapped.kind === 'audio') {
       let media;
@@ -76,10 +66,11 @@ async function main() {
         logger.warn({ err: error }, 'voice note download failed');
         media = null;
       }
+      clock.mark('download');
       if (!media) {
         await transport.sendText(
           msg.from,
-          "I couldn't access that voice note. Please try sending it again.",
+          "I couldn't get that voice note. Please try sending it again, or type your message.",
         );
         logger.warn('voice note could not be downloaded');
         return;
@@ -106,6 +97,14 @@ async function main() {
       message = mapped.message;
     }
 
+    // WhatsApp's own quote field is preferred; the library lookup can fail on current builds.
+    if (msg.hasQuotedMsg && !message.quoted?.stanzaId) {
+      const stanzaId = await withTimeout(msg.quotedStanzaId(), QUOTE_LOOKUP_MS).catch(() => null);
+      if (stanzaId) message = { ...message, quoted: { ...message.quoted, stanzaId } };
+      logger.info({ found: !!stanzaId }, 'quoted message looked up through the library');
+      clock.mark('quote');
+    }
+
     // WhatsApp often identifies people by a linked ID (@lid); resolve the phone so the API can
     // authorize admins registered by phone number.
     const senderPhone = await transport.resolvePhone(message.senderId).catch(() => null);
@@ -113,15 +112,15 @@ async function main() {
     // Which bot number received it: decides the merchant for customer conversations.
     const recipientId = transport.botId();
     if (recipientId) message = { ...message, recipientId };
+    clock.mark('identity');
 
-    void msg.showTyping().catch(() => undefined);
     // Speech recognition takes a few seconds: acknowledge slow voice notes once, so the merchant
     // knows it arrived. Fast outcomes (errors, unknown sender) don't get the extra message.
     const ack =
       message.type === 'audio'
         ? setTimeout(() => {
             void transport
-              .sendText(msg.from, "🎙️ Voice note received. I'm processing your request…")
+              .sendText(msg.from, '🎙️ Got your voice note, one moment…')
               .catch(() => undefined);
           }, VOICE_ACK_DELAY_MS)
         : undefined;
@@ -131,28 +130,81 @@ async function main() {
     } finally {
       clearTimeout(ack);
     }
-    await deliverReplies(transport, result.replies, logger);
+    clock.mark('api');
+    const deliveries = await deliverReplies(transport, result.replies, logger);
+    clock.mark('send');
+    void api
+      .reportDelivered(deliveries)
+      .catch((error: unknown) => logger.warn({ err: error }, 'delivery report failed'));
     logger.info(
-      { type: message.type, status: result.status, replies: result.replies.length },
+      {
+        type: message.type,
+        status: result.status,
+        replies: result.replies.length,
+        quoted: !!message.quoted,
+        stages: clock.stages(),
+        totalMs: clock.total(),
+      },
       'message processed',
     );
   }
 
   transport.onMessage(async (msg) => {
-    // One correlation ID per WhatsApp message, propagated to the API and back.
-    await runWithContext({ correlationId: newCorrelationId() }, async () => {
-      try {
-        await handle(msg);
-      } catch (error) {
-        logger.error({ err: error }, 'failed to process WhatsApp message');
-        await transport
-          .sendText(
-            msg.from,
-            'Sorry, something went wrong on our side. Please try again in a moment.',
-          )
-          .catch(() => undefined);
+    const mapped = mapWhatsAppMessage(msg, { voiceNotesEnabled: config.VOICE_NOTES_ENABLED });
+    if (mapped.kind === 'skip') {
+      if (mapped.reason === 'no_id') {
+        // Field names only — never the values (they contain phone numbers).
+        logger.warn(
+          { idFields: Object.keys(msg.id ?? {}) },
+          'message skipped: no usable message ID',
+        );
+      } else {
+        // Reason and type only — never the content. Groups/status are too noisy for info.
+        const level = mapped.reason === 'status' || mapped.reason === 'group' ? 'debug' : 'info';
+        logger[level]({ reason: mapped.reason, type: msg.type }, 'message skipped');
       }
-    });
+      return;
+    }
+    const externalMessageId =
+      mapped.kind === 'audio' ? mapped.base.externalMessageId : mapped.message.externalMessageId;
+    if (!recent.add(externalMessageId)) {
+      logger.debug('duplicate WhatsApp event ignored'); // expected: message + message_create
+      return;
+    }
+
+    // Before anything can block: ticks and typing tell the sender we have it, even if this chat's
+    // earlier message is still being answered.
+    const clock = new StageClock();
+    void msg.markSeen().catch(() => undefined);
+    void msg.showTyping().catch(() => undefined);
+    const typing = setInterval(() => {
+      void msg.showTyping().catch(() => undefined);
+    }, TYPING_REFRESH_MS);
+
+    // One correlation ID per WhatsApp message, propagated to the API and back. Messages from one
+    // chat are answered in order, one at a time; other chats aren't held up.
+    await chats.run(msg.from, () =>
+      runWithContext({ correlationId: newCorrelationId() }, async () => {
+        clock.mark('queued');
+        try {
+          await handle(msg, mapped, clock);
+        } catch (error) {
+          logger.error(
+            { err: error, stages: clock.stages() },
+            'failed to process WhatsApp message',
+          );
+          await transport
+            .sendText(
+              msg.from,
+              'Sorry, something went wrong on our side. Please try again in a moment.',
+            )
+            .catch(() => undefined);
+        } finally {
+          clearInterval(typing);
+          void msg.clearTyping().catch(() => undefined);
+        }
+      }),
+    );
   });
 
   // whatsapp-web.js can only see and reject calls (no call audio). Decline them and point the

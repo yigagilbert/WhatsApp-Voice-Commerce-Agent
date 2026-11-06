@@ -56,7 +56,14 @@ export interface CommerceGridProps<T> {
   emptyMessage: string;
   getRowId: (row: T) => string;
   height?: number;
+  /** Starts the search box with this text: how other pages link to a particular record. */
+  initialSearch?: string;
 }
+
+/** There are records, but the search or a filter hides them all. */
+const LOCALE_TEXT = {
+  noMatchingRows: 'Nothing matches your search or filters. Clear them to see everything.',
+};
 
 export function CommerceGrid<T>({
   rows,
@@ -71,9 +78,10 @@ export function CommerceGrid<T>({
   emptyMessage,
   getRowId,
   height = 560,
+  initialSearch = '',
 }: CommerceGridProps<T>) {
   const api = useRef<GridApi<T> | null>(null);
-  const [quickFilter, setQuickFilter] = useState('');
+  const [quickFilter, setQuickFilter] = useState(initialSearch);
   const [status, setStatus] = useState<string>('');
   const statusRef = useRef(status);
   const [shown, setShown] = useState(rows.length);
@@ -194,6 +202,7 @@ export function CommerceGrid<T>({
           paginationPageSizeSelector={[20, 50, 100]}
           pinnedBottomRowData={summaryRow}
           overlayNoRowsTemplate={`<span class="text-sm text-slate-500">${emptyMessage}</span>`}
+          localeText={LOCALE_TEXT}
           onGridReady={(e) => {
             api.current = e.api;
             refreshSummary();

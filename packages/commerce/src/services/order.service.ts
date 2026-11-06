@@ -315,6 +315,84 @@ export class OrderService {
   }
 
   /** Status change guarded by the state machine and by optimistic concurrency on the old status. */
+  /**
+   * Changes a draft the merchant is still reviewing: shipping, tax or an item's quantity. Amounts
+   * are recomputed here, and the order is never one a customer placed: they confirmed that total.
+   */
+  async updateDraft(params: {
+    merchantId: string;
+    reference: string;
+    shipping?: number | undefined;
+    tax?: number | undefined;
+    items?: { description: string; quantity: number }[] | undefined;
+  }) {
+    const order = await this.getByReference(params.merchantId, params.reference);
+    if (order.status !== 'DRAFT')
+      throw new ValidationError(
+        `Order ${order.reference} is no longer a draft (it is ${order.status.toLowerCase()}), so it can't be changed.`,
+      );
+    if (order.placedBy === 'CUSTOMER')
+      throw new ValidationError(
+        `The customer placed ${order.reference} and confirmed its total, so it can't be changed here.`,
+      );
+    const quantities = new Map(order.items.map((i) => [i.id, i.quantity]));
+    for (const change of params.items ?? []) {
+      const wanted = change.description.toLowerCase();
+      const line = order.items.find((i) => i.description.toLowerCase().includes(wanted));
+      if (!line)
+        throw new ValidationError(`${change.description} isn't on order ${order.reference}.`);
+      quantities.set(line.id, change.quantity);
+    }
+    const totals = calculateOrderTotals({
+      currency: order.currency,
+      lines: order.items.map((i) => ({
+        description: i.description,
+        quantity: quantities.get(i.id)!,
+        unitPriceMinor: i.unitPriceMinor,
+        productId: i.productId,
+      })),
+      shippingMinor:
+        params.shipping !== undefined
+          ? toMinorUnits(params.shipping, order.currency)
+          : order.shippingMinor,
+      taxMinor:
+        params.tax !== undefined ? toMinorUnits(params.tax, order.currency) : order.taxMinor,
+    });
+    await this.db.$transaction(async (tx) => {
+      const { count } = await tx.order.updateMany({
+        where: { id: order.id, status: 'DRAFT' },
+        data: {
+          subtotalMinor: totals.subtotalMinor,
+          shippingMinor: totals.shippingMinor,
+          taxMinor: totals.taxMinor,
+          totalMinor: totals.totalMinor,
+        },
+      });
+      if (count !== 1) throw new ValidationError(`Order ${order.reference} just changed.`);
+      for (const [index, line] of totals.lines.entries())
+        await tx.orderItem.update({
+          where: { id: order.items[index]!.id },
+          data: { quantity: line.quantity, lineTotalMinor: line.lineTotalMinor },
+        });
+      await this.audit.record(
+        {
+          merchantId: params.merchantId,
+          actor: 'AGENT',
+          type: 'order.draft_updated',
+          entityType: 'order',
+          entityId: order.id,
+          data: {
+            reference: order.reference,
+            previousTotalMinor: order.totalMinor,
+            totalMinor: totals.totalMinor,
+          },
+        },
+        tx,
+      );
+    });
+    return this.getByReference(params.merchantId, order.id);
+  }
+
   async transition(
     orderId: string,
     from: OrderStatus,

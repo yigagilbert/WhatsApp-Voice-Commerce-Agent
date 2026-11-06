@@ -119,7 +119,8 @@ export function safeNextPath(next: unknown): string {
     next !== '/' &&
     !next.startsWith('//') &&
     !next.startsWith('/\\') &&
-    !next.startsWith('/login')
+    !next.startsWith('/login') &&
+    !next.startsWith('/session-ended')
     ? next
     : DASHBOARD_HOME;
 }

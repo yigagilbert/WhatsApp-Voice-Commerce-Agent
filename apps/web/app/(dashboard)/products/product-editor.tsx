@@ -1,15 +1,9 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import {
-  type FormEvent,
-  useActionState,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  useTransition,
-} from 'react';
+import { useEffect, useId, useRef, useState, useTransition } from 'react';
+import { PayPalCurrencyWarning } from '@/components/paypal-currency-warning';
+import { DraftRestored, useFormAction } from '@/components/use-form-action';
 import { toMajorString, toMinorUnits } from '@vca/commerce/money';
 import { MAX_COUNTER_OFFERS, counterOffer } from '@vca/commerce/bargaining';
 import { PHOTO_TYPES, photoProblem, photoUrl } from '@/lib/photo';
@@ -301,15 +295,11 @@ export function ProductEditor({
   /** Currency for new products (the merchant's). */
   currency: string;
 }) {
-  const [state, action, pending] = useActionState<ProductFormState, FormData>(saveProduct, null);
-  const [, startSubmit] = useTransition();
-  // Submitted by hand: a `<form action>` resets every field after the action, so a rejected
-  // save would wipe what the merchant typed (and the chosen photo).
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    startSubmit(() => action(form));
-  };
+  const { state, pending, restored, formProps } = useFormAction<ProductFormState>(
+    saveProduct,
+    null,
+    { draftKey: `product:${product?.id ?? 'new'}` },
+  );
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [trackStock, setTrackStock] = useState(product ? product.stockQuantity !== null : true);
   const productCurrency = product?.currency ?? currency;
@@ -325,7 +315,9 @@ export function ProductEditor({
   const notice = photoError ? { ok: false, message: photoError } : state;
 
   return (
-    <form onSubmit={submit} className="space-y-5 rounded-lg border border-slate-200 bg-white p-5">
+    <form {...formProps} className="space-y-5 rounded-lg border border-slate-200 bg-white p-5">
+      <DraftRestored show={restored} />
+      <PayPalCurrencyWarning currency={productCurrency} />
       {product && <input type="hidden" name="id" value={product.id} />}
       <PhotoField product={product} onError={setPhotoError} />
 

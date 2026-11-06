@@ -1,7 +1,8 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { loadWebConfig } from '@vca/config';
-import { BOOTSTRAP_USER_ID, SESSION_COOKIE, verifySessionToken } from '@/lib/session';
+import { BOOTSTRAP_USER_ID, SESSION_COOKIE, safeNextPath, verifySessionToken } from '@/lib/session';
+import { loginAfterSessionEnded } from '@/lib/session-ended';
 
 /**
  * Where the dashboard sends someone whose session the API no longer accepts (password changed,
@@ -14,11 +15,11 @@ import { BOOTSTRAP_USER_ID, SESSION_COOKIE, verifySessionToken } from '@/lib/ses
  */
 export async function GET(request: Request) {
   const jar = await cookies();
+  const next = safeNextPath(new URL(request.url).searchParams.get('next'));
   const user = verifySessionToken(jar.get(SESSION_COOKIE)?.value);
-  if (user && (await stillValid(user)))
-    return NextResponse.redirect(new URL('/overview', request.url));
+  if (user && (await stillValid(user))) return NextResponse.redirect(new URL(next, request.url));
   jar.delete(SESSION_COOKIE);
-  return NextResponse.redirect(new URL('/login?expired=1', request.url));
+  return NextResponse.redirect(new URL(loginAfterSessionEnded(next), request.url));
 }
 
 async function stillValid(user: { id: string; version: number }): Promise<boolean> {

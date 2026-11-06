@@ -193,7 +193,7 @@ export class OrderLifecycleService {
       if (current.status === 'PAID') return { status: 'paid', order: current };
       return { status: 'not_cancellable', order: current, reason: 'The order changed; try again.' };
     }
-    await this.notify(current, by).catch((error: unknown) =>
+    await this.notify(current, by, order.status).catch((error: unknown) =>
       this.logger.warn({ err: error, orderId: order.id }, 'cancellation notice failed'),
     );
     return { status: 'cancelled', order: current };
@@ -229,17 +229,25 @@ export class OrderLifecycleService {
     return false;
   }
 
-  private async notify(order: Order, by: 'MERCHANT' | 'CUSTOMER' | 'SYSTEM') {
+  private async notify(
+    order: Order,
+    by: 'MERCHANT' | 'CUSTOMER' | 'SYSTEM',
+    previousStatus: Order['status'],
+  ) {
     const total = formatMoney(order.totalMinor, order.currency);
     const customer = await this.db.customer.findUnique({ where: { id: order.customerId } });
     const who = customer?.name ?? 'customer';
-    if (order.placedBy === 'CUSTOMER' && order.conversationId && by !== 'CUSTOMER') {
-      await this.notifications.toConversation(
-        order.conversationId,
-        by === 'SYSTEM'
-          ? `Order ${order.reference} (${total}) was cancelled because it wasn't paid in time. No money was taken. Reply *1* to shop again.`
-          : `Order ${order.reference} (${total}) was cancelled by the shop. No money was taken. Reply *4* if you have questions.`,
-      );
+    // Whoever knew about this order hears it ended: the customer who placed it, or the customer the
+    // shop sent a payment link to. A shop's unsent draft was never seen, so it stays quiet.
+    const notice =
+      by === 'SYSTEM'
+        ? `Order ${order.reference} (${total}) was cancelled because it wasn't paid in time. No money was taken. Reply *browse* to shop again.`
+        : `Order ${order.reference} (${total}) was cancelled by the shop. No money was taken. Reply *person* if you have questions.`;
+    if (by !== 'CUSTOMER') {
+      if (order.placedBy === 'CUSTOMER' && order.conversationId)
+        await this.notifications.toConversation(order.conversationId, notice);
+      else if (previousStatus === 'AWAITING_PAYMENT' && customer)
+        await this.notifications.toCustomer(customer, notice);
     }
     if (by === 'MERCHANT') return; // the merchant did it themselves
     await this.notifications.toAdmins(

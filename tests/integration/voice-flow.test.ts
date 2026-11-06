@@ -280,7 +280,7 @@ describe('voice commerce (integration)', () => {
       },
     );
     const result = await send(voice());
-    expect(result.replies[0]!.text).toBe('Did you mean Sarah Thompson?');
+    expect(result.replies[0]!.text).toContain('Did you mean Sarah Thompson?');
     expect(captured[0]).toContain("No customer named 'ssaala'. Did you mean Sarah Thompson?");
     expect(await container.db.customer.count({ where: { merchantId } })).toBe(customersBefore);
   });

@@ -53,9 +53,47 @@ export interface WhatsAppMessageLike {
   hasMedia: boolean;
   /** Voice-note length in seconds as reported by WhatsApp (string or number), if any. */
   duration?: string | number | undefined;
-  /** Present on wwebjs messages; push name of the sender. */
-  _data?: { notifyName?: string };
+  /** Present on wwebjs messages; push name of the sender and the quote the sender replied to. */
+  _data?: {
+    notifyName?: string;
+    quotedStanzaID?: unknown;
+    quotedMsg?: { body?: unknown; caption?: unknown } | null;
+  };
+  /** A shared location pin. */
+  location?: { latitude?: unknown; longitude?: unknown; description?: unknown } | null;
 }
+
+/**
+ * What a reply points at. The stanza ID is matched against our own records by the API. The text
+ * comes from the sender's device and could be forged, so it only ever counts as their own words.
+ */
+export function quotedOf(msg: Pick<WhatsAppMessageLike, '_data'>) {
+  const stanzaId = msg._data?.quotedStanzaID;
+  const quoted = msg._data?.quotedMsg;
+  const text = quoted?.body ?? quoted?.caption;
+  const usableId = typeof stanzaId === 'string' && stanzaId ? stanzaId.slice(0, 128) : undefined;
+  const usableText = typeof text === 'string' && text ? text.slice(0, 1000) : undefined;
+  if (!usableId && !usableText) return undefined;
+  return {
+    ...(usableId ? { stanzaId: usableId } : {}),
+    ...(usableText ? { text: usableText } : {}),
+  };
+}
+
+const locationOf = (msg: Pick<WhatsAppMessageLike, 'location'>) => {
+  const latitude = Number(msg.location?.latitude);
+  const longitude = Number(msg.location?.longitude);
+  if (!msg.location || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return undefined;
+  const description = msg.location.description;
+  return {
+    latitude,
+    longitude,
+    ...(typeof description === 'string' && description
+      ? { description: description.slice(0, 300) }
+      : {}),
+  };
+};
 
 export type SkipReason =
   'from_me' | 'status' | 'group' | 'broadcast' | 'unsupported_type' | 'empty' | 'no_id';
@@ -104,6 +142,7 @@ export function mapWhatsAppMessage(
   const externalMessageId = serializeMessageId(msg.id);
   if (!externalMessageId) return { kind: 'skip', reason: 'no_id' };
 
+  const quoted = quotedOf(msg);
   const base = {
     channel: 'whatsapp' as const,
     externalMessageId,
@@ -111,6 +150,7 @@ export function mapWhatsAppMessage(
     senderId: msg.from,
     ...(msg._data?.notifyName ? { senderName: msg._data.notifyName } : {}),
     sentAt: new Date(msg.timestamp * 1000),
+    ...(quoted ? { quoted } : {}),
   };
 
   if (msg.type === 'chat') {
@@ -130,7 +170,16 @@ export function mapWhatsAppMessage(
   }
   const unsupportedKind = UNSUPPORTED_TYPES[msg.type];
   if (unsupportedKind) {
-    return { kind: 'unsupported', message: { ...base, type: 'unsupported', unsupportedKind } };
+    const location = unsupportedKind === 'location' ? locationOf(msg) : undefined;
+    return {
+      kind: 'unsupported',
+      message: {
+        ...base,
+        type: 'unsupported',
+        unsupportedKind,
+        ...(location ? { location } : {}),
+      },
+    };
   }
   return { kind: 'skip', reason: 'unsupported_type' };
 }

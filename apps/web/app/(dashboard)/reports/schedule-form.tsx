@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
+import { DraftRestored, useFormAction } from '@/components/use-form-action';
 import { saveSchedule, sendReportNow, type ActionState } from './actions';
 
 export interface Schedule {
@@ -43,11 +44,14 @@ function Notice({ state }: { state: ActionState }) {
 }
 
 export function ScheduleForm({ schedule }: { schedule: Schedule }) {
-  const [state, action, pending] = useActionState<ActionState, FormData>(saveSchedule, null);
+  const { state, pending, restored, formProps } = useFormAction<ActionState>(saveSchedule, null, {
+    draftKey: 'report-schedule',
+  });
   const [frequency, setFrequency] = useState(schedule.frequency);
   const time = `${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')}`;
   return (
-    <form action={action} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+    <form {...formProps} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+      <DraftRestored show={restored} />
       <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
         <input type="checkbox" name="enabled" defaultChecked={schedule.enabled} />
         Send scheduled reports on WhatsApp

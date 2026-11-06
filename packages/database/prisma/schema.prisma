@@ -603,12 +603,21 @@ model Message {
   normalizedText    String?
   mediaMimeType     String?
   correlationId     String?
+  /// Who wrote it. Only REPLY messages are the assistant's own words; ALERT and TEAM text may carry
+  /// customer content and is never shown to the merchant agent as something it said.
+  kind              MessageKind      @default(REPLY)
+  /// WhatsApp's short message ID (the "stanza" ID a quoting reply points at), once delivered.
+  stanzaId          String?
+  /// What this outbound message was about, built by the backend: { kind, ids?, orderId?, customerId? }.
+  refs              Json?
+  deliveredAt       DateTime?
   createdAt         DateTime         @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@unique([channel, externalMessageId])
   @@index([conversationId, createdAt])
+  @@index([conversationId, stanzaId])
   @@map("messages")
 }
 
@@ -616,8 +625,15 @@ model Message {
 // Financial safety: confirmations, audit, webhook idempotency
 // ---------------------------------------------------------------------------
 
+enum MessageKind {
+  REPLY
+  ALERT
+  TEAM
+}
+
 enum ConfirmationAction {
   CREATE_PAYMENT_REQUEST
+  CANCEL_ORDER
   ADD_SHIPMENT_TRACKING
   SUBMIT_DISPUTE_RESPONSE
   SEND_PAYMENT_REMINDER

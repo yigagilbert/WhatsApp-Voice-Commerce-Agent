@@ -1,6 +1,8 @@
 'use client';
 
-import { useActionState, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
+import { PayPalCurrencyWarning } from '@/components/paypal-currency-warning';
+import { DraftRestored, useFormAction } from '@/components/use-form-action';
 import {
   connectShopNumber,
   resumeCustomer,
@@ -56,7 +58,12 @@ const field =
 export function ConnectShopNumber({ view }: { view: ShopView }) {
   const [pending, start] = useTransition();
   const [state, setState] = useState<ShopActionState>(null);
-  if (!view.bot) return <p className="text-sm text-slate-600">Pair the bot above first.</p>;
+  if (!view.bot)
+    return (
+      <p className="text-sm text-slate-600">
+        Once a WhatsApp number is linked, you can make it this shop&apos;s number here.
+      </p>
+    );
   if (view.bot.connectedToAnotherBusiness)
     return (
       <p className="text-sm text-rose-700">
@@ -87,12 +94,28 @@ export function ShopSettingsForm({
   account: ShopAccount;
   available: boolean;
 }) {
-  const [state, action, pending] = useActionState<ShopActionState, FormData>(
+  const { state, pending, restored, formProps } = useFormAction<ShopActionState>(
     saveShopSettings,
     null,
+    {
+      draftKey: `shop-settings:${account.id}`,
+      confirm: (form) => {
+        if (form.get('listedOnHomepage') === 'on' && !account.listedOnHomepage)
+          return 'Show this WhatsApp number on the public homepage? Anyone visiting it can start a chat.';
+        if (
+          available &&
+          account.customerCommerceEnabled &&
+          form.get('customerCommerceEnabled') !== 'on'
+        )
+          return 'Stop customers shopping on this number? They will only get a generic welcome.';
+        return null;
+      },
+    },
   );
   return (
-    <form action={action} className="space-y-4">
+    <form {...formProps} className="space-y-4">
+      <DraftRestored show={restored} />
+      <PayPalCurrencyWarning currency={account.currency} />
       <input type="hidden" name="id" value={account.id} />
       <label className="flex items-start gap-2 text-sm text-slate-800">
         <input

@@ -11,6 +11,7 @@ export const ACTIONS_REQUIRING_CONFIRMATION: ReadonlySet<ConfirmationAction> = n
   'ADD_SHIPMENT_TRACKING',
   'SUBMIT_DISPUTE_RESPONSE',
   'SEND_PAYMENT_REMINDER',
+  'CANCEL_ORDER',
   'SEND_INVOICE',
   'REFUND_PAYMENT',
 ]);
@@ -25,6 +26,7 @@ export const requiresConfirmation = (action: ConfirmationAction): boolean =>
 export const OWNER_ONLY_ACTIONS: ReadonlySet<ConfirmationAction> = new Set([
   'CREATE_PAYMENT_REQUEST',
   'SUBMIT_DISPUTE_RESPONSE',
+  'CANCEL_ORDER',
   'SEND_INVOICE',
   'REFUND_PAYMENT',
 ]);
@@ -81,7 +83,7 @@ const CANCEL_PHRASES = [
  * tracking), SUBMIT (dispute responses) or REMIND (payment reminders to a customer). Every
  * action needs its code: a bare "yes"/"ok" is answered with the exact reply to type.
  */
-export type ConfirmationVerb = 'confirm' | 'ship' | 'submit' | 'remind';
+export type ConfirmationVerb = 'confirm' | 'ship' | 'submit' | 'remind' | 'cancel_order';
 export type ConfirmationReply = {
   kind: 'confirm' | 'cancel';
   code?: string;
@@ -97,11 +99,12 @@ export const ACTION_VERBS: Record<
   ADD_SHIPMENT_TRACKING: { verb: 'ship', codeRequired: true },
   SUBMIT_DISPUTE_RESPONSE: { verb: 'submit', codeRequired: true },
   SEND_PAYMENT_REMINDER: { verb: 'remind', codeRequired: true },
+  CANCEL_ORDER: { verb: 'cancel_order', codeRequired: true },
   SEND_INVOICE: { verb: 'confirm', codeRequired: true },
   REFUND_PAYMENT: { verb: 'confirm', codeRequired: true },
 };
 
-const VERB_PATTERN = /^(?<verb>ship|submit|remind)\s+(?<code>\d{4})$/;
+const VERB_PATTERN = /^(?<verb>ship|submit|remind|cancel order)\s+(?<code>\d{4})$/;
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const phraseGroup = (phrases: string[]) =>
@@ -129,7 +132,7 @@ export function parseConfirmationReply(text: string): ConfirmationReply | null {
     return {
       kind: 'confirm',
       code: verbMatch.groups.code!,
-      verb: verbMatch.groups.verb as ConfirmationVerb,
+      verb: verbMatch.groups.verb!.replace(' ', '_') as ConfirmationVerb,
     };
   }
   const match = REPLY_PATTERN.exec(normalized);

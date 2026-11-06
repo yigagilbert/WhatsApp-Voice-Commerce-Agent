@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import QRCode from 'qrcode';
+import { PayPalCurrencyWarning } from '@/components/paypal-currency-warning';
 import { ErrorNotice, PageHeader } from '@/components/ui';
 import { apiGet } from '@/lib/api';
 import { siteUrl } from '@/lib/public-site';
-import type { StorefrontSettings } from '@/lib/types';
+import type { DashboardSummary, StorefrontSettings } from '@/lib/types';
 import { CopyLink, LogoForm, StorefrontForm } from './storefront-forms';
 
 export const dynamic = 'force-dynamic';
@@ -11,7 +12,10 @@ export const dynamic = 'force-dynamic';
 const whatsappShare = (text: string) => `https://wa.me/?text=${encodeURIComponent(text)}`;
 
 export default async function StorefrontPage() {
-  const result = await apiGet<StorefrontSettings>('/api/storefront');
+  const [result, summary] = await Promise.all([
+    apiGet<StorefrontSettings>('/api/storefront'),
+    apiGet<DashboardSummary>('/api/dashboard/summary'),
+  ]);
   if (!result.ok)
     return (
       <>
@@ -37,6 +41,12 @@ export default async function StorefrontPage() {
         title="Storefront"
         description="Your public catalogue. Customers browse here and finish every order with Katale AI on WhatsApp. Product changes show up on their own."
       />
+
+      <div className="mb-4 max-w-4xl empty:hidden">
+        <PayPalCurrencyWarning
+          currency={summary.ok ? summary.data.merchant.preferredCurrency : null}
+        />
+      </div>
 
       {settings.enabled && settings.checkoutBlocker && (
         <div className="mb-4 max-w-4xl">

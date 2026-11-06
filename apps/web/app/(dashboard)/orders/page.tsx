@@ -35,9 +35,9 @@ const VIEWS: Record<string, { label: string; matches: (order: Order) => boolean 
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; q?: string }>;
 }) {
-  const { view } = await searchParams;
+  const { view, q } = await searchParams;
   const filter = view ? VIEWS[view] : undefined;
   const result = await apiGet<Order[]>('/api/orders?limit=500');
   const orders =
@@ -51,7 +51,11 @@ export default async function OrdersPage({
       {filter && result.ok && (
         <FilteredView label={filter.label} count={orders.length} clearHref="/orders" />
       )}
-      {result.ok ? <OrdersGrid orders={orders} /> : <ErrorNotice message={result.error} />}
+      {result.ok ? (
+        <OrdersGrid key={q} orders={orders} filteredView={filter?.label} initialSearch={q} />
+      ) : (
+        <ErrorNotice message={result.error} />
+      )}
     </>
   );
 }

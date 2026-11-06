@@ -49,7 +49,14 @@ export interface AgentContext {
   fromVoice?: boolean;
   /** The admin's role; STAFF can't propose owner-only actions (default OWNER, e.g. the console). */
   operatorRole?: 'OWNER' | 'STAFF';
+  /** The merchant's own words this turn. Tools check high-risk intent against them, not the model. */
+  userText?: string;
 }
+
+/** The merchant's words say goods are physically here, not that they wish they were. */
+const STOCK_ARRIVED =
+  /\b(received|receive|got|arrived|came|came in|delivered|restocked|restock|counted|count|have|has|there are|returned|return|add(?:ed)?|bought|purchased|set)\b/i;
+const WANTS_REORDER = /\b(order|reorder|re-order|buy|get me|purchase)\b/i;
 
 /** Owner-only action requested by a staff admin: show why, propose nothing. */
 const needsOwner = (ctx: AgentContext, summary: string, ask: string) => {
@@ -113,7 +120,8 @@ async function proposePaymentRequest(
 ) {
   const summary = formatOrderSummary({
     reference: order.reference,
-    customerName: order.customer.name,
+    // A name from a WhatsApp profile is the customer's own claim; the digits say who it reaches.
+    customerName: `${order.customer.name}${order.customer.source === 'WHATSAPP' ? ` (${contactSuffix(order.customer)})` : ''}`,
     isNewCustomer: extras.isNewCustomer ?? false,
     currency: order.currency,
     items: order.items,
@@ -179,22 +187,53 @@ async function proposePaymentRequest(
  * The commerce tools the LLM may call. Adding a capability = adding one `defineTool` here.
  * No tool can move money: the most a tool can do is *propose* a payment request.
  */
-/** A customer chat of this merchant by (part of) the customer's name; ambiguous names are refused. */
+/** The last digits of a customer's number: unlike a WhatsApp profile name, it can't be spoofed. */
+type Contact = {
+  whatsappPhone?: string | null;
+  whatsappId?: string | null;
+  phone?: string | null;
+};
+const contactDigits = (customer: Contact) =>
+  (customer.whatsappPhone ?? customer.whatsappId ?? customer.phone ?? '')
+    .split('@')[0]!
+    .replace(/\D/g, '');
+const contactSuffix = (customer: Contact) => {
+  const digits = contactDigits(customer);
+  return digits ? `…${digits.slice(-4)}` : 'no number';
+};
+
+/**
+ * A customer chat by the digits of their number (…4821) or (part of) their name. Several matches
+ * are refused, and a WhatsApp profile name is the customer's own claim, so `verified` is only true
+ * for digits the merchant typed or a name the merchant themselves saved.
+ */
 async function findCustomerChat(deps: ToolDeps, merchantId: string, name: string) {
   if (!deps.customerChats) throw new ValidationError('Customer chats are not available.');
   const chats = (await deps.customerChats.recentChats(merchantId, 100)).filter((c) => c.customer);
+  const label = (c: (typeof chats)[number]) =>
+    `${c.customer!.name} (${contactSuffix(c.customer!)})`;
+  const typedDigits = /^[…. ]*(\d{4,15})$/.exec(name.trim())?.[1];
+  if (typedDigits) {
+    const byDigits = chats.filter((c) => contactDigits(c.customer!).endsWith(typedDigits));
+    const unique = [...new Map(byDigits.map((c) => [c.customer!.id, c])).values()];
+    if (!unique.length) throw new ValidationError(`No customer chat ends in ${typedDigits}.`);
+    if (unique.length > 1)
+      throw new ValidationError(
+        `Several customers end in those digits: ${unique.map(label).join(', ')}. Use the full number.`,
+      );
+    return { chat: unique[0]!, verified: true };
+  }
   const q = name.trim().toLowerCase();
-  const exact = chats.filter((c) => c.customer!.name.toLowerCase() === q);
-  const matches = exact.length
-    ? exact
-    : chats.filter((c) => c.customer!.name.toLowerCase().includes(q));
+  const matches = chats.filter((c) => c.customer!.name.toLowerCase().includes(q));
   const unique = [...new Map(matches.map((c) => [c.customer!.id, c])).values()];
   if (!unique.length) throw new ValidationError(`No customer chat found for "${name}".`);
   if (unique.length > 1)
     throw new ValidationError(
-      `Several customers match "${name}": ${unique.map((c) => c.customer!.name).join(', ')}. Which one?`,
+      `Several customers match "${name}": ${unique.map(label).join(', ')}. Ask which one, using the last 4 digits of their number.`,
     );
-  return unique[0]!;
+  const customer = unique[0]!.customer!;
+  const exact = customer.name.toLowerCase() === q;
+  return { chat: unique[0]!, verified: exact && customer.source !== 'WHATSAPP' };
 }
 
 export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> {
@@ -325,6 +364,87 @@ export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> 
             inputMode: ctx.fromVoice ? 'VOICE' : 'TEXT',
           });
           return proposePaymentRequest(deps, ctx, order, { isNewCustomer, warnings });
+        },
+      }),
+    )
+    .register(
+      defineTool({
+        name: 'update_draft_order',
+        kind: 'propose',
+        description:
+          'Change a draft order the merchant is reviewing: add or change shipping or tax, or change an item’s quantity ("add $20 shipping", "make it 3 baskets"). ' +
+          'Use order_reference from the pending draft. The system recalculates and shows a new summary with a new code; the old code stops working.',
+        input: orderRefSchema.extend({
+          shipping: z.number().nonnegative().max(10_000_000).optional(),
+          tax: z.number().nonnegative().max(10_000_000).optional(),
+          items: z
+            .array(
+              z.object({
+                description: z.string().trim().min(1).max(200),
+                quantity: z.number().int().positive().max(100_000),
+              }),
+            )
+            .max(50)
+            .optional(),
+        }),
+        async execute({ order_reference, shipping, tax, items }, ctx) {
+          const order = await deps.orders.updateDraft({
+            merchantId: ctx.merchant.id,
+            reference: order_reference,
+            shipping,
+            tax,
+            items,
+          });
+          return proposePaymentRequest(deps, ctx, order);
+        },
+      }),
+    )
+    .register(
+      defineTool({
+        name: 'cancel_order',
+        kind: 'propose',
+        description:
+          'Propose cancelling an unpaid order ("cancel order ORD-ABC123"). Only when the merchant explicitly asks to cancel that order. ' +
+          'Nothing changes until they reply with the code. The customer is told when it is cancelled.',
+        input: orderRefSchema,
+        async execute({ order_reference }, ctx) {
+          const order = await deps.orders.getByReference(ctx.merchant.id, order_reference);
+          if (
+            order.status === 'PAID' ||
+            order.status === 'REFUNDED' ||
+            order.status === 'CANCELLED'
+          )
+            throw new ValidationError(
+              `Order ${order.reference} is ${order.status.toLowerCase()}, so it can't be cancelled here.`,
+            );
+          const summary = [
+            `*Cancel order ${order.reference}?*`,
+            `Customer: ${order.customer.name} (${contactSuffix(order.customer)})`,
+            `Total: ${money(order.totalMinor, order.currency)}`,
+            'No money has been taken. The customer will be told it was cancelled, and its stock is released.',
+          ].join('\n');
+          if (!canApprove(ctx.operatorRole ?? 'OWNER', 'CANCEL_ORDER'))
+            return needsOwner(ctx, summary, `“cancel order ${order.reference}”.`);
+          const confirmation = await deps.confirmations.propose({
+            merchantId: ctx.merchant.id,
+            conversationId: ctx.conversation.id,
+            action: 'CANCEL_ORDER',
+            payload: { orderId: order.id, orderReference: order.reference },
+            summary,
+            ttlSeconds: deps.confirmationTtlSeconds,
+          });
+          ctx.proposals.push({
+            confirmationId: confirmation.id,
+            prompt: branded(
+              `${summary}\n\n${formatConfirmationPrompt({
+                word: 'CANCEL ORDER',
+                actionDescription: `cancel ${order.reference} and tell the customer`,
+                code: confirmation.code,
+                ttlSeconds: deps.confirmationTtlSeconds,
+              })}`,
+            ),
+          });
+          return { status: 'awaiting_merchant_confirmation', order_reference: order.reference };
         },
       }),
     )
@@ -646,14 +766,25 @@ export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> 
         name: 'reply_to_customer',
         kind: 'read',
         description:
-          'Send a WhatsApp message to a customer who wrote to the shop, as the shop’s team. Use for "reply to Sarah: …". ' +
-          'Pass the merchant’s words exactly as written; never add prices, promises or discounts they didn’t write. Automated replies stay paused for that customer.',
+          'Send a WhatsApp message to a customer who wrote to the shop, as the shop’s team. Use for "reply to Sarah: …" or "reply to …4821: …". ' +
+          'customer: the name or the digits exactly as the merchant said. Pass the merchant’s words exactly as written; never add prices, promises or discounts they didn’t write. Automated replies stay paused for that customer.',
         input: z.object({
           customer: z.string().trim().min(1).max(80),
           message: z.string().trim().min(1).max(1500),
         }),
         async execute({ customer, message }, ctx) {
-          const chat = await findCustomerChat(deps, ctx.merchant.id, customer);
+          const { chat, verified } = await findCustomerChat(deps, ctx.merchant.id, customer);
+          // A profile name is what the customer calls themselves. Before a private message goes out,
+          // the merchant's own words must name the digits (a model can't supply them for them).
+          const digits = contactSuffix(chat.customer!).replace(/\D/g, '');
+          if (!verified && !(digits && ctx.userText?.includes(digits))) {
+            ctx.notices.push(
+              branded(
+                `Which customer do you mean? I found *${chat.customer!.name}* on WhatsApp, number ending ${digits || 'unknown'}. That name comes from their own WhatsApp profile.\n\nNothing was sent. To send it to them, reply: *reply to …${digits}: ${message.slice(0, 200)}*`,
+              ),
+            );
+            return { status: 'needs_recipient_check', sent: false };
+          }
           try {
             await deps.customerChats!.replyAsTeam(ctx.merchant.id, chat.customer!.id, message);
           } catch (error) {
@@ -664,6 +795,9 @@ export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> 
               `The message to ${chat.customer!.name} could not be delivered: WhatsApp is not connected right now. Nothing was sent; check Dashboard → WhatsApp and try again.`,
             );
           }
+          ctx.notices.push(
+            branded(`✉️ Sent to *${chat.customer!.name}* (…${digits}): “${message.slice(0, 300)}”`),
+          );
           return { sent_to: chat.customer!.name, message };
         },
       }),
@@ -676,7 +810,7 @@ export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> 
           'Switch Katale’s automated replies back on for a customer after a hand-off. Use for "resume Sarah", "the bot can take over again".',
         input: z.object({ customer: z.string().trim().min(1).max(80) }),
         async execute({ customer }, ctx) {
-          const chat = await findCustomerChat(deps, ctx.merchant.id, customer);
+          const { chat } = await findCustomerChat(deps, ctx.merchant.id, customer);
           await deps.customerChats!.resume(ctx.merchant.id, chat.customer!.id, 'whatsapp');
           return { resumed: chat.customer!.name };
         },
@@ -898,6 +1032,22 @@ export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> 
           note: z.string().max(200).optional(),
         }),
         async execute({ product, change, set_to, reason, note }, ctx) {
+          // "Order 20 more" is a wish to buy from a supplier, which Katale can't do. Recording it
+          // would invent stock, so a restock must be reported in the merchant's own words.
+          if (
+            (reason === 'restock' || (change ?? 0) > 0) &&
+            ctx.userText !== undefined &&
+            (!STOCK_ARRIVED.test(ctx.userText) ||
+              (WANTS_REORDER.test(ctx.userText) &&
+                !/\b(received|arrived|got|came)\b/i.test(ctx.userText)))
+          ) {
+            ctx.notices.push(
+              branded(
+                `I can't order from suppliers, so I haven't changed any stock. When the goods arrive, tell me and I'll record them, e.g. *I received 20 ${product}*.`,
+              ),
+            );
+            return { recorded: false, reason: 'no_arrival_reported' };
+          }
           const type =
             reason === 'restock'
               ? 'RESTOCK'

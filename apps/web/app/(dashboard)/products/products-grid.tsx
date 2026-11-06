@@ -7,6 +7,7 @@ import { CommerceGrid, formatMinor } from '@/components/grid/commerce-grid';
 import type { ProductStat } from '@/lib/types';
 import { toMajorNumber } from '@vca/commerce/money';
 import { photoUrl } from '@/lib/photo';
+import { cellChange } from '@/lib/product-cell';
 import { saveProductCell } from './actions';
 
 type Row = ProductStat & {
@@ -20,29 +21,32 @@ type Row = ProductStat & {
 const isLow = (row: Row | undefined) =>
   row?.stockQuantity != null && row.reorderLevel != null && row.stockQuantity <= row.reorderLevel;
 
-export function ProductsGrid({ products }: { products: ProductStat[] }) {
+const REVERT = 'revert';
+
+export function ProductsGrid({
+  products,
+  filteredView,
+}: {
+  products: ProductStat[];
+  /** Set when the page shows only part of the catalogue. */
+  filteredView?: string;
+}) {
   const router = useRouter();
   const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(null);
 
   /** Saves a price or stock edit; on failure the cell goes back to the saved value. */
   const saveCell = async (e: CellValueChangedEvent<Row>) => {
-    if (!e.data || e.newValue === e.oldValue) return;
+    if (!e.data || e.source === REVERT || e.newValue === e.oldValue) return;
     const field = e.colDef.field;
-    const value = Number(e.newValue);
-    const change =
-      field === 'category'
-        ? { category: String(e.newValue ?? '') }
-        : field === 'shownLabel'
-          ? { shown: e.newValue === 'Shown' }
-          : field === 'price'
-            ? { price: value.toFixed(2) }
-            : { stock: Math.round(value) };
+    const revert = (message: string) => {
+      // Marked, so that putting the old value back isn't saved as another edit.
+      e.node.setDataValue(e.column, e.oldValue, REVERT);
+      setNotice({ ok: false, message: `${e.data?.name}: ${message}` });
+    };
+    const change = cellChange(field, e.newValue);
+    if ('problem' in change) return revert(change.problem);
     const result = await saveProductCell(e.data.id, change);
-    if (!result?.ok) {
-      e.node.setDataValue(e.column, e.oldValue);
-      setNotice({ ok: false, message: `${e.data.name}: ${result?.message ?? 'not saved'}` });
-      return;
-    }
+    if (!result?.ok) return revert(result?.message ?? 'not saved');
     setNotice({
       ok: true,
       message:
@@ -235,7 +239,11 @@ export function ProductsGrid({ products }: { products: ProductStat[] }) {
         }}
         exportName="katale-products"
         searchPlaceholder="Search products…"
-        emptyMessage="No products yet. Use “Add product” to create your first one."
+        emptyMessage={
+          filteredView
+            ? `No products right now: ${filteredView}.`
+            : 'No products yet. Use “Add product” to create your first one.'
+        }
         height={420}
       />
     </div>

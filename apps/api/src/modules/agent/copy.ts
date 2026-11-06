@@ -18,7 +18,9 @@ export const approvalWord = (action: ConfirmationAction | undefined) =>
       ? 'SUBMIT'
       : action === 'SEND_PAYMENT_REMINDER'
         ? 'REMIND'
-        : 'CONFIRM';
+        : action === 'CANCEL_ORDER'
+          ? 'CANCEL ORDER'
+          : 'CONFIRM';
 
 /** Prefixes a system message with the Katale AI header. */
 export const branded = (body: string): string => `*${BRAND}*\n\n${body}`;
@@ -66,9 +68,15 @@ export const copy = {
         '',
         `"${transcript}"`,
         '',
-        'Is that right? Reply *YES* to continue, or send your request again.',
+        'Is that right? Reply *YES* to continue, or send it again.',
       ].join('\n'),
     ),
+  voiceNoise:
+    "I couldn't hear that clearly. Could you try again closer to the phone, or type it? 🙏",
+  heardPrefix: (transcript: string, reply: string) =>
+    `🎙️ Heard: “${transcript.replace(/\s+/g, ' ').trim().slice(0, 200)}”\n\n${reply}`,
+  voiceMustType: (word: string) =>
+    `Please type *${word}* to do that. For your safety I only take it as text, so a misheard word can't place or change an order.`,
   voiceUnclearDismissed: 'OK — please send your request again, or type it.',
   voiceConfirmationMustBeTyped: (word: string, code: string | undefined) =>
     `For your security, payment requests are approved by text only. Please type *${word}${code ? ` ${code}` : ' <code>'}* to continue.`,
@@ -90,6 +98,34 @@ export const copy = {
     reference
       ? `👍 Discarded. Draft ${reference} was cancelled and nothing was sent.`
       : '👍 Cancelled. Nothing was sent.',
+  /** "No" to a payment link for an order a customer placed: the order itself stays. */
+  orderKept: (reference: string | null) =>
+    reference
+      ? `👍 OK, I didn't send anything. Order ${reference} is still open and the customer is still waiting. To cancel it and tell them, say *cancel order ${reference}*.`
+      : "👍 OK, I didn't send anything.",
+  /** A yes/no with nothing to answer. An alert may contain a customer's words, never a question from me. */
+  unclearAnswer:
+    "I'm not sure what that answers, so I haven't done anything. To reply to a customer, reply to their message or say *reply to …1234: your message*. Otherwise tell me what you'd like to do.",
+  staleMessage:
+    "Sorry for the slow reply, I've only just received that message, so I haven't acted on it. Please send it again if you still need it.",
+  merchantGreeting: (name: string, lines: string[]) =>
+    [
+      `Hi${name ? ` ${name}` : ''}! 👋`,
+      ...(lines.length ? ['', ...lines.map((l) => `• ${l}`)] : []),
+      '',
+      'What would you like to do?',
+    ].join('\n'),
+  claimBlocked: (pending: string | null) =>
+    [
+      "I haven't made that change, so nothing is different yet. Please tell me exactly what to change.",
+      ...(pending ? ['', 'Still waiting for your approval:', '', pending] : []),
+    ].join('\n'),
+  actionsDone: (actions: string) =>
+    `That went through (${actions}), but I lost my connection before I could write it up. Please check before repeating it.`,
+  mustTypeTeamReply:
+    "For privacy, replies to customers are typed, not spoken. Please type your reply, so a misheard word can't reach them.",
+  teamReplySent: (name: string, digits: string, message: string) =>
+    branded(`✉️ Sent to *${name}* (…${digits}): “${message.slice(0, 300)}”`),
   integrityFailed: '❌ That request could not be verified and was discarded. Please start again.',
   alreadyConfirmed: (lines: string[]) =>
     ['That payment request was already created, so nothing new was sent.', '', ...lines].join('\n'),

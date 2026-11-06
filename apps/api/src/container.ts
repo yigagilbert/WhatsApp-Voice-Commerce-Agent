@@ -36,6 +36,7 @@ import { NotificationService } from './modules/notifications/notification.servic
 import { PaymentService } from './modules/payments/payment.service';
 import { RefundService } from './modules/payments/refund.service';
 import { OrderLifecycleService } from './modules/orders/order-lifecycle.service';
+import { VoiceNotes } from './modules/agent/voice-notes';
 import { OpsAlerts } from './modules/ops/ops-alerts';
 import { R2ObjectStore, type ObjectStore } from './modules/images/object-store';
 import { ProductImageService } from './modules/images/product-image.service';
@@ -279,6 +280,7 @@ export function createContainer(
     config.DEFAULT_PHONE_REGION,
   );
   const executor = new ConfirmationExecutor({
+    lifecycle: orderLifecycle,
     orders,
     payments,
     reminders,
@@ -335,6 +337,17 @@ export function createContainer(
     chatModel,
     notifications,
     lifecycle: orderLifecycle,
+    voice: new VoiceNotes({
+      db,
+      audit,
+      speech,
+      mediaMaxBytes: config.MEDIA_MAX_BYTES,
+      voiceMaxDurationSeconds: config.VOICE_MAX_DURATION_SECONDS,
+      logger: logger.child({ component: 'customer-voice' }),
+    }),
+    voiceMinConfidence: config.VOICE_MIN_CONFIDENCE,
+    voiceLanguages:
+      config.VOICE_EXPERIMENTAL_LUGANDA && config.SUNBIRD_API_KEY ? ['en', 'lg'] : ['en'],
     logger: logger.child({ component: 'customer-chat' }),
   });
   const tools = createCommerceTools({

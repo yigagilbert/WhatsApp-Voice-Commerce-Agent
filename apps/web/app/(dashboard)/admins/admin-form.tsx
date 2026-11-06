@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
+import { DraftRestored, useFormAction } from '@/components/use-form-action';
 import {
   addAdmin,
   removeAdmin,
@@ -87,13 +88,19 @@ function Fields({ admin }: { admin?: AdminView }) {
 }
 
 export function AddAdminForm() {
-  const [state, action, pending] = useActionState<ActionState, FormData>(addAdmin, null);
+  const { state, pending, restored, formProps } = useFormAction<ActionState>(addAdmin, null, {
+    draftKey: 'admin-new',
+    resetOnSuccess: true,
+  });
   return (
     <form
-      action={action}
+      {...formProps}
       className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-2"
     >
-      <Fields key={state?.ok ? Math.random() : 'form'} />
+      <div className="sm:col-span-2">
+        <DraftRestored show={restored} />
+      </div>
+      <Fields />
       <div className="flex items-center gap-3 sm:col-span-2">
         <button
           type="submit"
@@ -112,7 +119,11 @@ export function AdminRow({ admin }: { admin: AdminView }) {
   const [editing, setEditing] = useState(false);
   const [pending, start] = useTransition();
   const [notice, setNotice] = useState<ActionState>(null);
-  const [state, action, saving] = useActionState<ActionState, FormData>(async (prev, form) => {
+  const {
+    state,
+    pending: saving,
+    formProps,
+  } = useFormAction<ActionState>(async (prev, form) => {
     const result = await updateAdmin(prev, form);
     if (result?.ok) setEditing(false);
     return result;
@@ -174,7 +185,15 @@ export function AdminRow({ admin }: { admin: AdminView }) {
             type="button"
             className={button}
             disabled={pending}
-            onClick={() => run(() => setAdminActive(admin.id, !admin.active))}
+            onClick={() => {
+              if (
+                !admin.active ||
+                window.confirm(
+                  `Deactivate ${admin.name}? This number stops getting Katale AI, reports and alerts until you turn it back on.`,
+                )
+              )
+                run(() => setAdminActive(admin.id, !admin.active));
+            }}
           >
             {admin.active ? 'Deactivate' : 'Activate'}
           </button>
@@ -203,7 +222,7 @@ export function AdminRow({ admin }: { admin: AdminView }) {
       )}
       {editing && (
         <form
-          action={action}
+          {...formProps}
           className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2"
         >
           <input type="hidden" name="id" value={admin.id} />

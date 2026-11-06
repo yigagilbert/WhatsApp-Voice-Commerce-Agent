@@ -65,6 +65,10 @@ export function SearchBox({
         }}
       />
       {current.preview && <input type="hidden" name="preview" value="1" />}
+      {/* The catalogue's own search box keeps the customer's filters; elsewhere it starts afresh. */}
+      {live && current.category && <input type="hidden" name="category" value={current.category} />}
+      {live && current.sort !== 'name' && <input type="hidden" name="sort" value={current.sort} />}
+      {live && current.inStock && <input type="hidden" name="inStock" value="1" />}
     </form>
   );
 }

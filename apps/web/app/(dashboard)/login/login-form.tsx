@@ -1,12 +1,12 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useFormAction } from '@/components/use-form-action';
 import { login, type LoginState } from './actions';
 
 export function LoginForm({ next }: { next: string }) {
-  const [state, action, pending] = useActionState<LoginState, FormData>(login, {});
+  const { state, pending, formProps } = useFormAction<LoginState>(login, {});
   return (
-    <form action={action} className="space-y-4">
+    <form {...formProps} className="space-y-4">
       <input type="hidden" name="next" value={next} />
       <div>
         <label htmlFor="username" className="block text-sm font-medium text-slate-700">

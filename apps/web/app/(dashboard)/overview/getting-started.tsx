@@ -1,86 +1,87 @@
 import Link from 'next/link';
+import { ErrorNotice } from '@/components/ui';
 import { apiGet } from '@/lib/api';
-import type { DashboardSummary, ProductStat } from '@/lib/types';
-
-interface Step {
-  done: boolean;
-  title: string;
-  detail: string;
-  href: string;
-  action: string;
-}
+import { buildSetup, type SetupStep } from '@/lib/setup-checklist';
+import type { DashboardSummary, ProductStat, StorefrontSettings } from '@/lib/types';
+import type { ShopView } from '../whatsapp/shop-settings';
 
 /**
- * First-run checklist on the overview: the steps between an empty shop and a first paid order.
- * Hidden once every step is done. A status that can't be read counts as not done.
+ * Setup checklist on the overview: everything between an empty shop and a first paid order. It says
+ * "ready to sell" only when a customer's order could really go through, and goes away once a paid
+ * order shows it did. A status that can't be read counts as not done.
  */
 export async function GettingStarted({ summary }: { summary: DashboardSummary }) {
-  const [session, admins, products] = await Promise.all([
+  const [session, admins, products, shop, storefront, health] = await Promise.all([
     apiGet<{ state: string }>('/api/whatsapp/session'),
     apiGet<{ active: boolean }[]>('/api/admins'),
     apiGet<ProductStat[]>('/api/products/stats'),
+    apiGet<ShopView>('/api/whatsapp/account'),
+    apiGet<StorefrontSettings>('/api/storefront'),
+    apiGet<{ providers?: { paypal?: string } }>('/api/health/ready'),
   ]);
-  const steps: Step[] = [
-    {
-      done: session.ok && session.data.state === 'ready',
-      title: 'Link your WhatsApp number',
-      detail: 'Scan the pairing code so Katale AI can receive and send messages.',
-      href: '/whatsapp',
-      action: 'Open WhatsApp',
-    },
-    {
-      done: admins.ok && admins.data.some((a) => a.active),
-      title: 'Add an admin number',
-      detail: 'Only admin numbers can create orders, payment links and reports by chat.',
-      href: '/admins',
-      action: 'Add admin',
-    },
-    {
-      done: products.ok && products.data.some((p) => p.active && !!p.imageVersion),
-      title: 'Add a product with a photo',
-      detail: 'Name, price, stock and a photo. Customers see the photo on WhatsApp.',
-      href: '/products/new',
-      action: 'Add product',
-    },
-    {
-      done: summary.counts.orders > 0,
-      title: 'Create your first order',
-      detail: 'Send “2 baskets for Sarah” by text or voice note, or try the Agent console.',
-      href: '/console',
-      action: 'Open console',
-    },
-    {
-      done: summary.counts.paidOrders > 0,
-      title: 'Get paid with PayPal',
-      detail: 'Approve the payment link; the order updates when PayPal confirms the payment.',
-      href: '/orders',
-      action: 'View orders',
-    },
-  ];
-  const remaining = steps.filter((s) => !s.done).length;
-  if (remaining === 0) return null;
+  const account = shop.ok
+    ? (shop.data.accounts.find((a) => a.active) ?? shop.data.accounts[0])
+    : undefined;
+  const paypal = health.ok ? health.data.providers?.paypal : undefined;
+  const setup = buildSetup({
+    whatsappLinked: session.ok && session.data.state === 'ready',
+    hasActiveAdmin: admins.ok && admins.data.some((a) => a.active),
+    hasProductWithPhoto: products.ok && products.data.some((p) => p.active && !!p.imageVersion),
+    customerShoppingAvailable: !shop.ok || shop.data.available,
+    customerShoppingOn: !!account?.customerCommerceEnabled,
+    fulfilmentOn: !!account && (account.deliveryEnabled || account.pickupEnabled),
+    storefrontPublished: storefront.ok && storefront.data.enabled,
+    checkoutBlocker: storefront.ok ? storefront.data.checkoutBlocker : null,
+    paypalConfigured: paypal === undefined ? null : paypal !== 'not_configured',
+    currency: summary.merchant.preferredCurrency,
+    orders: summary.counts.orders,
+    paidOrders: summary.counts.paidOrders,
+  });
+  const { steps, blockers, ready, remaining } = setup;
+  if (remaining === 0 && blockers.length === 0) return null;
   // A shop that is already selling shouldn't have to scroll past its setup to see its business.
   const open = summary.counts.paidOrders === 0;
 
   return (
-    <details
-      open={open}
-      className="mb-5 rounded-2xl border border-mist bg-white px-4 py-3 text-sm [&_summary::-webkit-details-marker]:hidden"
-    >
-      <summary className="flex cursor-pointer list-none items-baseline justify-between gap-2">
-        <span id="getting-started" className="font-medium text-charcoal">
-          Finish setting up
-        </span>
-        <span className="text-xs text-slate-500">
-          {steps.length - remaining} of {steps.length} done
-        </span>
-      </summary>
-      <Steps steps={steps} />
-    </details>
+    <>
+      {blockers.map((blocker) => (
+        <div key={blocker} className="mb-3">
+          <ErrorNotice message={blocker} />
+        </div>
+      ))}
+      {remaining > 0 && (
+        <details
+          open={open}
+          className="mb-5 rounded-2xl border border-mist bg-white px-4 py-3 text-sm [&_summary::-webkit-details-marker]:hidden"
+        >
+          <summary className="flex cursor-pointer list-none items-baseline justify-between gap-2">
+            <span
+              id="getting-started"
+              className={ready ? 'font-medium text-emerald-700' : 'font-medium text-charcoal'}
+            >
+              {ready ? 'Ready to sell' : 'Finish setting up'}
+            </span>
+            <span className="text-xs text-slate-500">
+              {steps.length - remaining} of {steps.length} done
+            </span>
+          </summary>
+          {ready ? (
+            <p className="mt-2 text-sm text-slate-600">
+              Customers can browse, order and pay. What&apos;s left is your first sale.
+            </p>
+          ) : (
+            <p className="mt-2 text-sm text-slate-600">
+              Customers can&apos;t buy from you yet. These steps get you there.
+            </p>
+          )}
+          <Steps steps={steps} />
+        </details>
+      )}
+    </>
   );
 }
 
-function Steps({ steps }: { steps: Step[] }) {
+function Steps({ steps }: { steps: SetupStep[] }) {
   return (
     <section aria-labelledby="getting-started">
       <ol className="mt-2 divide-y divide-slate-100">

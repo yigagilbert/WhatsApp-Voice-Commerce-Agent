@@ -121,10 +121,10 @@ export const demoScripts: ChatScript[] = [
       { from: 'me', text: 'hi', time: '14:02' },
       {
         from: 'bot',
-        text: 'Hello Amina! 👋 Welcome to *Kampala Crafts*.\n\n*1* Browse products\n*2* My cart\n*3* My orders\n*4* Talk to a person\n\nReply with a number, or just tell me what you’re looking for.',
+        text: 'Hello Amina! 👋 Welcome to *Kampala Crafts*.\n\nReply *browse* to see our products, *cart* for your cart, *orders* for your orders or *person* to talk to someone. Or just tell me what you’re looking for.',
         time: '14:02',
       },
-      { from: 'me', text: '1', time: '14:02' },
+      { from: 'me', text: 'browse', time: '14:02' },
       {
         from: 'bot',
         text: '*Our products*\n1. Barkcloth Wallet — $18.00 · Low stock\n2. Coffee Gift Pack — $25.00 · In stock\n3. Handmade Basket — $12.00 · In stock\n\nReply with a number for details, or ask me anything.',

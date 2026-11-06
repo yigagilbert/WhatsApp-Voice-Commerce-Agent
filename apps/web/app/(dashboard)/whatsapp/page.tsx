@@ -55,13 +55,19 @@ const STATES: Record<Session['state'], { label: string; tone: string; help: stri
   },
 };
 
+/** The API's reasons name internal parts; merchants need what it means and what happens next. */
+const whatsappStatusProblem = (reason: string) =>
+  /worker/i.test(reason)
+    ? "Katale can't reach its WhatsApp service right now, so it can't show the connection or a pairing code. This page keeps checking; if it stays like this, contact whoever runs your Katale service."
+    : reason;
+
 export default async function WhatsAppPage() {
   const result = await apiGet<Session>('/api/whatsapp/session');
   if (!result.ok) {
     return (
       <>
         <PageHeader title="WhatsApp" />
-        <ErrorNotice message={result.error} />
+        <ErrorNotice message={whatsappStatusProblem(result.error)} />
         <AutoRefresh seconds={10} />
         <ShopSection />
       </>

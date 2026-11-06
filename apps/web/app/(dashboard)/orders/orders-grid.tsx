@@ -38,7 +38,16 @@ interface OrderRow {
 
 const CHANNELS: Record<string, string> = { whatsapp: 'WhatsApp', web: 'Agent console' };
 
-export function OrdersGrid({ orders }: { orders: Order[] }) {
+export function OrdersGrid({
+  orders,
+  filteredView,
+  initialSearch,
+}: {
+  orders: Order[];
+  /** Set when the page shows only part of the list. */
+  filteredView?: string;
+  initialSearch?: string;
+}) {
   const [selected, setSelected] = useState<Order | null>(null);
   const rows = useMemo<OrderRow[]>(
     () =>
@@ -178,7 +187,12 @@ export function OrdersGrid({ orders }: { orders: Order[] }) {
         onRowClick={(row) => setSelected(row.order)}
         exportName="katale-orders"
         searchPlaceholder="Search orders, customers, items…"
-        emptyMessage="No orders yet. Send Katale AI an order on WhatsApp or in the Agent console."
+        initialSearch={initialSearch}
+        emptyMessage={
+          filteredView
+            ? `No orders right now: ${filteredView}.`
+            : 'No orders yet. Send Katale AI an order on WhatsApp or in the Agent console.'
+        }
       />
       {selected && (
         <OrderDetail
@@ -329,7 +343,16 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
           {order.customer.phone && (
             <div className="flex justify-between gap-4">
               <dt className="text-slate-600">Phone</dt>
-              <dd className="text-right">{order.customer.phone}</dd>
+              <dd className="text-right">
+                <a
+                  className="text-sky-700 hover:underline"
+                  href={`https://wa.me/${order.customer.phone.replace(/\D/g, '')}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {order.customer.phone}
+                </a>
+              </dd>
             </div>
           )}
           {order.deliveryMethod && (
@@ -349,6 +372,12 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
             </div>
           )}
         </dl>
+        <Link
+          href={`/customers?q=${encodeURIComponent(order.customer.name)}`}
+          className="mt-2 inline-flex text-sm font-medium text-sky-700 hover:underline"
+        >
+          View this customer →
+        </Link>
 
         <h3 className="mt-6 text-sm font-semibold text-slate-700">Items</h3>
         <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
@@ -440,6 +469,14 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
               ? 'Waiting for the merchant to confirm (CONFIRM code).'
               : 'No payment request.'}
           </p>
+        )}
+        {payment && (
+          <Link
+            href={`/payments?q=${encodeURIComponent(order.reference)}`}
+            className="mt-2 inline-flex text-sm font-medium text-sky-700 hover:underline"
+          >
+            View this payment →
+          </Link>
         )}
         <h3 className="mt-6 text-sm font-semibold text-slate-700">Fulfillment</h3>
         {(order.shipments ?? []).length ? (

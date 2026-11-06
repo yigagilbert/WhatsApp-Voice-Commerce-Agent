@@ -59,6 +59,8 @@ interface CartValue {
   quote: CartQuote | null;
   loading: boolean;
   error: string | null;
+  /** Asks for prices again after a failed check. */
+  retryQuote: () => void;
   add: (productId: string, quantity?: number, name?: string) => void;
   /** The last thing added, for the short "Added" message. */
   added: { name: string; quantity: number; at: number } | null;
@@ -91,6 +93,7 @@ export function CartProvider({ slug, children }: { slug: string; children: React
   const [quote, setQuote] = useState<CartQuote | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [quoteAttempt, setQuoteAttempt] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [added, setAdded] = useState<CartValue['added']>(null);
   const keyRef = useRef('');
@@ -107,8 +110,14 @@ export function CartProvider({ slug, children }: { slug: string; children: React
     setReady(true);
     const onStorage = (event: StorageEvent) => {
       if (event.key !== storageKey) return;
-      itemsRef.current = load(storageKey)?.items ?? [];
+      const latest = load(storageKey);
+      itemsRef.current = latest?.items ?? [];
       setItems(itemsRef.current);
+      // Another tab started a new cart: a later checkout here must not reuse the old cart's key.
+      if (latest?.clientKey) {
+        keyRef.current = latest.clientKey;
+        setClientKey(latest.clientKey);
+      }
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
@@ -154,7 +163,7 @@ export function CartProvider({ slug, children }: { slug: string; children: React
       controller.abort();
       clearTimeout(timer);
     };
-  }, [items, ready, slug]);
+  }, [items, ready, slug, quoteAttempt]);
 
   const value = useMemo<CartValue>(
     () => ({
@@ -166,6 +175,7 @@ export function CartProvider({ slug, children }: { slug: string; children: React
       quote,
       loading,
       error,
+      retryQuote: () => setQuoteAttempt((attempt) => attempt + 1),
       setQuote,
       add: (productId, quantity = 1, name) => {
         if (name) setAdded({ name, quantity, at: Date.now() });

@@ -51,7 +51,11 @@ export default async function ProductsPage({
       {filter && result.ok && (
         <FilteredView label={filter.label} count={products.length} clearHref="/products" />
       )}
-      {result.ok ? <ProductsGrid products={products} /> : <ErrorNotice message={result.error} />}
+      {result.ok ? (
+        <ProductsGrid products={products} filteredView={filter?.label} />
+      ) : (
+        <ErrorNotice message={result.error} />
+      )}
     </>
   );
 }

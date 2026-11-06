@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useId, useState, useTransition } from 'react';
+import { useId, useState, useTransition } from 'react';
+import { useFormAction } from '@/components/use-form-action';
 import { changePassword, createAccount, updateAccount, type AccountState } from './actions';
 
 export interface AccountView {
@@ -66,9 +67,11 @@ function Field({
 }
 
 export function ChangePasswordForm() {
-  const [state, action, pending] = useActionState(changePassword, null);
+  const { state, pending, formProps } = useFormAction<AccountState>(changePassword, null, {
+    resetOnSuccess: true,
+  });
   return (
-    <form action={action} className="grid max-w-md gap-3">
+    <form {...formProps} className="grid max-w-md gap-3">
       <Field
         label="Current password"
         name="current"
@@ -99,9 +102,11 @@ export function ChangePasswordForm() {
 }
 
 export function CreateAccountForm({ firstOwner }: { firstOwner: boolean }) {
-  const [state, action, pending] = useActionState(createAccount, null);
+  const { state, pending, formProps } = useFormAction<AccountState>(createAccount, null, {
+    resetOnSuccess: true,
+  });
   return (
-    <form action={action} className="grid gap-3 sm:grid-cols-2">
+    <form {...formProps} className="grid gap-3 sm:grid-cols-2">
       <Field label="Name" name="name" autoComplete="off" />
       <Field label="Username" name="username" autoComplete="off" hint="Used to sign in." />
       <Field
@@ -136,9 +141,63 @@ export function CreateAccountForm({ firstOwner }: { firstOwner: boolean }) {
   );
 }
 
+/** An owner setting someone else's password, with the same checks as every other password form. */
+function SetPasswordForm({
+  account,
+  onDone,
+  onSaved,
+}: {
+  account: AccountView;
+  onDone: () => void;
+  onSaved: () => void;
+}) {
+  const { state, pending, formProps } = useFormAction<AccountState>(async (_prev, form) => {
+    const password = String(form.get('password') ?? '');
+    if (password.length < 12) return { ok: false, message: 'Use at least 12 characters.' };
+    if (password !== form.get('confirm'))
+      return { ok: false, message: 'The passwords do not match.' };
+    const result = await updateAccount(account.id, { password });
+    if (result?.ok) {
+      onSaved();
+      onDone();
+    }
+    return result;
+  }, null);
+  return (
+    <form {...formProps} className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
+      <p className="text-xs text-slate-500 sm:col-span-2">
+        New password for {account.name}. They are signed out everywhere and use this next time.
+      </p>
+      <Field
+        label="New password"
+        name="password"
+        type="password"
+        autoComplete="new-password"
+        hint="At least 12 characters."
+      />
+      <Field
+        label="Repeat the password"
+        name="confirm"
+        type="password"
+        autoComplete="new-password"
+      />
+      <div className="flex items-center gap-3 sm:col-span-2">
+        <button disabled={pending} className={button}>
+          {pending ? 'Saving…' : 'Save password'}
+        </button>
+        <button type="button" className={button} onClick={onDone}>
+          Cancel
+        </button>
+        <Notice state={state} />
+      </div>
+    </form>
+  );
+}
+
 export function AccountRow({ account, self }: { account: AccountView; self: boolean }) {
   const [pending, start] = useTransition();
   const [state, setState] = useState<AccountState>(null);
+  const [settingPassword, setSettingPassword] = useState(false);
   const run = (change: Parameters<typeof updateAccount>[1], confirmText: string) => {
     if (!window.confirm(confirmText)) return;
     start(async () => setState(await updateAccount(account.id, change)));
@@ -197,19 +256,23 @@ export function AccountRow({ account, self }: { account: AccountView; self: bool
               type="button"
               disabled={pending}
               className={button}
-              onClick={() => {
-                const password = window.prompt(
-                  `New password for ${account.name} (at least 12 characters). They are signed out everywhere.`,
-                );
-                if (password)
-                  start(async () => setState(await updateAccount(account.id, { password })));
-              }}
+              aria-expanded={settingPassword}
+              onClick={() => setSettingPassword((open) => !open)}
             >
               Set password
             </button>
           </div>
         )}
       </div>
+      {settingPassword && (
+        <SetPasswordForm
+          account={account}
+          onDone={() => setSettingPassword(false)}
+          onSaved={() =>
+            setState({ ok: true, message: 'Password set. That person must sign in again.' })
+          }
+        />
+      )}
       <Notice state={state} />
     </li>
   );

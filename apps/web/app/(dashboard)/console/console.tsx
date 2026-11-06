@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { isRedirectError, isSessionEndedError } from '@/lib/session-ended';
 import { sendConsoleMessage } from './actions';
 import { MessageText } from './message-text';
 
@@ -19,10 +20,57 @@ const EXAMPLES = [
   'Send me a chart of revenue for the last 7 days.',
 ];
 
+const STORAGE_KEY = 'katale-console';
+
+interface Saved {
+  lines: Line[];
+  draft: string;
+}
+
+/** Chart images are left out: they are large, and storage is only there to survive signing in. */
+const remember = (saved: Saved) => {
+  try {
+    window.sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        draft: saved.draft,
+        lines: saved.lines.map(({ image: _image, ...line }) => line),
+      }),
+    );
+  } catch {
+    // Storage can be blocked or full: the console just starts empty after signing in.
+  }
+};
+
+const recall = (): Saved | null => {
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? 'null') as Saved | null;
+    return saved && Array.isArray(saved.lines) ? saved : null;
+  } catch {
+    return null;
+  }
+};
+
 /** Text console for the same agent pipeline WhatsApp uses (channel "web"). */
 export function Console() {
   const [lines, setLines] = useState<Line[]>([]);
   const [draft, setDraft] = useState('');
+  const hydrated = useRef(false);
+
+  // The transcript and an unsent message are still here after signing back in.
+  useEffect(() => {
+    if (hydrated.current) return;
+    const saved = recall();
+    if (saved) {
+      setLines(saved.lines);
+      setDraft(saved.draft);
+    }
+    hydrated.current = true;
+  }, []);
+  useEffect(() => {
+    if (hydrated.current) remember({ lines, draft });
+  }, [lines, draft]);
+
   const [pending, startTransition] = useTransition();
   const [pendingLabel, setPendingLabel] = useState('Agent is thinking…');
 
@@ -34,7 +82,21 @@ export function Console() {
       /^\s*(confirm|yes|ok)\b/i.test(text) ? 'Creating payment request…' : 'Agent is thinking…',
     );
     startTransition(async () => {
-      const result = await sendConsoleMessage(text);
+      let result: Awaited<ReturnType<typeof sendConsoleMessage>>;
+      try {
+        result = await sendConsoleMessage(text);
+      } catch (error) {
+        if (isRedirectError(error) || isSessionEndedError(error)) {
+          // Going to sign in. The message wasn't handled: put it back to send afterwards.
+          remember({ lines, draft: text });
+          throw error;
+        }
+        setDraft(text);
+        result = {
+          ok: false,
+          error: "That message didn't reach Katale AI. Check your connection and send it again.",
+        };
+      }
       setLines((l) => [
         ...l,
         ...(result.ok

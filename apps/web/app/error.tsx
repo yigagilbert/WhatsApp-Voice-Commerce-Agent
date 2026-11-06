@@ -17,8 +17,7 @@ export default function Error({
     <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-6">
       <h2 className="text-lg font-semibold text-rose-900">This page couldn&apos;t load</h2>
       <p className="mt-1 text-sm text-rose-800">
-        Something went wrong while loading your data. Nothing was changed. Please try again; if it
-        keeps happening, check that the Katale services are running.
+        Something went wrong while loading this page. Please try again in a moment.
         {error.digest ? ` (Reference: ${error.digest})` : ''}
       </p>
       <button

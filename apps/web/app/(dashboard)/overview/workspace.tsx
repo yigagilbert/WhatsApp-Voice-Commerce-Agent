@@ -252,7 +252,9 @@ export function OverviewWorkspace({
     setMode('view');
   };
 
-  const restoreDefault = () =>
+  const restoreDefault = () => {
+    if (!window.confirm('Go back to the standard dashboard? Your changes to this one are lost.'))
+      return;
     startSaving(async () => {
       const result = await resetLayout();
       if (result.error) {
@@ -266,6 +268,7 @@ export function OverviewWorkspace({
       setMode('view');
       setNotice('Back to the standard dashboard.');
     });
+  };
 
   useEffect(() => {
     if (!notice) return;

@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 import type { ColDef } from 'ag-grid-community';
 import { CommerceGrid, formatDate, formatMinor } from '@/components/grid/commerce-grid';
@@ -17,7 +18,14 @@ const country = (code: string | null) => {
   }
 };
 
-export function CustomersGrid({ customers }: { customers: CustomerStat[] }) {
+export function CustomersGrid({
+  customers,
+  initialSearch,
+}: {
+  customers: CustomerStat[];
+  initialSearch?: string;
+}) {
+  const router = useRouter();
   const rows = useMemo<Row[]>(
     () =>
       customers.map((c) => ({
@@ -97,6 +105,8 @@ export function CustomersGrid({ customers }: { customers: CustomerStat[] }) {
       }}
       exportName="katale-customers"
       searchPlaceholder="Search customers…"
+      initialSearch={initialSearch}
+      onRowClick={(row) => router.push(`/orders?q=${encodeURIComponent(row.name)}`)}
       emptyMessage="No customers yet."
     />
   );

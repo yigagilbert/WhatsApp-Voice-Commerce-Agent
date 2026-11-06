@@ -8,16 +8,18 @@ import {
   type CheckoutResponse,
   type QuotedLine,
 } from '@/lib/storefront-types';
+import {
+  afterAutoOpen,
+  afterClose,
+  handoffStorageKey,
+  isHandoffExpired,
+  parseHandoff,
+  type Handoff,
+} from '@/lib/storefront-handoff';
 import { useCart } from './cart-context';
 import { NoPhoto } from './product-card';
 import { WhatsAppIcon } from './whatsapp-icon';
 import s from '../shop.module.css';
-
-interface Handoff {
-  reference: string;
-  url: string;
-  expiresAt: string;
-}
 
 const POLL_MS = 4000;
 
@@ -141,41 +143,55 @@ export function CartDrawer({
 }) {
   const cart = useCart();
   const { slug, items, count, quote, loading, error, drawerOpen, openDrawer, closeDrawer } = cart;
+  const { retryQuote } = cart;
   const dialog = useRef<HTMLDialogElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [handoff, setHandoff] = useState<Handoff | null>(null);
   const [received, setReceived] = useState(false);
   const [expired, setExpired] = useState(false);
-  const sessionKey = `katale-handoff:${slug}`;
-
-  // A customer who went to WhatsApp and came back (even after a reload) sees where things stand.
-  useEffect(() => {
-    try {
-      const raw = window.sessionStorage.getItem(sessionKey);
-      if (!raw) return;
-      const saved = JSON.parse(raw) as Handoff;
-      if (new Date(saved.expiresAt) > new Date()) {
-        setHandoff(saved);
-        openDrawer();
-      } else window.sessionStorage.removeItem(sessionKey);
-    } catch {
-      // Without session storage the customer simply starts from the cart.
-    }
-  }, [sessionKey]);
+  const storageKey = handoffStorageKey(slug);
 
   const rememberHandoff = useCallback(
     (value: Handoff | null) => {
       setHandoff(value);
       try {
-        if (value) window.sessionStorage.setItem(sessionKey, JSON.stringify(value));
-        else window.sessionStorage.removeItem(sessionKey);
+        if (value) window.localStorage.setItem(storageKey, JSON.stringify(value));
+        else window.localStorage.removeItem(storageKey);
       } catch {
-        // See above.
+        // Storage can be blocked: the hand-off then lasts for this page view.
       }
     },
-    [sessionKey],
+    [storageKey],
   );
+
+  // A customer who went to WhatsApp and came back sees where things stand, in this tab or a new
+  // one. Kept across tabs with the cart, so a new tab can't offer a cart already sent to WhatsApp.
+  useEffect(() => {
+    let saved: Handoff | null = null;
+    try {
+      saved = parseHandoff(window.localStorage.getItem(storageKey));
+    } catch {
+      // Without storage the customer simply starts from the cart.
+    }
+    if (saved) {
+      // Opens by itself once. After that the customer has seen it, and "View cart" brings it back.
+      if (saved.autoOpen) {
+        rememberHandoff(afterAutoOpen(saved));
+        openDrawer();
+      } else setHandoff(saved);
+    }
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) setHandoff(parseHandoff(event.newValue));
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [storageKey, rememberHandoff]);
+
+  const closeCart = () => {
+    if (handoff?.autoOpen) rememberHandoff(afterClose(handoff));
+    closeDrawer();
+  };
 
   useEffect(() => {
     const el = dialog.current;
@@ -202,8 +218,11 @@ export function CartDrawer({
           setReceived(true);
           clear();
           rememberHandoff(null);
+          openDrawer();
         } else if (status === 'expired') {
           setExpired(true);
+          rememberHandoff(null);
+        } else if (isHandoffExpired(handoff)) {
           rememberHandoff(null);
         }
       } catch {
@@ -242,6 +261,7 @@ export function CartDrawer({
           reference: result.reference,
           url: result.whatsappUrl,
           expiresAt: result.expiresAt,
+          autoOpen: true,
         });
         if (tab) tab.location.href = result.whatsappUrl;
         return;
@@ -310,9 +330,9 @@ export function CartDrawer({
         ref={dialog}
         className={s.drawer}
         aria-label="Your cart"
-        onClose={closeDrawer}
+        onClose={closeCart}
         onClick={(event) => {
-          if (event.target === dialog.current) closeDrawer();
+          if (event.target === dialog.current) closeCart();
         }}
       >
         <div className={s.drawerInner}>
@@ -327,7 +347,7 @@ export function CartDrawer({
             <button
               type="button"
               className={s.iconButton}
-              onClick={closeDrawer}
+              onClick={closeCart}
               aria-label="Close cart"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
@@ -391,13 +411,29 @@ export function CartDrawer({
             <div className={s.panel}>
               <p className={s.panelLead}>Your cart is empty</p>
               <p className={s.muted}>Products you add will appear here.</p>
-              <button type="button" className={s.secondary} onClick={closeDrawer}>
+              <button type="button" className={s.secondary} onClick={closeCart}>
                 Browse products
               </button>
             </div>
           ) : (
             <>
               <div className={s.lines}>
+                {!quote && error && (
+                  <div className={s.panel}>
+                    <p className={s.panelLead}>We couldn&apos;t check your cart&apos;s prices</p>
+                    <p className={s.muted}>
+                      Your cart is saved. Check your connection, then retry.
+                    </p>
+                    <button
+                      type="button"
+                      className={s.secondary}
+                      disabled={loading}
+                      onClick={retryQuote}
+                    >
+                      {loading ? 'Checking…' : 'Retry'}
+                    </button>
+                  </div>
+                )}
                 {!quote && !error && (
                   <div role="status" aria-label="Checking prices">
                     {items.map((item) => (
@@ -425,6 +461,19 @@ export function CartDrawer({
                     {expired
                       ? 'That checkout expired or was replaced. Nothing was ordered. Start it again below.'
                       : (notice ?? error ?? quote?.notice)}
+                    {error && !notice && !expired && quote && (
+                      <>
+                        {' '}
+                        <button
+                          type="button"
+                          className={s.textButton}
+                          disabled={loading}
+                          onClick={retryQuote}
+                        >
+                          Retry
+                        </button>
+                      </>
+                    )}
                   </p>
                 )}
                 <section aria-labelledby="order-summary" className={s.summary}>

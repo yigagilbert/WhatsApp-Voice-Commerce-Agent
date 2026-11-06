@@ -27,7 +27,14 @@ export function DisputeStatus({ status, label }: { status: string; label: string
   );
 }
 
-export function DisputesGrid({ disputes }: { disputes: DisputeRow[] }) {
+export function DisputesGrid({
+  disputes,
+  filteredView,
+}: {
+  disputes: DisputeRow[];
+  /** Set when the page shows only part of the list. */
+  filteredView?: string;
+}) {
   const router = useRouter();
   const rows = useMemo<Row[]>(
     () =>
@@ -123,7 +130,11 @@ export function DisputesGrid({ disputes }: { disputes: DisputeRow[] }) {
       onRowClick={(row) => router.push(`/disputes?d=${encodeURIComponent(row.paypalDisputeId)}`)}
       exportName="katale-disputes"
       searchPlaceholder="Search disputes…"
-      emptyMessage="No PayPal disputes. New disputes arrive automatically from PayPal."
+      emptyMessage={
+        filteredView
+          ? `No disputes right now: ${filteredView}.`
+          : 'No PayPal disputes. New disputes arrive automatically from PayPal.'
+      }
       height={440}
     />
   );

@@ -1,8 +1,10 @@
 import 'server-only';
 import { loadWebConfig } from '@vca/config';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { requireUser } from './auth';
 import { BOOTSTRAP_USER_ID } from './session';
+import { CURRENT_PATH_HEADER } from './session-ended';
 
 /**
  * Server-side API access. The dashboard token lives only on the server — it is never
@@ -13,6 +15,10 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string };
 function config() {
   return loadWebConfig();
 }
+
+/** Writes can run the agent and PayPal; a page shouldn't sit on its loading state that long. */
+const READ_TIMEOUT_MS = 30_000;
+const WRITE_TIMEOUT_MS = 120_000;
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
   // Every dashboard data access requires a signed-in user (redirects to /login otherwise).
@@ -36,7 +42,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
           : { 'x-dashboard-user': user.id, 'x-dashboard-session': String(user.version) }),
         ...init.headers,
       },
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(init.method ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS),
     });
     const body = (await response.json().catch(() => null)) as {
       error?: { message?: string };
@@ -57,7 +63,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
     };
   }
   // Outside the try: redirect() works by throwing. /session-ended clears the cookie first.
-  redirect('/session-ended');
+  const page = (await headers()).get(CURRENT_PATH_HEADER);
+  redirect(page ? `/session-ended?next=${encodeURIComponent(page)}` : '/session-ended');
 }
 
 export const apiGet = <T>(path: string) => request<T>(path);

@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useState } from 'react';
+import { DraftRestored, useFormAction } from '@/components/use-form-action';
 import type { StorefrontSettings } from '@/lib/types';
 import { removeLogo, saveStorefront, uploadLogo, type StorefrontState } from './actions';
 
@@ -42,10 +43,27 @@ export function StorefrontForm({
   settings: StorefrontSettings;
   origin: string;
 }) {
-  const [state, action, pending] = useActionState(saveStorefront, null);
+  const { state, pending, restored, formProps } = useFormAction<StorefrontState>(
+    saveStorefront,
+    null,
+    {
+      draftKey: 'storefront',
+      confirm: (form) => {
+        const publish = form.get('enabled') === 'on';
+        if (publish && !settings.enabled)
+          return 'Publish your storefront? Anyone with the link can browse your products.';
+        if (!publish && settings.enabled)
+          return 'Make your storefront private? Customers with the link will no longer see it.';
+        if (publish && settings.saved && form.get('slug') !== settings.slug)
+          return 'Change your shop address? Links and QR codes you already shared stop working.';
+        return null;
+      },
+    },
+  );
   const [slug, setSlug] = useState(settings.slug);
   return (
-    <form action={action} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+    <form {...formProps} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+      <DraftRestored show={restored} />
       <label className="flex items-start gap-3 text-sm">
         <input
           type="checkbox"
@@ -123,9 +141,11 @@ export function StorefrontForm({
 }
 
 export function LogoForm({ settings }: { settings: StorefrontSettings }) {
-  const [state, action, pending] = useActionState(uploadLogo, null);
+  const { state, pending, formProps } = useFormAction<StorefrontState>(uploadLogo, null, {
+    resetOnSuccess: true,
+  });
   return (
-    <form action={action} className="space-y-3 rounded-lg border border-slate-200 bg-white p-5">
+    <form {...formProps} className="space-y-3 rounded-lg border border-slate-200 bg-white p-5">
       <h2 className="text-sm font-semibold text-slate-900">Logo</h2>
       <div className="flex items-center gap-4">
         {settings.logoVersion ? (
@@ -158,7 +178,9 @@ export function LogoForm({ settings }: { settings: StorefrontSettings }) {
           <button
             type="button"
             className="text-sm text-slate-600 underline"
-            onClick={() => void removeLogo()}
+            onClick={() => {
+              if (window.confirm('Remove your logo from the storefront?')) void removeLogo();
+            }}
           >
             Remove logo
           </button>

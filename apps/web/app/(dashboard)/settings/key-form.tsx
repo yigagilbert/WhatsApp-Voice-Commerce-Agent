@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useRef } from 'react';
+import { useFormAction } from '@/components/use-form-action';
 import { removeKey, saveKey, type KeyActionState } from './actions';
 
 export interface KeyStatus {
@@ -33,12 +33,19 @@ export function KeyForm({
   help: React.ReactNode;
   whenMissing: string;
 }) {
-  const [saved, save, saving] = useActionState<KeyActionState, FormData>(saveKey, null);
-  const [removed, remove, removing] = useActionState<KeyActionState, FormData>(removeKey, null);
-  const form = useRef<HTMLFormElement>(null);
-  useEffect(() => {
-    if (saved?.ok) form.current?.reset();
-  }, [saved]);
+  const {
+    state: saved,
+    pending: saving,
+    formProps: saveForm,
+  } = useFormAction<KeyActionState>(saveKey, null, { resetOnSuccess: true });
+  const {
+    state: removed,
+    pending: removing,
+    formProps: removeForm,
+  } = useFormAction<KeyActionState>(removeKey, null, {
+    confirm: () =>
+      `Remove this ${label}? Features that need it stop working unless the server has its own.`,
+  });
   const message = saved ?? removed;
   const state = STATE[status.source];
 
@@ -67,7 +74,7 @@ export function KeyForm({
           {status.updatedBy ? ` by ${status.updatedBy.replace('dashboard:', '')}` : ''}
         </p>
       )}
-      <form ref={form} action={save} className="mt-4 flex flex-wrap gap-2">
+      <form {...saveForm} className="mt-4 flex flex-wrap gap-2">
         <input type="hidden" name="name" value={status.name} />
         <label className="min-w-0 flex-1 basis-64">
           <span className="sr-only">New {label}</span>
@@ -92,7 +99,7 @@ export function KeyForm({
         </button>
       </form>
       {status.source === 'dashboard' && (
-        <form action={remove} className="mt-2">
+        <form {...removeForm} className="mt-2">
           <input type="hidden" name="name" value={status.name} />
           <button
             disabled={removing}

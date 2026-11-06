@@ -39,4 +39,18 @@ export class CoreApiClient {
     }
     return (await response.json()) as InboundProcessingResult;
   }
+
+  /** Which WhatsApp ID each reply got. Best effort: without it, a later quote just won't resolve. */
+  async reportDelivered(deliveries: { messageId: string; stanzaId: string }[]): Promise<void> {
+    if (!deliveries.length) return;
+    await this.fetchImpl(`${this.baseUrl.replace(/\/$/, '')}/api/agent/delivered`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [HEADERS.internalToken]: this.internalToken,
+      },
+      body: JSON.stringify({ deliveries }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  }
 }

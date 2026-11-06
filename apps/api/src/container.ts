@@ -279,6 +279,7 @@ export function createContainer(
     config.DEFAULT_PHONE_REGION,
   );
   const executor = new ConfirmationExecutor({
+    lifecycle: orderLifecycle,
     orders,
     payments,
     reminders,

@@ -28,7 +28,7 @@ import {
   ValidationError,
   type Logger,
 } from '@vca/shared';
-import { readAddress } from './intents';
+import { readAddress, readName } from './intents';
 import { carrierDisplay } from '../shipments/shipment.service';
 import type { NotificationService } from '../notifications/notification.service';
 import type { PaymentService } from '../payments/payment.service';
@@ -592,7 +592,7 @@ export class ShopOrderService {
 
   static formatCart(cart: Cart | null): string {
     if (!cart || !cart.items.length)
-      return 'Your cart is empty. Reply *1* to browse products, or tell me what you need.';
+      return 'Your cart is empty. Reply *browse* to see products, or tell me what you need.';
     return [
       '*Your cart*',
       ...cart.items.map(
@@ -604,7 +604,7 @@ export class ShopOrderService {
         ? [`You save: ${formatMoney(savingsOf(cart.items), cart.currency)} 🎉`]
         : []),
       '',
-      'Reply *checkout* to order, *remove 1* to remove an item, or keep browsing (*1*).',
+      'Reply *checkout* to order, *remove 1* to remove an item, or keep browsing (*browse*).',
     ].join('\n');
   }
 
@@ -760,8 +760,7 @@ export class ShopOrderService {
       .replace(/\s+/g, ' ')
       .trim();
     if (step === 'name') {
-      if (clean.length < 2 || clean.length > 60 || /\d{4,}/.test(clean))
-        return 'Please send just your name (2–60 letters).';
+      if (clean.length > 60 || !readName(clean)) return 'Please send just your name (2–60 letters).';
       await this.db.order.update({ where: { id: orderId }, data: { contactName: clean } });
       if (actor.customer.source === 'WHATSAPP' && actor.customer.name === DEFAULT_NAME)
         await this.db.customer.update({ where: { id: actor.customer.id }, data: { name: clean } });
@@ -1132,7 +1131,7 @@ export class ShopOrderService {
   }
 
   static formatOrders(orders: Awaited<ReturnType<ShopOrderService['myOrders']>>): string {
-    if (!orders.length) return "You don't have any orders yet. Reply *1* to browse products.";
+    if (!orders.length) return "You don't have any orders yet. Reply *browse* to see products.";
     return [
       '*Your orders*',
       ...orders.map((o) => {
@@ -1158,7 +1157,7 @@ export class ShopOrderService {
       ...(orders.some((o) => o.status === 'DRAFT' || o.status === 'AWAITING_PAYMENT')
         ? ['To cancel an unpaid order, reply *cancel* and its number, e.g. *cancel ORD-ABC123*.']
         : []),
-      'Questions about an order? Reply *4* to talk to a person.',
+      'Questions about an order? Reply *person* to talk to a person.',
     ].join('\n');
   }
 }

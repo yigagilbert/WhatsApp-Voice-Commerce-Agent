@@ -81,6 +81,26 @@ export class CustomerService {
       where: { merchantId, name: { equals: ref.name.trim(), mode: 'insensitive' } },
       take: 2,
     });
+    // An exact match on a name the customer chose in WhatsApp can't outrank someone the merchant
+    // knows: a stranger with the profile name "Sarah" must not take over Sarah Thompson's orders.
+    const others =
+      exact.length === 1 && exact[0]?.source === 'WHATSAPP'
+        ? await tx.customer.findMany({
+            where: {
+              merchantId,
+              name: { contains: ref.name.trim(), mode: 'insensitive' },
+              id: { not: exact[0].id },
+            },
+            take: 4,
+          })
+        : [];
+    if (others.length) {
+      const candidates = [exact[0]!, ...others];
+      throw new ValidationError(
+        `Several customers match '${ref.name}': ${candidates.map((c) => c.name).join(', ')}. Ask the merchant which one.`,
+        { candidates: candidates.map((c) => ({ id: c.id, name: c.name })) },
+      );
+    }
     if (exact.length === 1 && exact[0]) return { customer: exact[0], isNew: false };
 
     const partial =

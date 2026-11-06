@@ -97,6 +97,25 @@ export function readAddress(text: string): AddressReading {
   return words.split(' ').length >= 2 ? { kind: 'address' } : { kind: 'not_address', reason: 'chat' };
 }
 
+/** Text that reads as a place on its own, so it can correct an address without being asked for. */
+export const isClearlyAddress = (text: string): boolean =>
+  readAddress(text).kind === 'address' &&
+  ADDRESS_SIGNAL.test(normalizeWords(text)) &&
+  !/\b(baskets?|wallets?|cart|price|discount)\b/.test(normalizeWords(text));
+
+/** A name, not a sentence: "wait add another one" or "how much is it" aren't anyone's name. */
+export const readName = (text: string): boolean => {
+  const words = normalizeWords(text);
+  const count = words.split(' ').length;
+  return (
+    text.trim().length >= 2 &&
+    count <= 5 &&
+    !/\?\s*$/.test(text) &&
+    !/\d{4,}/.test(text) &&
+    !NOT_ADDRESS_START.test(words)
+  );
+};
+
 /** "change address", "wrong address": the customer wants to correct the delivery address. */
 export const wantsAddressChange = (text: string): boolean =>
   /^(please )?((change|update|edit|fix|correct)( my| the)?( delivery)? (address|location)|wrong address|new address|different address)( please| pls)?$/.test(

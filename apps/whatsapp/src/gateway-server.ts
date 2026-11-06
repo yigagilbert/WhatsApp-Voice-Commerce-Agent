@@ -81,10 +81,11 @@ export function createGatewayServer(params: {
             return send(400, { error: 'invalid message' });
           if (!transport.isReady()) return send(503, { error: 'whatsapp not ready' });
           const { externalChatId, text, media } = parsed.data;
-          if (media) await transport.sendImage(externalChatId, media, text);
-          else await transport.sendText(externalChatId, text);
+          const stanzaId = media
+            ? await transport.sendImage(externalChatId, media, text)
+            : await transport.sendText(externalChatId, text);
           logger.info({ media: !!media }, 'outbound message delivered');
-          return send(202, { delivered: true });
+          return send(202, { delivered: true, stanzaId: stanzaId ?? null });
         }
         if (req.method === 'POST' && req.url === '/internal/status') {
           const parsed = statusPostSchema.safeParse(JSON.parse(await readBody(req)));

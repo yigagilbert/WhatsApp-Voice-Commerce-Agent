@@ -34,7 +34,7 @@ export class HttpWhatsAppSender implements ChannelSender {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  async send(message: OutboundChannelMessage): Promise<void> {
+  async send(message: OutboundChannelMessage): Promise<{ stanzaId?: string | null }> {
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.gatewayUrl.replace(/\/$/, '')}/internal/send`, {
@@ -51,5 +51,7 @@ export class HttpWhatsAppSender implements ChannelSender {
       throw new ProviderError('whatsapp-gateway', 'unreachable', { cause });
     }
     if (!response.ok) throw new ProviderError('whatsapp-gateway', `HTTP ${response.status}`);
+    const body = (await response.json().catch(() => null)) as { stanzaId?: string | null } | null;
+    return { stanzaId: body?.stanzaId ?? null };
   }
 }

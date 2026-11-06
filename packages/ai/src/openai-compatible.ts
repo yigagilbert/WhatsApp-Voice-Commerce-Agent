@@ -7,6 +7,8 @@ import type {
   ToolCall,
 } from './types';
 
+const DEFAULT_TIMEOUT_MS = 10_000;
+
 export interface OpenAICompatibleOptions {
   baseUrl: string;
   apiKey: string;
@@ -63,6 +65,45 @@ export class OpenAICompatibleChatModel implements ChatModel {
     this.fetchImpl = options.fetch ?? fetch;
   }
 
+  /**
+   * One fast retry for a hang, a rate limit or a server error. Each attempt is bounded, so a stuck
+   * provider costs about two timeouts, not an open-ended wait. Nothing has changed on our side when
+   * a completion fails, so repeating it is safe.
+   */
+  private async post(body: unknown): Promise<Response> {
+    const attempt = () =>
+      this.fetchImpl(`${this.options.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${this.options.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+      });
+    const retryable = (status: number) => status === 429 || status >= 500;
+
+    let response: Response;
+    try {
+      response = await attempt();
+      if (retryable(response.status)) {
+        await response.text().catch(() => '');
+        response = await attempt();
+      }
+    } catch {
+      try {
+        response = await attempt();
+      } catch (cause) {
+        throw new ProviderError('llm', 'request failed', { cause });
+      }
+    }
+    if (!response.ok) {
+      const detail = (await response.text().catch(() => '')).slice(0, 500);
+      throw new ProviderError('llm', `HTTP ${response.status}`, { details: detail });
+    }
+    return response;
+  }
+
   async complete(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
     const body = {
       model: this.options.model,
@@ -79,28 +120,7 @@ export class OpenAICompatibleChatModel implements ChatModel {
         : {}),
     };
 
-    let response: Response;
-    try {
-      response = await this.fetchImpl(
-        `${this.options.baseUrl.replace(/\/$/, '')}/chat/completions`,
-        {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${this.options.apiKey}`,
-          },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000),
-        },
-      );
-    } catch (cause) {
-      throw new ProviderError('llm', 'request failed', { cause });
-    }
-
-    if (!response.ok) {
-      const detail = (await response.text().catch(() => '')).slice(0, 500);
-      throw new ProviderError('llm', `HTTP ${response.status}`, { details: detail });
-    }
+    const response = await this.post(body);
 
     const json = (await response.json()) as OpenAIChatResponse;
     const choice = json.choices?.[0]?.message;

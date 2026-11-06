@@ -49,7 +49,13 @@ export interface DownloadedMedia {
 
 export interface IncomingWhatsAppMessage extends WhatsAppMessageLike {
   downloadMedia(): Promise<DownloadedMedia | null>;
+  /** Blue ticks, right away, so the sender knows it arrived whatever happens next. */
+  markSeen(): Promise<void>;
   showTyping(): Promise<void>;
+  clearTyping(): Promise<void>;
+  hasQuotedMsg?: boolean;
+  /** The quoted message's short ID via the library, when WhatsApp's own field is missing. */
+  quotedStanzaId(): Promise<string | null>;
 }
 
 /**
@@ -61,9 +67,10 @@ export interface WhatsAppTransport {
   start(): Promise<void>;
   stop(): Promise<void>;
   onMessage(handler: (message: IncomingWhatsAppMessage) => Promise<void>): void;
-  sendText(chatId: string, text: string): Promise<void>;
-  /** Sends an image with a caption (charts). */
-  sendImage(chatId: string, image: OutgoingImage, caption: string): Promise<void>;
+  /** Sends text. Returns WhatsApp's short ID for the message (what a quoting reply points at). */
+  sendText(chatId: string, text: string): Promise<string | null>;
+  /** Sends an image with a caption (charts). Returns the same ID. */
+  sendImage(chatId: string, image: OutgoingImage, caption: string): Promise<string | null>;
   /** Posts an image to this account's own WhatsApp Status. Returns the Status message ID. */
   postStatus(image: OutgoingImage, caption: string): Promise<string | null>;
   isReady(): boolean;
@@ -88,6 +95,23 @@ export interface WhatsAppWebOptions {
   printQr?: boolean;
   logger: Logger;
 }
+
+/** WhatsApp's short message ID (`id.id`), the same one a quoting reply reports. */
+export function stanzaIdOf(message: unknown): string | null {
+  const id = (message as { id?: { id?: unknown } } | null | undefined)?.id?.id;
+  return typeof id === 'string' && id ? id : null;
+}
+
+/** The internal fields we read off a message. They're undocumented, so each may be missing. */
+const pickData = (msg: wwebjs.Message): WhatsAppMessageLike['_data'] => {
+  const data = (msg as unknown as { _data?: Record<string, unknown> })._data;
+  const quoted = data?.quotedMsg as { body?: unknown; caption?: unknown } | undefined;
+  return {
+    ...(typeof data?.notifyName === 'string' ? { notifyName: data.notifyName } : {}),
+    ...(data?.quotedStanzaID ? { quotedStanzaID: data.quotedStanzaID } : {}),
+    ...(quoted ? { quotedMsg: { body: quoted.body, caption: quoted.caption } } : {}),
+  };
+};
 
 /**
  * Chromium refuses to open a profile whose Singleton* lock files exist ("profile appears to be in
@@ -245,15 +269,23 @@ export class WhatsAppWebTransport implements WhatsAppTransport {
     });
   }
 
-  async sendImage(chatId: string, image: OutgoingImage, caption: string): Promise<void> {
+  async sendImage(chatId: string, image: OutgoingImage, caption: string): Promise<string | null> {
     if (!this.ready) throw new Error('WhatsApp client is not ready');
     const media = new MessageMedia(image.mimeType, image.dataBase64, image.filename ?? 'chart.png');
     const to = await this.toChatId(chatId);
+    let sent: unknown;
+    const remember = (message: unknown) => {
+      sent = message;
+    };
     await sendImageWithFallback(
-      () => this.client.sendMessage(to, media, { caption }),
-      () => this.client.sendMessage(to, media, { caption, sendMediaAsDocument: true }),
+      () => this.client.sendMessage(to, media, { caption, sendSeen: false }).then(remember),
+      () =>
+        this.client
+          .sendMessage(to, media, { caption, sendMediaAsDocument: true, sendSeen: false })
+          .then(remember),
       this.log,
     );
+    return stanzaIdOf(sent);
   }
 
   async postStatus(image: OutgoingImage, caption: string): Promise<string | null> {
@@ -285,9 +317,10 @@ export class WhatsAppWebTransport implements WhatsAppTransport {
         hasMedia: msg.hasMedia,
         // WhatsApp reports voice-note length (seconds, as a string) — used as a duration hint.
         duration: (msg as unknown as { duration?: string | number }).duration,
-        _data: {
-          notifyName: (msg as unknown as { _data?: { notifyName?: string } })._data?.notifyName,
-        },
+        hasQuotedMsg: msg.hasQuotedMsg,
+        location: msg.location as unknown as WhatsAppMessageLike['location'],
+        _data: pickData(msg),
+        quotedStanzaId: async () => stanzaIdOf(await msg.getQuotedMessage()),
         downloadMedia: async () => {
           const media = await msg.downloadMedia();
           if (!media) return null;
@@ -297,11 +330,20 @@ export class WhatsAppWebTransport implements WhatsAppTransport {
             ...(media.filename ? { filename: media.filename } : {}),
           };
         },
+        markSeen: async () => {
+          await (await msg.getChat()).sendSeen();
+        },
         showTyping: async () => {
           const chat = await msg.getChat();
           await chat.sendStateTyping();
         },
+        clearTyping: async () => {
+          const chat = await msg.getChat();
+          await chat.clearState();
+        },
       });
+      // Someone who just wrote to us is on WhatsApp, under this ID: replying needs no number lookup.
+      if (!msg.fromMe) this.chatIdCache.set(msg.from, msg.from);
       void handler(incoming);
     };
     // 'message' fires for received messages, but current WhatsApp Web builds don't always emit
@@ -313,9 +355,15 @@ export class WhatsAppWebTransport implements WhatsAppTransport {
     });
   }
 
-  async sendText(chatId: string, text: string): Promise<void> {
+  async sendText(chatId: string, text: string): Promise<string | null> {
     if (!this.ready) throw new Error('WhatsApp client is not ready');
-    await this.client.sendMessage(await this.toChatId(chatId), text);
+    // linkPreview: the library would first fetch any link in the text, with no timeout, and hold
+    // the reply until it came back. sendSeen: the worker already sent read ticks on receipt.
+    const sent = await this.client.sendMessage(await this.toChatId(chatId), text, {
+      linkPreview: false,
+      sendSeen: false,
+    });
+    return stanzaIdOf(sent);
   }
 
   /**

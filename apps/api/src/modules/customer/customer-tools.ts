@@ -7,6 +7,8 @@ import type { BargainingService, BargainResult } from './bargaining.service';
 import type { CustomerCatalog } from './catalog';
 import { ShopOrderService, type CheckoutStep, type ShopActor } from './shop-order.service';
 import type { StorefrontService } from '../storefront/storefront.service';
+import type { MessageRefs } from '../agent/message-refs';
+import { formatMoney } from '@vca/commerce';
 
 /**
  * Everything a customer tool may touch. Built by the router from the bot account and the
@@ -35,6 +37,10 @@ export interface CustomerAgentContext {
    * and the backend's own wording to use if the reply doesn't pass that check.
    */
   bargain: { allowedMinor: number[]; keyMinor: number | null; message: string } | null;
+  /** The request came from a voice note: speech can browse and fill a cart, not accept a price. */
+  fromVoice?: boolean;
+  /** What the reply is about, so a later quoted reply can point back at it. */
+  refs?: MessageRefs | null;
 }
 
 /**
@@ -202,6 +208,7 @@ function createShoppingTools(
           if (!found)
             return { found: false, note: 'No such product. Offer to show the product list.' };
           ctx.lastProductId = found.id;
+          ctx.refs = { kind: 'product', productId: found.id };
           const photo = found.hasPhoto ? await catalog.photo(ctx.merchant.id, found.id) : null;
           if (photo)
             ctx.attachments.push({ media: photo, caption: `${found.name} — ${found.price}` });
@@ -227,10 +234,23 @@ function createShoppingTools(
           'Use for any question about how the shop works. If it doesn’t answer the question, offer a person.',
         input: z.object({}),
         async execute(_input, ctx) {
+          // Only what the shop actually told us. "not_provided" means say so and offer a person.
+          const { account, merchant } = ctx;
           return {
-            business: ctx.merchant.businessName,
-            info: ctx.account.shopInfo ?? null,
-            payment: 'PayPal (secure checkout link)',
+            business: merchant.businessName,
+            info: account.shopInfo ?? 'not_provided',
+            opening_hours: 'not_provided unless stated in info',
+            delivery: account.deliveryEnabled
+              ? {
+                  available: true,
+                  fee: formatMoney(account.deliveryFeeMinor, merchant.preferredCurrency),
+                  areas: 'not_provided unless stated in info',
+                }
+              : { available: false },
+            pickup: account.pickupEnabled
+              ? { available: true, details: account.pickupInfo ?? 'not_provided' }
+              : { available: false },
+            payment: 'PayPal (secure checkout link). No other method unless stated in info.',
           };
         },
       }),
@@ -257,6 +277,7 @@ function createShoppingTools(
             ctx.lastProductId = found.id;
             // The cart the customer sees is built by the backend, never retold by the model.
             ctx.verbatim = `✅ Added: ${found.name} (now ${added.quantity} in your cart).\n\n${ShopOrderService.formatCart(added.cart)}`;
+            ctx.refs = { kind: 'cart' };
             return {
               ok: true,
               added: found.name,
@@ -290,6 +311,7 @@ function createShoppingTools(
               quantity,
             );
             ctx.verbatim = ShopOrderService.formatCart(result.cart);
+            ctx.refs = { kind: 'cart' };
             return { ok: true, cart: ctx.verbatim };
           }, ctx);
         },
@@ -326,7 +348,42 @@ function createShoppingTools(
             next.step && next.orderId
               ? { orderId: next.orderId, step: next.step, quote: next.quote ?? null }
               : null;
+          if (next.step === 'confirm' && next.orderId)
+            ctx.refs = { kind: 'summary', orderId: next.orderId };
           return { shown_to_customer: true };
+        },
+      }),
+    )
+    .register(
+      defineTool({
+        name: 'change_delivery',
+        kind: 'write',
+        description:
+          'Change how the customer’s open cart is delivered: a new delivery address (their exact words) or delivery_method. ' +
+          'Use when they correct their address or switch between delivery and pick up. The new summary is shown to them and needs a fresh ORDER.',
+        input: z.object({
+          address: z.string().trim().min(1).max(300).optional(),
+          delivery_method: z.enum(['DELIVERY', 'PICKUP']).optional(),
+        }),
+        async execute({ address, delivery_method }, ctx) {
+          const account = { ...ctx.account, merchant: ctx.merchant };
+          const problem = await shop.changeDelivery(actorOf(ctx), account, {
+            ...(address !== undefined ? { address } : {}),
+            ...(delivery_method ? { method: delivery_method } : {}),
+          });
+          if (problem) {
+            ctx.verbatim = problem;
+            return { ok: false, message: problem };
+          }
+          const next = await shop.nextStep(actorOf(ctx), account);
+          ctx.verbatim = next.text;
+          ctx.checkout =
+            next.step && next.orderId
+              ? { orderId: next.orderId, step: next.step, quote: next.quote ?? null }
+              : null;
+          if (next.step === 'confirm' && next.orderId)
+            ctx.refs = { kind: 'summary', orderId: next.orderId };
+          return { ok: true, shown_to_customer: true };
         },
       }),
     )
@@ -439,6 +496,7 @@ function registerBargainingTools(
               }),
             );
           noteBargain(ctx, results);
+          if (results.some((r) => r.keyMinor !== null)) ctx.refs = { kind: 'offer', productId: ids[0] ?? null };
           // An agreed price changed the cart: the cart is shown exactly as the backend built it.
           const agreed = results.find((r) => r.status === 'agreed');
           if (agreed) ctx.verbatim = agreed.message;
@@ -457,6 +515,11 @@ function registerBargainingTools(
           'product: optional, when several offers are open.',
         input: z.object({ product: z.string().trim().min(1).max(100).optional() }),
         async execute({ product }, ctx) {
+          // Speech can mishear: agreeing to a price is typed, like ORDER.
+          if (ctx.fromVoice) {
+            ctx.verbatim = 'To accept that price, please type *deal*.';
+            return { ok: false, message: ctx.verbatim };
+          }
           const found = product ? await resolveProduct(catalog, ctx, product) : null;
           const result = await bargaining.accept(actorOf(ctx), { productId: found?.id ?? null });
           noteBargain(ctx, [result]);

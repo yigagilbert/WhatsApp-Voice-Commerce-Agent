@@ -1,4 +1,4 @@
-import type { Logger } from '@vca/shared';
+import { isAppError, type Logger } from '@vca/shared';
 import type { ToolRegistry, ToolResult } from './tools';
 import type { ChatMessage, ChatModel } from './types';
 
@@ -12,7 +12,8 @@ export interface AgentStep {
 export interface AgentRunResult {
   reply: string;
   steps: AgentStep[];
-  stoppedReason: 'completed' | 'max_steps';
+  /** provider_failed: the model stopped answering after tools had already run this turn. */
+  stoppedReason: 'completed' | 'max_steps' | 'provider_failed';
 }
 
 export interface RunAgentOptions<C> {
@@ -22,6 +23,11 @@ export interface RunAgentOptions<C> {
   /** Prior conversation turns (oldest first), user/assistant only. */
   history: ChatMessage[];
   userMessage: string;
+  /**
+   * Facts built by the backend for this turn (what's on screen, the cart, a pending approval). Sent
+   * last, after the stable prefix, so provider prompt caching still applies.
+   */
+  stateCard?: string;
   context: C;
   maxSteps?: number;
   logger?: Logger;
@@ -40,12 +46,23 @@ export async function runAgent<C>(options: RunAgentOptions<C>): Promise<AgentRun
   const messages: ChatMessage[] = [
     { role: 'system', content: options.systemPrompt },
     ...options.history,
+    ...(options.stateCard ? [{ role: 'system' as const, content: options.stateCard }] : []),
     { role: 'user', content: options.userMessage },
   ];
   const steps: AgentStep[] = [];
 
   for (let iteration = 0; iteration < maxSteps; iteration++) {
-    const { message } = await options.model.complete({ messages, tools: specs });
+    let message: ChatMessage;
+    try {
+      ({ message } = await options.model.complete({ messages, tools: specs }));
+    } catch (error) {
+      // Tools may already have changed things. Retrying the turn would repeat them, so the caller
+      // gets what ran and reports it. With nothing done yet, a plain failure is safe to surface.
+      const providerDown = isAppError(error) && error.code.startsWith('PROVIDER');
+      if (!providerDown || !steps.some((s) => s.result.ok)) throw error;
+      options.logger?.warn({ err: error, steps: steps.length }, 'model failed after tools ran');
+      return { reply: '', steps, stoppedReason: 'provider_failed' };
+    }
     messages.push(message);
 
     if (!message.toolCalls?.length) {

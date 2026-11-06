@@ -33,7 +33,7 @@ export const aiSchema = z.object({
   /** Optional AG Studio licence key (removes the evaluation watermark). */
   AG_STUDIO_LICENSE_KEY: optionalString,
   AI_MODEL: z.string().min(1).default('gpt-4.1-mini'),
-  AI_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  AI_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
 });
 
 export const speechSchema = z.object({

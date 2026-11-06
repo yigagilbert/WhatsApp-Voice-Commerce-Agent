@@ -16,6 +16,37 @@ const base: WhatsAppMessageLike = {
 };
 
 describe('mapWhatsAppMessage', () => {
+  it('passes on what a reply quotes, and nothing when there is no quote', () => {
+    const mapped = mapWhatsAppMessage({
+      ...base,
+      _data: { quotedStanzaID: '3EB0ABC', quotedMsg: { body: 'Coffee Gift Pack — $25.00' } },
+    });
+    expect(mapped).toMatchObject({
+      kind: 'text',
+      message: { quoted: { stanzaId: '3EB0ABC', text: 'Coffee Gift Pack — $25.00' } },
+    });
+    if (mapped.kind === 'text') expect(inboundChannelMessageSchema.safeParse(mapped.message).success).toBe(true);
+    const plain = mapWhatsAppMessage(base);
+    if (plain.kind === 'text') expect(plain.message.quoted).toBeUndefined();
+  });
+
+  it('reads a location pin and drops an unusable one', () => {
+    const pin = mapWhatsAppMessage({
+      ...base,
+      type: 'location',
+      location: { latitude: '0.3476', longitude: 32.5825, description: 'Ntinda' },
+    });
+    expect(pin).toMatchObject({
+      kind: 'unsupported',
+      message: {
+        unsupportedKind: 'location',
+        location: { latitude: 0.3476, longitude: 32.5825, description: 'Ntinda' },
+      },
+    });
+    const bad = mapWhatsAppMessage({ ...base, type: 'location', location: { latitude: 'x' } });
+    if (bad.kind === 'unsupported') expect(bad.message.location).toBeUndefined();
+  });
+
   it('maps text messages to the channel contract', () => {
     const mapped = mapWhatsAppMessage(base);
     expect(mapped).toEqual({

@@ -423,6 +423,9 @@ describe('demo flow (integration)', () => {
   });
 
   it('routes a bare "yes" to the agent when nothing is pending (and never executes anything)', async () => {
+    // The agent spoke last, so "yes" answers it (a bare "yes" right after an alert does not).
+    model.enqueue(() => ({ role: 'assistant', content: 'Do you want to start a new order?' }));
+    await postMessage('anything new?');
     model.enqueue(() => ({ role: 'assistant', content: 'Great — what would you like to order?' }));
     const before = paypal.created.length;
     expect(await postMessage('yes')).toBe('Great — what would you like to order?');

@@ -321,12 +321,12 @@ describe('admins and proactive reports (integration)', () => {
 
     it('lets an active admin use the agent, matched by chat ID or by phone behind a linked ID', async () => {
       model.enqueue(() => ({ role: 'assistant', content: 'Hello Grace.' }));
-      const direct = await send(chatOf(owner.phone), 'hi');
+      const direct = await send(chatOf(owner.phone), 'what can you do');
       expect(direct.replies[0]?.text).toContain('Hello Grace.');
 
       const lid = `9${run.replace(/\D/g, '')}12345@lid`;
       model.enqueue(() => ({ role: 'assistant', content: 'Hello again.' }));
-      const linked = await send(lid, 'hi', manager.phone);
+      const linked = await send(lid, 'what can you do', manager.phone);
       expect(linked.replies[0]?.text).toContain('Hello again.');
       // The linked ID is learned, so the next message matches even without a resolved phone.
       const saved = await container.db.merchantOperator.findUniqueOrThrow({
@@ -334,7 +334,7 @@ describe('admins and proactive reports (integration)', () => {
       });
       expect(saved.whatsappLid).toBe(lid);
       model.enqueue(() => ({ role: 'assistant', content: 'Still you.' }));
-      expect((await send(lid, 'hi')).replies[0]?.text).toContain('Still you.');
+      expect((await send(lid, 'what can you do')).replies[0]?.text).toContain('Still you.');
     });
 
     it('gives inactive admins, customers and strangers the same generic welcome, nothing else', async () => {
@@ -398,7 +398,7 @@ describe('admins and proactive reports (integration)', () => {
     it('a re-activated admin gets full access again', async () => {
       await container.admins.update(merchantId, former.id, { active: true });
       model.enqueue(() => ({ role: 'assistant', content: 'Welcome back.' }));
-      expect((await send(chatOf(former.phone), 'hi')).replies[0]?.text).toContain('Welcome back.');
+      expect((await send(chatOf(former.phone), 'what can you do')).replies[0]?.text).toContain('Welcome back.');
       await container.admins.update(merchantId, former.id, { active: false });
     });
 
@@ -422,7 +422,7 @@ describe('admins and proactive reports (integration)', () => {
       );
       // Still works once the phone can't be resolved (the linked ID was learned on the active row).
       model.enqueue(() => ({ role: 'assistant', content: 'Still the owner.' }));
-      expect((await send(lid, 'hi')).replies[0]?.text).toBe('Still the owner.');
+      expect((await send(lid, 'what can you do')).replies[0]?.text).toBe('Still the owner.');
     });
   });
 

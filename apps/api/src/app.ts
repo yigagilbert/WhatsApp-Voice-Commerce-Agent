@@ -76,7 +76,11 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, { origin: container.config.CORS_ORIGINS });
   await app.register(rateLimit, {
-    ...rateLimitOptions(container.config.API_AUTH_TOKEN, container.config.RATE_LIMIT_MAX),
+    ...rateLimitOptions(
+      container.config.API_AUTH_TOKEN,
+      container.config.RATE_LIMIT_MAX,
+      container.config.INTERNAL_SERVICE_TOKEN,
+    ),
     timeWindow: '1 minute',
   });
 

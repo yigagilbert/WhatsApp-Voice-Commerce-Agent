@@ -1,5 +1,5 @@
 import type { AdminService } from '@vca/commerce';
-import type { Customer, Database } from '@vca/database';
+import type { Customer, Database, MessageKind, Prisma } from '@vca/database';
 import { ProviderError, getCorrelationId, type Logger, type OutboundMedia } from '@vca/shared';
 import type { ChannelRegistry } from './channel-registry';
 
@@ -8,6 +8,11 @@ import type { ChannelRegistry } from './channel-registry';
  * Messages are always stored; delivery failures are logged and audited, never thrown,
  * so a flaky channel can't break webhook processing.
  */
+export interface SendOptions {
+  kind?: MessageKind;
+  refs?: Prisma.InputJsonObject;
+}
+
 export class NotificationService {
   constructor(
     private readonly db: Database,
@@ -25,10 +30,11 @@ export class NotificationService {
     chatId: string,
     text: string,
     media?: OutboundMedia,
+    options: SendOptions = {},
   ): Promise<void> {
     const sender = this.channels.get('whatsapp');
     if (!sender) throw new ProviderError('whatsapp-gateway', 'WhatsApp channel not configured');
-    await sender.send({
+    const sent = await sender.send({
       channel: 'whatsapp',
       externalChatId: chatId,
       text,
@@ -53,6 +59,9 @@ export class NotificationService {
         type: 'TEXT',
         content: media ? `[chart image] ${text}` : text,
         correlationId: getCorrelationId() ?? null,
+        kind: options.kind ?? 'REPLY',
+        ...(options.refs ? { refs: options.refs } : {}),
+        ...(sent?.stanzaId ? { stanzaId: sent.stanzaId, deliveredAt: new Date() } : {}),
       },
     });
   }
@@ -61,13 +70,21 @@ export class NotificationService {
    * Alerts (low stock, disputes) to every active admin who opted in. Failures are logged and
    * audited per admin, never thrown. Returns how many admins received it.
    */
-  async toAdmins(merchantId: string, text: string): Promise<number> {
+  async toAdmins(
+    merchantId: string,
+    text: string,
+    refs?: Prisma.InputJsonObject,
+  ): Promise<number> {
     if (!this.admins) return 0;
     const recipients = await this.admins.recipients(merchantId, 'alerts');
     let delivered = 0;
     for (const admin of recipients) {
       try {
-        await this.sendToChat(merchantId, admin.externalId, text);
+        // ALERT, not REPLY: these can carry customer words and were not written by the assistant.
+        await this.sendToChat(merchantId, admin.externalId, text, undefined, {
+          kind: 'ALERT',
+          ...(refs ? { refs } : {}),
+        });
         delivered++;
       } catch (error) {
         this.logger.warn({ err: error, operatorId: admin.id }, 'admin alert delivery failed');
@@ -137,10 +154,16 @@ export class NotificationService {
   }
 
   private async deliver(
-    conversation: { id: string; merchantId: string; channel: string; externalChatId: string },
+    conversation: {
+      id: string;
+      merchantId: string;
+      channel: string;
+      externalChatId: string;
+      audience?: string;
+    },
     text: string,
   ): Promise<boolean> {
-    await this.db.message.create({
+    const stored = await this.db.message.create({
       data: {
         conversationId: conversation.id,
         channel: conversation.channel,
@@ -148,6 +171,8 @@ export class NotificationService {
         type: 'TEXT',
         content: text,
         correlationId: getCorrelationId() ?? null,
+        // In a merchant's own chat these are notices (payment arrived...), not the agent's words.
+        kind: conversation.audience === 'ADMIN' ? 'ALERT' : 'REPLY',
       },
     });
     const sender = this.channels.get(conversation.channel);
@@ -156,11 +181,16 @@ export class NotificationService {
       return false;
     }
     try {
-      await sender.send({
+      const sent = await sender.send({
         channel: sender.channel,
         externalChatId: conversation.externalChatId,
         text,
       });
+      if (sent?.stanzaId)
+        await this.db.message.update({
+          where: { id: stored.id },
+          data: { stanzaId: sent.stanzaId, deliveredAt: new Date() },
+        });
       await this.db.auditEvent.create({
         data: {
           merchantId: conversation.merchantId,

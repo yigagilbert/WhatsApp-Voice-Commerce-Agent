@@ -1,0 +1,41 @@
+import { readFileSync } from 'node:fs';
+import { boot, newChat, realModel, ADMIN, sttEnv, SHOP } from './lib.mts';
+const W = '/Users/sunbird/Documents/Workshop/Apps/WhatsAppVoiceCommerceAgent/.claude/worktrees/katale-ai-usability-review-0c9fda';
+const { SpeechPipeline, OpenAICompatibleSpeechToText } = await import(W + '/packages/speech/src/index.ts');
+const T = (r: any) => (r.body.replies ?? []).map((x: any) => String(x.text).replace(/\n+/g, ' ⏎ ')).join(' || ').slice(0, 260) || '(no reply)';
+const model = realModel(); const st = sttEnv();
+const pipe = new SpeechPipeline({ stt: new OpenAICompatibleSpeechToText({ baseUrl: st.base!, apiKey: st.key!, model: st.model! }), maxDurationSeconds: 120 });
+const { send, app, container } = await boot(model, { VOICE_NOTES_ENABLED: 'true' }, pipe);
+console.log('## exact merchant sequence, false claim rate');
+let lied = 0, tool = 0, other = 0; const n = 12; const ex: string[] = [];
+for (let i = 0; i < n; i++) {
+  const chat = `2567009${String(1000 + i)}@c.us`;
+  await container.db.merchantOperator.upsert({ where: { channel_externalId: { channel: 'whatsapp', externalId: chat } }, update: {}, create: { merchantId: SHOP, name: 'Q' + i, channel: 'whatsapp', externalId: chat } });
+  await send(chat, 'CANCEL');
+  await send(chat, 'Sarah wants 2 baskets');
+  const a = await send(chat, 'yes'); const hasCode = /CONFIRM \d{4}/.test(T(a));
+  const b = model.usage.length; const r = await send(chat, 'add $20 shipping'); const calls = model.usage.slice(b).flatMap((u: any) => u.toolCalls); const t = T(r);
+  if (calls.length) tool++; else if (/updat|add|includ|shipping/i.test(t)) { lied++; ex.push(t); } else other++;
+  await send(chat, 'CANCEL');
+  console.log(`  run${i} draftShown=${hasCode} tools=${calls.join('+') || 'none'} :: ${t.slice(0, 90)}`);
+}
+console.log(JSON.stringify({ n, lied, tool, other }));
+console.log('\n## voice robustness (merchant)');
+const chat = ADMIN;
+for (const [f, mime] of [['clean.ogg','audio/ogg'],['noisy.ogg','audio/ogg'],['verynoisy.ogg','audio/ogg'],['silence.ogg','audio/ogg'],['noiseonly.ogg','audio/ogg'],['toolong.ogg','audio/ogg'],['clean.m4a','audio/mp4'],['order.ogg','audio/ogg'],['fifty.ogg','audio/ogg']] as const) {
+  const buf = readFileSync('au/' + f); let tr: any = {};
+  const s = performance.now(); try { tr = await pipe.process({ data: buf, mimeType: mime }); } catch (e: any) { tr = { err: e.message }; }
+  const sttMs = performance.now() - s;
+  await send(chat, 'CANCEL');
+  const r = await send(chat, undefined as any, { type: 'audio', media: { mimeType: mime, dataBase64: buf.toString('base64') } });
+  console.log(JSON.stringify({ f, kb: +(buf.length/1024).toFixed(1), audioS: tr.audioSeconds, sttMs: +sttMs.toFixed(0), conf: tr.confidence, lang: tr.language, heard: tr.transcript ?? tr.err, totalMs: +r.total.toFixed(0) }));
+  console.log('   <', T(r));
+}
+await send(chat, 'CANCEL');
+console.log('\n## spoken approvals');
+await send(chat, 'Sarah wants 2 Handmade Basket'); 
+for (const f of ['yes.ogg', 'code.ogg']) { const buf = readFileSync('au/' + f); const r = await send(chat, undefined as any, { type: 'audio', media: { mimeType: 'audio/ogg', dataBase64: buf.toString('base64') } }); console.log(f, '<', T(r)); }
+await send(chat, 'CANCEL');
+console.log('\n## low-confidence readback then voice follow-up');
+{ const buf = readFileSync('au/verynoisy.ogg'); const r = await send(chat, undefined as any, { type: 'audio', media: { mimeType: 'audio/ogg', dataBase64: buf.toString('base64') } }); console.log(' <', T(r)); const r2 = await send(chat, 'YES'); console.log(' YES <', T(r2)); }
+await app.close(); process.exit(0);

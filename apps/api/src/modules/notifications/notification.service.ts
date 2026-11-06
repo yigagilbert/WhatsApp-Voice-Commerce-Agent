@@ -70,11 +70,7 @@ export class NotificationService {
    * Alerts (low stock, disputes) to every active admin who opted in. Failures are logged and
    * audited per admin, never thrown. Returns how many admins received it.
    */
-  async toAdmins(
-    merchantId: string,
-    text: string,
-    refs?: Prisma.InputJsonObject,
-  ): Promise<number> {
+  async toAdmins(merchantId: string, text: string, refs?: Prisma.InputJsonObject): Promise<number> {
     if (!this.admins) return 0;
     const recipients = await this.admins.recipients(merchantId, 'alerts');
     let delivered = 0;

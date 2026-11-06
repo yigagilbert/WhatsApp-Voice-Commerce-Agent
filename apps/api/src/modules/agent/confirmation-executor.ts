@@ -199,7 +199,9 @@ export class ConfirmationExecutor {
     const ref = payload.orderReference;
     switch (outcome?.status) {
       case 'cancelled':
-        return branded(`✅ Order ${ref} is cancelled and the customer has been told. No money was taken.`);
+        return branded(
+          `✅ Order ${ref} is cancelled and the customer has been told. No money was taken.`,
+        );
       case 'already_cancelled':
         return branded(`Order ${ref} was already cancelled.`);
       case 'paid':

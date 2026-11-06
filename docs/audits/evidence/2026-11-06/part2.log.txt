@@ -1,0 +1,101 @@
+
+## A1 False "shipping added" claim (10 runs)
+{"n":10,"falseClaimWithoutTool":0,"toolCalled":10}
+  TOOL create_draft_order: *Katale AI* ⏎ *Draft order ORD-VZEXWA* ⏎ Customer: Sarah Thompson ⏎ 2 × Handmade Basket @ $12.00 — $24.00 ⏎ Shipping — $20.00 ⏎ *Total — $44.00* ⏎ Rep
+  TOOL create_draft_order: *Katale AI* ⏎ *Draft order ORD-JP95N8* ⏎ Customer: Sarah Thompson ⏎ 2 × Handmade Basket @ $12.00 — $24.00 ⏎ Shipping — $20.00 ⏎ *Total — $44.00* ⏎ Rep
+  TOOL create_draft_order: *Katale AI* ⏎ *Draft order ORD-XUXR2D* ⏎ Customer: Sarah Thompson ⏎ 2 × Handmade Basket @ $12.00 — $24.00 ⏎ Shipping — $20.00 ⏎ *Total — $44.00* ⏎ Rep
+  TOOL create_draft_order: *Katale AI* ⏎ *Draft order ORD-P96ZNX* ⏎ Customer: Sarah Thompson ⏎ 2 × Handmade Basket @ $12.00 — $24.00 ⏎ Shipping — $20.00 ⏎ *Total — $44.00* ⏎ Rep
+
+## A2 Greeting with emoji (6 runs)
+  985ms Hello! Welcome to Kampala Crafts. How can I assist you today? Looking for something specia
+  1064ms Hello! Welcome to Kampala Crafts. How can I assist you today? Looking for something specia
+  1169ms Hello! Welcome to Kampala Crafts. How can I assist you today? Looking for something specia
+  887ms Hello! Welcome to Kampala Crafts. How can I assist you with our beautiful crafts today?
+  960ms Hello! Welcome to Kampala Crafts. How can I assist you with our beautiful crafts today?
+  876ms Hello! Welcome to Kampala Crafts. How can I assist you today? Looking for something specia
+
+## A3 Address capture, final order (deterministic)
+  *Order summary* ⏎ • Coffee Gift Pack × 1 — $25.00 ⏎ Subtotal: $25.00 ⏎ Delivery: $0.00 to wait add another one ⏎ *Total: $25.00* ⏎ Name: Test Customer ⏎ Reply *ORDER* to place your order and get a secure PayPal payment link, or *cart* to make changes.
+  LLM: Got it! Delivery address set to: Plot 12 Kampala Road. ⏎ Your cart still has: ⏎ • Coffee Gift Pack × 1 — $25.00 ⏎ Reply *checkout* to continue or *add* to add more items.
+  🎉 *Order ORD-PEZE2U placed!* Total: *$25.00*. ⏎ Pay securely with PayPal: ⏎ https://www.sandbox.paypal.com/checkoutnow?token=H-43241b-1 ⏎ We'll confirm here as soon as your payment arrives. Reply *orders* to check its status.
+  order fields: {"deliveryAddress":"wait add another one","fulfillment":"DELIVERY","status":"AWAITING_PAYMENT","notes":null}
+
+## A4 stale history: customer "yes" after 5-day-old question
+  Here are the barkcloth wallets we have: ⏎ 1. Barkcloth Wallet — $18.00 · In stock ⏎ 2. Charcoal barkcloth wallet — $32.00 · In stock ⏎ 3. Charcoal leather wallet — $37.00 · In stock ⏎ 4. Chestnut barkcloth wallet — $30.00 · In stock ⏎ 5. Chestnut leather wallet — $35.00 · In stock ⏎ 6. Tan barkcloth wallet — $31.00 · In stock ⏎ 7. Tan leather wallet — $36.00 · In stock ⏎ 8. Chestnut card holder — $28.00 · In stock (b ["browse_products"]
+
+## A5 proactive/team reply context
+  latest stored: [{"direction":"OUTBOUND","content":"We have several barkcloth wallets in stock:\n\n1. Barkcloth Wallet — $18.00\n2. Charcoal barkcloth wallet — $32.00\n3. Chestnut barkcloth wallet — $30.00\n4. Tan barkcloth wallet — $31.00\n\nReply with a number for details or let me know if you want to add one to 
+
+## B1 Burst of 3 first-ever messages from one new customer
+  http 200 22ms Hello Test! 👋 Welcome to *Kampala Crafts*. ⏎ *1* Browse products ⏎ *2* My cart ⏎ *3* My orders ⏎ *4* Talk to 
+  http 200 34ms *Some of our products* ⏎ 1. Barkcloth Wallet — $18.00 · In stock ⏎ 2. Charcoal barkcloth wallet — $32.00 · In 
+  http 200 26ms Your cart is empty. Reply *1* to browse products, or tell me what you need.
+  customers=1 conversations=1
+
+## B2 10 bursts: failures across new customers
+
+  88 }
+  89 
+  90 try {
+
+  88 }
+  89 
+  90 try {
+
+  88 }
+  89 
+  90 try {
+
+  88 }
+  89 
+  90 try {
+
+  88 }
+  89 
+  90 try {
+
+  88 }
+  89 
+  90 try {
+  http5xx 0/20
+
+## B3 Lost-update: slow LLM message + checkout at the same time
+  checkout reply: Where should we deliver? Please send your full address (area, street, landmark).
+  state while LLM running: checkout= {"step":"address","quote":null,"orderId":"cmw4la2wp00db648zwm8lxwio"}
+  slow reply: OK slow reply
+  state after LLM finished: checkout= null
+  next message (intended as address) → OK slow reply
+## B4 Out-of-order replies: LLM question then fast command
+  reply completion order: B: cart (sent second) -> A: do you deliver? (sent first)
+
+## B5 Same message id twice concurrently
+
+  153 });
+  154 
+  155 try {
+  http 200 processed
+  http 200 duplicate
+
+## B6 Customer media
+  customer voice: I can only read text messages for now. Please type your question 🙂 Reply *menu* for options.
+  customer image: I can only read text messages for now. Please type your question 🙂 Reply *menu* for options.
+  customer location: I can only read text messages for now. Please type your question 🙂 Reply *menu* for options.
+
+## B7 Hand-off: silence and recovery
+  during handoff: (no reply; http 200; status processed)
+  hi during handoff: (no reply; http 200; status processed)
+  handoffHours= 12
+
+## B8 Stale message delivered late
+  3-day-old hi → status processed Hello Test! 👋 Welcome to *Kampala Crafts*. ⏎ *1* Browse pro
+## C1 Merchant voice (real whisper-1 + real LLM)
+{"f":"en-cancel-004.ogg","kb":3.3,"audioS":1.5,"sttMs":2377,"conf":0.632,"lang":"en","heard":"Cancel Sarah's last order.","ref":"Cancel Sarah's last order.","totalMs":3470,"tools":[]}
+   < I cannot cancel or edit orders yet. Is there anything else you would like to do with Sarah's order?
+{"f":"en-clarify-002.ogg","kb":4.8,"audioS":2.3,"sttMs":2630,"conf":0.62,"lang":"en","heard":"Create an order for Sarah for some baskets.","ref":"Create an order for Sarah for some baskets.","totalMs":3172,"tools":[]}
+   < How many baskets should I add to Sarah's order?
+{"f":"en-highprice-003.ogg","kb":8.1,"audioS":4,"sttMs":1448,"conf":0.756,"lang":"en","heard":"Create an order for Sarah for 20 baskets at $1,000 each.","ref":"Create an order for Sarah for twenty baskets at one thousand dollars each.","totalMs":6830,"tools":["find_customer","find_product","create_draft_order"]}
+   < *Katale AI* ⏎ *Draft order ORD-P9RK5D* ⏎ Customer: Sarah Thompson ⏎ 20 × Handmade Basket @ $1,000.00 — $20,000.00 ⏎ *Total — $20,000.00* ⏎ ⚠️ Handmade Basket: using stated price $1,000.00 (catalog pri
+{"f":"en-order-001.ogg","kb":10.7,"audioS":5.3,"sttMs":1729,"conf":0.781,"lang":"en","heard":"Create an order for Sarah for 10 handmade baskets at $12 each and add $20 shipping.","ref":"Create an order for Sarah for ten handmade baskets at twelve dollars each and add twenty dollars shipping.","totalMs":6595,"tools":["find_customer","find_product","create_draft_order"]}
+   < *Katale AI* ⏎ *Draft order ORD-92YWTR* ⏎ Customer: Sarah Thompson ⏎ 10 × Handmade Basket @ $12.00 — $120.00 ⏎ Shipping — $20.00 ⏎ *Total — $140.00* ⏎ Reply *CONFIRM 2405* to create the PayPal payment 
+{"f":"en-sales-005.ogg","kb":3.8,"audioS":1.8,"sttMs":1239,"conf":0.682,"lang":"en","heard":"How much have I sold this week?","ref":"How much have I sold this week?","totalMs":3572,"tools":["get_sales_summary"]}
+   < This week so far, you have made no completed sales yet. There are 2 unpaid orders outstanding totaling $50.00.

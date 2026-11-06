@@ -25,7 +25,8 @@ describe('mapWhatsAppMessage', () => {
       kind: 'text',
       message: { quoted: { stanzaId: '3EB0ABC', text: 'Coffee Gift Pack — $25.00' } },
     });
-    if (mapped.kind === 'text') expect(inboundChannelMessageSchema.safeParse(mapped.message).success).toBe(true);
+    if (mapped.kind === 'text')
+      expect(inboundChannelMessageSchema.safeParse(mapped.message).success).toBe(true);
     const plain = mapWhatsAppMessage(base);
     if (plain.kind === 'text') expect(plain.message.quoted).toBeUndefined();
   });

@@ -1,0 +1,59 @@
+// Same script against both trees: `tsx before-after-latency.mts <tree> <label>`, with the tree's
+// own migrated DATABASE_URL and a real LLM key in the environment. Server-side time to reply, with
+// every response checked for HTTP 200 and non-empty text, and queries counted on the real client.
+import { randomInt, randomUUID } from 'node:crypto';
+const W = process.argv[2]!;
+const label = process.argv[3]!;
+const { apiSchema, parseConfig } = await import(W + '/packages/config/src/index.ts');
+const { createLogger } = await import(W + '/packages/shared/src/index.ts');
+const { buildApp } = await import(W + '/apps/api/src/app.ts');
+const { createContainer } = await import(W + '/apps/api/src/container.ts');
+const { FakePayPal, testEnv } = await import(W + '/tests/support/fakes.ts');
+const { OpenAICompatibleChatModel } = await import(W + '/packages/ai/src/openai-compatible.ts');
+const { ChannelRegistry } = await import(W + '/apps/api/src/modules/notifications/channel-registry.ts');
+let llmCalls = 0;
+const inner = new OpenAICompatibleChatModel({ baseUrl: process.env.AI_BASE_URL!, apiKey: process.env.AI_API_KEY!, model: process.env.AI_MODEL!, timeoutMs: 30000 });
+const chatModel = { id: inner.id, complete: (r: any) => { llmCalls++; return inner.complete(r); } };
+const container = createContainer(
+  parseConfig(apiSchema, testEnv({ CUSTOMER_COMMERCE_ENABLED: 'true', RATE_LIMIT_MAX: '100000', CUSTOMER_MESSAGES_PER_MINUTE: '1000', WEB_PUBLIC_URL: 'http://localhost:3000' })),
+  createLogger({ name: 'lat', level: 'silent' }),
+  { paypal: new FakePayPal('L-' + randomUUID().slice(0, 6)), chatModel, speech: null, channels: new ChannelRegistry().register({ channel: 'whatsapp', async send() {} }), objectStore: null, statusPoster: null },
+);
+const app = await buildApp(container);
+const db = container.db;
+const shop = 'lat_' + randomUUID().slice(0, 8);
+const num = () => `2567${randomInt(10_000_000, 99_999_999)}`;
+const bot = `${num()}@c.us`; const admin = `${num()}@c.us`;
+await db.merchant.create({ data: { id: shop, businessName: 'Latency Crafts', ownerName: 'Grace', preferredCurrency: 'USD' } });
+await db.merchantOperator.create({ data: { merchantId: shop, name: 'Owner', channel: 'whatsapp', externalId: admin } });
+const acct = await container.whatsappAccounts.connect(shop, bot);
+await container.whatsappAccounts.update(shop, acct.id, { customerCommerceEnabled: true, deliveryEnabled: true, deliveryFeeMinor: 500 }, { customerCommerceAvailable: true });
+await db.storefront.create({ data: { merchantId: shop, slug: shop.replace('_', '-'), enabled: true } });
+for (const [name, price] of [['Handmade Basket', 1200], ['Barkcloth Wallet', 2500], ['Coffee Gift Pack', 2500]] as const)
+  await db.product.create({ data: { merchantId: shop, name, sku: name + shop, unitPriceMinor: price, currency: 'USD', stockQuantity: 5000 } });
+const send = async (from: string, text: string) => {
+  const s = performance.now();
+  const res = await app.inject({ method: 'POST', url: '/api/agent/message', headers: { 'x-internal-token': 'test-internal-token-123456' }, payload: { channel: 'whatsapp', externalMessageId: randomUUID(), externalChatId: from, senderId: from, senderName: 'Amina Test', sentAt: new Date(), type: 'text', text, recipientId: bot } });
+  const ms = performance.now() - s;
+  const body = res.json();
+  const reply = (body.replies ?? []).map((r: any) => r.text).join(' / ');
+  if (res.statusCode !== 200 || !reply) throw new Error(`bad response ${res.statusCode}: ${res.body.slice(0, 200)}`);
+  return { ms, reply };
+};
+const chat = () => `${num()}@c.us`;
+const pct = (xs: number[], p: number) => [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))]!;
+const row = async (name: string, n: number, one: () => Promise<{ ms: number; reply: string }>) => {
+  const before = llmCalls; const times: number[] = []; let sample = '';
+  for (let i = 0; i < n; i++) { const r = await one(); times.push(r.ms); sample = r.reply; }
+  console.log(`${label}\t${name}\tn=${n}\tp50 ${pct(times, 50).toFixed(0)} ms\tp95 ${pct(times, 95).toFixed(0)} ms\tmax ${Math.max(...times).toFixed(0)} ms\tllm/msg ${((llmCalls - before) / n).toFixed(1)}\t${JSON.stringify(sample.slice(0, 50))}`);
+};
+await send(chat(), 'hi'); // warm up
+for (const text of ['hi', 'hi there', 'Hi 👋', 'Hello, good morning', 'good morning sir'])
+  await row(`first "${text}"`, text === 'hi' ? 60 : 10, () => send(chat(), text));
+await row('returning "hello"', 20, async () => { const c = chat(); await send(c, 'hi'); return send(c, 'hello'); });
+await row('browse "1"', 20, async () => { const c = chat(); await send(c, 'hi'); return send(c, '1'); });
+await row('merchant "hi"', 10, () => send(admin, 'hi'));
+await row('customer "are you open?"', 8, async () => { const c = chat(); await send(c, 'hi'); return send(c, 'are you open?'); });
+await row('customer "do you have baskets?"', 8, async () => { const c = chat(); await send(c, 'hi'); return send(c, 'do you have baskets?'); });
+await db.merchant.delete({ where: { id: shop } }).catch(() => undefined);
+await app.close(); await container.close();

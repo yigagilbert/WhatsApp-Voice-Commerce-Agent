@@ -123,7 +123,7 @@ export const copy = {
   actionsDone: (actions: string) =>
     `That went through (${actions}), but I lost my connection before I could write it up. Please check before repeating it.`,
   mustTypeTeamReply:
-    'For privacy, replies to customers are typed, not spoken. Please type your reply, so a misheard word can\'t reach them.',
+    "For privacy, replies to customers are typed, not spoken. Please type your reply, so a misheard word can't reach them.",
   teamReplySent: (name: string, digits: string, message: string) =>
     branded(`✉️ Sent to *${name}* (…${digits}): “${message.slice(0, 300)}”`),
   integrityFailed: '❌ That request could not be verified and was discarded. Please start again.',

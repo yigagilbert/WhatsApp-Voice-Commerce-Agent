@@ -497,7 +497,9 @@ export class InboundMessageService {
     ]);
     return [
       ...(pending ? ['1 request is waiting for your approval'] : []),
-      ...(waiting ? [`${waiting} customer${waiting === 1 ? ' is' : 's are'} waiting for a person`] : []),
+      ...(waiting
+        ? [`${waiting} customer${waiting === 1 ? ' is' : 's are'} waiting for a person`]
+        : []),
       ...(unpaid ? [`${unpaid} order${unpaid === 1 ? ' is' : 's are'} waiting for payment`] : []),
     ];
   }
@@ -527,7 +529,12 @@ export class InboundMessageService {
     const [pending, alerts] = await Promise.all([
       this.deps.confirmations.findPending(conversationId),
       db.message.findMany({
-        where: { conversationId, direction: 'OUTBOUND', kind: 'ALERT', refs: { not: Prisma.AnyNull } },
+        where: {
+          conversationId,
+          direction: 'OUTBOUND',
+          kind: 'ALERT',
+          refs: { not: Prisma.AnyNull },
+        },
         orderBy: { createdAt: 'desc' },
         take: 3,
         select: { refs: true, createdAt: true },

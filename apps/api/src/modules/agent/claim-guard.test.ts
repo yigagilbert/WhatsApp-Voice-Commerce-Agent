@@ -25,7 +25,8 @@ describe('merchant claim guard', () => {
   });
 
   it('blocks approval codes in model text even after a successful tool', () => {
-    const reply = '*Draft order ORD-2V7X9M*\nShipping — $20.00\n*Total — $44.00*\nReply *CONFIRM 6821*';
+    const reply =
+      '*Draft order ORD-2V7X9M*\nShipping — $20.00\n*Total — $44.00*\nReply *CONFIRM 6821*';
     expect(checkClaims(reply, [ok('create_draft_order')], MERCHANT_CLAIMS)).toEqual({
       ok: false,
       claim: 'approval_code',
@@ -58,7 +59,7 @@ describe('merchant claim guard', () => {
     'Would you like me to update the draft order?',
     "I can't change the price here.",
     'I have not updated the order.',
-    "You have 12 baskets in stock. Would you like to add more?",
+    'You have 12 baskets in stock. Would you like to add more?',
     'Which product should I add stock for?',
     'Sales are up 12% this week.',
     'Hi! How can I help with the shop today?',

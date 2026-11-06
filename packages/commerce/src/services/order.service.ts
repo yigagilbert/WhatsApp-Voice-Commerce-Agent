@@ -355,7 +355,8 @@ export class OrderService {
         params.shipping !== undefined
           ? toMinorUnits(params.shipping, order.currency)
           : order.shippingMinor,
-      taxMinor: params.tax !== undefined ? toMinorUnits(params.tax, order.currency) : order.taxMinor,
+      taxMinor:
+        params.tax !== undefined ? toMinorUnits(params.tax, order.currency) : order.taxMinor,
     });
     await this.db.$transaction(async (tx) => {
       const { count } = await tx.order.updateMany({

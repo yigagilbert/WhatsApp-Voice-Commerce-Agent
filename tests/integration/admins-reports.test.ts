@@ -398,7 +398,9 @@ describe('admins and proactive reports (integration)', () => {
     it('a re-activated admin gets full access again', async () => {
       await container.admins.update(merchantId, former.id, { active: true });
       model.enqueue(() => ({ role: 'assistant', content: 'Welcome back.' }));
-      expect((await send(chatOf(former.phone), 'what can you do')).replies[0]?.text).toContain('Welcome back.');
+      expect((await send(chatOf(former.phone), 'what can you do')).replies[0]?.text).toContain(
+        'Welcome back.',
+      );
       await container.admins.update(merchantId, former.id, { active: false });
     });
 

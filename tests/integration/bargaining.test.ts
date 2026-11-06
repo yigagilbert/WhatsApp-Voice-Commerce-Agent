@@ -248,6 +248,22 @@ describe('bargaining and smart pricing (integration)', () => {
       expect(offers[0]).toMatchObject({ status: 'OPEN', offerUnitMinor: 2900, round: 1 });
     });
 
+    it('a restated current price is a request for a better one, not an agreement', async () => {
+      const shopper = `25678${digits}9@c.us`;
+      await say(shopper, 'hi');
+      const list = await say(shopper, '1');
+      const bag = /(\d+)\. Leather Bag/.exec(list)![1]!;
+      await say(shopper, bag);
+      let seen: Record<string, unknown> = {};
+      toolTurn('negotiate_price', { product: 'this', offer_price: 30 }, (d) => {
+        seen = d;
+        return String(d.suggested_reply);
+      });
+      await say(shopper, 'This bag is $30. Can you give me a better price?');
+      expect(seen.status).not.toBe('agreed');
+      expect(Number(String(seen.offer_price).replace(/[^\d.]/g, ''))).toBeLessThan(30);
+    });
+
     it('counters a low offer without going near the minimum', async () => {
       toolTurn(
         'negotiate_price',

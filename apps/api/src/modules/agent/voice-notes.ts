@@ -28,6 +28,9 @@ export function judgeTranscript(
   const { transcript, confidence, language } = result;
   const phrase = isLikelyHallucination(transcript);
   if (!transcript.trim()) return 'noise';
+  // On noise, Whisper can echo the prompt back. Nobody says a list of towns as a request.
+  const places = LOCAL_PLACES.split(', ').filter((place) => transcript.includes(place));
+  if (places.length >= 3 && transcript.split(' ').length <= places.length + 3) return 'noise';
   if (confidence !== undefined && confidence < NOISE_CONFIDENCE) return 'noise';
   if (phrase && (confidence === undefined || confidence < minConfidence)) return 'noise';
   if (language && !languages.includes(language)) return 'unclear';

@@ -210,7 +210,8 @@ const contactSuffix = (customer: Contact) => {
 async function findCustomerChat(deps: ToolDeps, merchantId: string, name: string) {
   if (!deps.customerChats) throw new ValidationError('Customer chats are not available.');
   const chats = (await deps.customerChats.recentChats(merchantId, 100)).filter((c) => c.customer);
-  const label = (c: (typeof chats)[number]) => `${c.customer!.name} (${contactSuffix(c.customer!)})`;
+  const label = (c: (typeof chats)[number]) =>
+    `${c.customer!.name} (${contactSuffix(c.customer!)})`;
   const typedDigits = /^[…. ]*(\d{4,15})$/.exec(name.trim())?.[1];
   if (typedDigits) {
     const byDigits = chats.filter((c) => contactDigits(c.customer!).endsWith(typedDigits));
@@ -408,7 +409,11 @@ export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> 
         input: orderRefSchema,
         async execute({ order_reference }, ctx) {
           const order = await deps.orders.getByReference(ctx.merchant.id, order_reference);
-          if (order.status === 'PAID' || order.status === 'REFUNDED' || order.status === 'CANCELLED')
+          if (
+            order.status === 'PAID' ||
+            order.status === 'REFUNDED' ||
+            order.status === 'CANCELLED'
+          )
             throw new ValidationError(
               `Order ${order.reference} is ${order.status.toLowerCase()}, so it can't be cancelled here.`,
             );
@@ -1033,7 +1038,8 @@ export function createCommerceTools(deps: ToolDeps): ToolRegistry<AgentContext> 
             (reason === 'restock' || (change ?? 0) > 0) &&
             ctx.userText !== undefined &&
             (!STOCK_ARRIVED.test(ctx.userText) ||
-              (WANTS_REORDER.test(ctx.userText) && !/\b(received|arrived|got|came)\b/i.test(ctx.userText)))
+              (WANTS_REORDER.test(ctx.userText) &&
+                !/\b(received|arrived|got|came)\b/i.test(ctx.userText)))
           ) {
             ctx.notices.push(
               branded(

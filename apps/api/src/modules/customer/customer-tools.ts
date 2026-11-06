@@ -453,8 +453,8 @@ function registerBargainingTools(
         kind: 'read',
         description:
           'Use ONLY when the customer asks for a discount or a better price, or proposes a lower price ("can you do $25?", "last price?", "$50 for two"). ' +
-          'product: the product name, its number from the last list, or "this"; omit it to bargain on everything in the cart. ' +
-          'offer_price: the price the customer proposed, exactly as they said it (major units), if they named one; price_is_for: "each" or "total". ' +
+          'product: the product they named (always pass it if they named one), its number from the last list, or "this"; omit it only to bargain on everything in the cart. ' +
+          'offer_price: the lower price the customer proposed, exactly as they said it (major units), if they named one; the current price they repeat back is not an offer. price_is_for: "each" or "total". ' +
           'quantity: units they want, if they said. The shop decides the offer; reply with the offer_price from the result (or use suggested_reply). ' +
           'Never propose, promise or invent any other price.',
         input: z.object({
@@ -496,7 +496,8 @@ function registerBargainingTools(
               }),
             );
           noteBargain(ctx, results);
-          if (results.some((r) => r.keyMinor !== null)) ctx.refs = { kind: 'offer', productId: ids[0] ?? null };
+          if (results.some((r) => r.keyMinor !== null))
+            ctx.refs = { kind: 'offer', productId: ids[0] ?? null };
           // An agreed price changed the cart: the cart is shown exactly as the backend built it.
           const agreed = results.find((r) => r.status === 'agreed');
           if (agreed) ctx.verbatim = agreed.message;

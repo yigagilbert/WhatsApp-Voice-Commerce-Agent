@@ -1,0 +1,98 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { boot, newChat, realModel, ADMIN, TimedModel, sttEnv, SHOP } from './lib.mts';
+const W = '/Users/sunbird/Documents/Workshop/Apps/WhatsAppVoiceCommerceAgent/.claude/worktrees/katale-ai-usability-review-0c9fda';
+const { SpeechPipeline, OpenAICompatibleSpeechToText, FfmpegAudioNormalizer } = await import(W + '/packages/speech/src/index.ts');
+const say = (...a: any[]) => console.log(...a);
+const T = (r: any) => (r.body.replies ?? []).map((x: any) => (x.media ? '[IMG] ' : '') + String(x.text).replace(/\n+/g, ' ⏎ ')).join(' || ').slice(0, 420) || `(no reply; http ${r.status}; status ${r.body.status ?? JSON.stringify(r.body).slice(0,120)})`;
+
+// --- A. Reproducibility with real LLM
+{
+  const model = realModel();
+  const { send, app, container } = await boot(model);
+  say('\n## A1 False "shipping added" claim (10 runs)');
+  let lied = 0, tool = 0, n = 10; const replies: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const chat = ADMIN.replace('222', String(300 + i));
+    await container.db.merchantOperator.upsert({ where: { channel_externalId: { channel: 'whatsapp', externalId: chat } }, update: {}, create: { merchantId: SHOP, name: 'O' + i, channel: 'whatsapp', externalId: chat } });
+    await send(chat, 'Create an order for Sarah Thompson: 2 Handmade Basket');
+    const b = model.usage.length;
+    const r = await send(chat, 'add $20 shipping');
+    const calls = model.usage.slice(b).flatMap((u: any) => u.toolCalls);
+    const called = calls.length > 0; const txt = T(r);
+    if (called) tool++; else if (/updated|added|included/i.test(txt)) lied++;
+    replies.push((called ? 'TOOL ' + calls.join('+') : 'NOTOOL') + ': ' + txt.slice(0, 150));
+    await send(chat, 'CANCEL');
+  }
+  say(JSON.stringify({ n, falseClaimWithoutTool: lied, toolCalled: tool })); replies.slice(0, 4).forEach((x) => say(' ', x));
+
+  say('\n## A2 Greeting with emoji (6 runs)');
+  for (let i = 0; i < 6; i++) { const r = await send(newChat(), 'Hi 👋'); say(`  ${r.total.toFixed(0)}ms`, T(r).slice(0, 90)); }
+
+  say('\n## A3 Address capture, final order (deterministic)');
+  { const c = newChat(); await send(c, 'add the coffee gift pack to my cart'); await send(c, 'checkout'); const r = await send(c, 'wait add another one'); say(' ', T(r));
+    const r1 = await send(c, 'Plot 12 Kampala Road'); say('  LLM:', T(r1));
+    const r2 = await send(c, 'ORDER'); say(' ', T(r2));
+    const o: any = await container.db.order.findFirst({ where: { customer: { whatsappId: c } }, orderBy: { createdAt: 'desc' } });
+    say('  order fields:', JSON.stringify({ deliveryAddress: o?.deliveryAddress, shippingAddress: o?.shippingAddress, fulfillment: o?.deliveryMethod ?? o?.fulfillmentMethod, status: o?.status, notes: o?.notes })); }
+  say('\n## A4 stale history: customer "yes" after 5-day-old question');
+  { const c = newChat(); await send(c, 'how much is the barkcloth wallet'); await container.db.message.updateMany({ where: { conversation: { externalChatId: c } }, data: { createdAt: new Date(Date.now() - 5 * 864e5) } });
+    const b = model.usage.length; const r = await send(c, 'yes'); say(' ', T(r), JSON.stringify(model.usage.slice(b).flatMap((u: any) => u.toolCalls))); }
+  say('\n## A5 proactive/team reply context');
+  { const c = newChat(); await send(c, 'hi'); const cust = await container.db.customer.findFirst({ where: { whatsappId: c } }); await send(c, 'do you have barkcloth wallets?');
+    await container.customerConversations?.replyAsTeam?.(SHOP, cust!.id, 'Hello, yes we can deliver your wallet on Friday for free'); 
+    const msgs = await container.db.message.findMany({ where: { conversation: { externalChatId: c } }, orderBy: { createdAt: 'desc' }, take: 2, select: { direction: true, content: true } }); say('  latest stored:', JSON.stringify(msgs).slice(0, 300));
+  }
+  await app.close();
+}
+// --- B. Concurrency with deterministic slow model
+{
+  const slow = new TimedModel({ id: 'slow', async complete(req: any) { await new Promise((r) => setTimeout(r, 1500)); return { message: { role: 'assistant', content: 'OK slow reply' } }; } });
+  const { send, app, container } = await boot(slow);
+  say('\n## B1 Burst of 3 first-ever messages from one new customer');
+  { const c = newChat(); const rs = await Promise.all([send(c, 'hi'), send(c, '1'), send(c, 'cart')]); rs.forEach((r) => say(`  http ${r.status} ${r.total.toFixed(0)}ms`, T(r).slice(0, 110)));
+    const n = await container.db.customer.count({ where: { whatsappId: c } }); const cv = await container.db.conversation.count({ where: { externalChatId: c } }); say(`  customers=${n} conversations=${cv}`); }
+  say('\n## B2 10 bursts: failures across new customers');
+  { let fail = 0, tot = 0; for (let i = 0; i < 10; i++) { const c = newChat(); const rs = await Promise.all([send(c, 'hi'), send(c, 'hello')]); for (const r of rs) { tot++; if (r.status >= 500) fail++; } } say(`  http5xx ${fail}/${tot}`); }
+  say('\n## B3 Lost-update: slow LLM message + checkout at the same time');
+  { const c = newChat(); await send(c, 'hi'); await send(c, '1'); await send(c, '2'); await send(c, 'add'); 
+    const p = send(c, 'do you have anything nice?'); await new Promise((r) => setTimeout(r, 200));
+    const k = await send(c, 'checkout'); say('  checkout reply:', T(k).slice(0, 100)); const before: any = (await container.db.conversation.findFirst({ where: { externalChatId: c } }))!.context;
+    say('  state while LLM running: checkout=', JSON.stringify(before.shop?.checkout ?? null));
+    const pr = await p; say('  slow reply:', T(pr)); const after: any = (await container.db.conversation.findFirst({ where: { externalChatId: c } }))!.context; say('  state after LLM finished: checkout=', JSON.stringify(after.shop?.checkout ?? null));
+    const a = await send(c, 'Plot 9 Acacia Avenue'); say('  next message (intended as address) →', T(a).slice(0, 100)); }
+  say('\n## B4 Out-of-order replies: LLM question then fast command');
+  { const c = newChat(); await send(c, 'hi'); const order: string[] = []; const p1 = send(c, 'do you deliver?').then(() => order.push('A: do you deliver? (sent first)')); await new Promise((r) => setTimeout(r, 100)); const p2 = send(c, 'cart').then(() => order.push('B: cart (sent second)')); await Promise.all([p1, p2]); say('  reply completion order:', order.join(' -> ')); }
+  say('\n## B5 Same message id twice concurrently');
+  { const c = newChat(); await send(c, 'hi'); const id = 'dup-' + Math.random(); const rs = await Promise.all([send(c, 'cart', { externalMessageId: id }), send(c, 'cart', { externalMessageId: id })]); rs.forEach((r) => say(`  http ${r.status}`, r.body.status)); }
+  say('\n## B6 Customer media');
+  { const c = newChat(); await send(c, 'hi');
+    const ogg = readFileSync(W + '/tests/fixtures/voice/en-order-001.ogg').toString('base64');
+    const r = await send(c, undefined as any, { type: 'audio', media: { mimeType: 'audio/ogg; codecs=opus', dataBase64: ogg, durationSeconds: 5 } }); say('  customer voice:', T(r));
+    const r2 = await send(c, undefined as any, { type: 'unsupported', unsupportedKind: 'image' }); say('  customer image:', T(r2));
+    const r3 = await send(c, undefined as any, { type: 'unsupported', unsupportedKind: 'location' }); say('  customer location:', T(r3)); }
+  say('\n## B7 Hand-off: silence and recovery');
+  { const c = newChat(); await send(c, 'I want a person'); const r = await send(c, 'hello are you there?'); say('  during handoff:', T(r)); const r2 = await send(c, 'hi'); say('  hi during handoff:', T(r2)); const acc = await container.db.whatsAppAccount.findFirst({ where: { merchantId: SHOP } }); say('  handoffHours=', acc?.handoffHours); }
+  say('\n## B8 Stale message delivered late');
+  { const c = newChat(); const r = await send(c, 'hi', { sentAt: new Date(Date.now() - 3 * 864e5) }); say('  3-day-old hi → status', r.body.status, T(r).slice(0, 60)); }
+  await app.close();
+}
+// --- C. Merchant voice with real Whisper
+{
+  const st = sttEnv();
+  const pipe = new SpeechPipeline({ stt: new OpenAICompatibleSpeechToText({ baseUrl: st.base!, apiKey: st.key!, model: st.model! }), maxDurationSeconds: 120 });
+  const model = realModel();
+  const { send, app } = await boot(model, { VOICE_NOTES_ENABLED: 'true' }, pipe);
+  say('\n## C1 Merchant voice (real whisper-1 + real LLM)');
+  const evalset = JSON.parse(readFileSync(W + '/tests/evaluation/voice-commerce.json', 'utf8')).cases;
+  for (const f of readdirSync(W + '/tests/fixtures/voice')) {
+    const buf = readFileSync(W + '/tests/fixtures/voice/' + f);
+    const s = performance.now(); const tr = await pipe.process({ data: buf, mimeType: 'audio/ogg' }); const sttMs = performance.now() - s;
+    const ref = evalset.find((x: any) => x.audio?.includes(f))?.reference;
+    const b = model.usage.length;
+    const r = await send(ADMIN, undefined as any, { type: 'audio', media: { mimeType: 'audio/ogg; codecs=opus', dataBase64: buf.toString('base64') } });
+    say(JSON.stringify({ f, kb: +(buf.length / 1024).toFixed(1), audioS: tr.audioSeconds, sttMs: +sttMs.toFixed(0), conf: tr.confidence, lang: tr.language, heard: tr.transcript, ref, totalMs: +r.total.toFixed(0), tools: model.usage.slice(b).flatMap((u: any) => u.toolCalls) }));
+    say('   <', T(r).slice(0, 200));
+  }
+  await app.close();
+}
+process.exit(0);

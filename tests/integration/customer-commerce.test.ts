@@ -196,7 +196,9 @@ describe('customer commerce, phase 0 + 1 (integration)', () => {
       expect(await customer(adminB)).toMatchObject({ source: 'WHATSAPP' });
       // …and still an admin on their own shop's number.
       model.enqueue(() => ({ role: 'assistant', content: 'Admin B here.' }));
-      expect(texts(await send(adminB, 'what can you do', { recipientId: botB }))).toContain('Admin B here.');
+      expect(texts(await send(adminB, 'what can you do', { recipientId: botB }))).toContain(
+        'Admin B here.',
+      );
     });
 
     it('deactivated admins, unknown bot numbers and disabled shops get the generic welcome', async () => {

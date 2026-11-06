@@ -65,13 +65,10 @@ export class SpeechPipeline {
 
     const prepared = normalizer ? await normalizer.normalize(audio) : audio;
     const sttStarted = Date.now();
-    const transcription = await stt.transcribe(
-      prepared,
-      {
-        ...(options.languageHint ? { languageHint: options.languageHint } : {}),
-        ...(options.prompt ? { prompt: options.prompt } : {}),
-      },
-    );
+    const transcription = await stt.transcribe(prepared, {
+      ...(options.languageHint ? { languageHint: options.languageHint } : {}),
+      ...(options.prompt ? { prompt: options.prompt } : {}),
+    });
     const sttMs = Date.now() - sttStarted;
 
     const audioSeconds = measured ?? transcription.durationSeconds;

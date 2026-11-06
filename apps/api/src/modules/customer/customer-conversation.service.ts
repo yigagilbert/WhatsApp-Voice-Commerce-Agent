@@ -80,7 +80,8 @@ export const STALE_MESSAGE_MS = 6 * HOUR;
 const HANDOFF_ACK_EVERY_MS = 30 * 60_000;
 const READ_BACK_TTL_MS = 10 * 60_000;
 
-const BROWSE = /^(browse|browse products|products|see products|show products|shop|catalog)[\s!.?]*$/i;
+const BROWSE =
+  /^(browse|browse products|products|see products|show products|shop|catalog)[\s!.?]*$/i;
 const MORE = /^(more|next|more please|next page)[\s!.?]*$/i;
 const ORDER_WORD = /^order[\s!.]*$/i;
 const CANCEL = /^(cancel|stop|back|no)[\s!.]*$/i;
@@ -316,7 +317,12 @@ export class CustomerConversationService {
       await this.saveState(conversation, { ...(state ?? {}), mode: 'menu' });
       return this.reply(
         conversation,
-        this.menu(merchant, customer, 'menu', (await this.deps.storefront?.link(merchant.id)) ?? null),
+        this.menu(
+          merchant,
+          customer,
+          'menu',
+          (await this.deps.storefront?.link(merchant.id)) ?? null,
+        ),
       );
     }
     if (isGreeting(text) || isWave(text)) {
@@ -325,7 +331,12 @@ export class CustomerConversationService {
       if (firstTime)
         return this.reply(
           conversation,
-          this.menu(merchant, customer, 'first', (await this.deps.storefront?.link(merchant.id)) ?? null),
+          this.menu(
+            merchant,
+            customer,
+            'first',
+            (await this.deps.storefront?.link(merchant.id)) ?? null,
+          ),
         );
       return this.reply(conversation, await this.welcomeBack(merchant, customer, state));
     }
@@ -764,8 +775,12 @@ export class CustomerConversationService {
       { kind: 'customer_alert', customerId: customer.id },
     );
     const lastAck = state?.handoffAckAt ?? 0;
-    if (Date.now() - lastAck < HANDOFF_ACK_EVERY_MS) return { status: 'processed' as const, replies: [] };
-    await this.saveState(conversation, { ...(state ?? { mode: 'menu' }), handoffAckAt: Date.now() });
+    if (Date.now() - lastAck < HANDOFF_ACK_EVERY_MS)
+      return { status: 'processed' as const, replies: [] };
+    await this.saveState(conversation, {
+      ...(state ?? { mode: 'menu' }),
+      handoffAckAt: Date.now(),
+    });
     return this.reply(
       conversation,
       'Your message went to the team and someone will reply here. Reply *bot* any time to go back to the assistant.',
@@ -982,9 +997,11 @@ export class CustomerConversationService {
     });
     return this.reply(
       conversation,
-      note ? `${note}
+      note
+        ? `${note}
 
-${next.text}` : next.text,
+${next.text}`
+        : next.text,
       [],
       next.step === 'confirm' && next.orderId
         ? { kind: 'summary', orderId: next.orderId }
@@ -1285,7 +1302,7 @@ ${next.text}` : next.text,
       const product = await this.deps.catalog.find(merchantId, state.lastProductId);
       if (product)
         lines.push(
-          `- Product being discussed ("this", "it"): ${product.name}, ${product.price}, ${product.availability}.`,
+          `- Product last discussed (what "this" or "it" means, unless they name another product): ${product.name}, ${product.price}, ${product.availability}.`,
         );
     }
     if (state?.mode === 'list' && state.list?.length) {

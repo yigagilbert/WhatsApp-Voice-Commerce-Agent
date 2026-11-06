@@ -204,9 +204,12 @@ export class BargainingService {
               (o.status === 'OPEN' ||
                 (o.status === 'ACCEPTED' && (!o.orderId || o.orderId === cart?.id))),
           )?.offerUnitMinor ?? null;
-        const customerUnit =
+        const stated =
           input.customerUnitMinor ??
           (input.customerTotalMinor ? unitFromTotal(input.customerTotalMinor, quantity) : null);
+        // "This bag is $30. Can you do better?" restates today's price: it's a request, not an offer
+        // to pay it. Reading it as an offer would "agree" the regular price and end the talk.
+        const customerUnit = stated !== null && stated >= auto.unitMinor ? null : stated;
         const decision = negotiate({
           baseUnitMinor: auto.unitMinor,
           floorMinor: rules.minPriceMinor!,

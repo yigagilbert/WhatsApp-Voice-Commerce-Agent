@@ -1,0 +1,8 @@
+model gpt-4.1-mini, repeats 12, 2026-11-06T10:57:27.153Z
+switch product -> "We have one wallet: Barkcloth Wallet, $25.00, In stock. It is open to price offers.\n\nHow much were you thinking? Or woul"
+switch product -> "We have one wallet: Barkcloth Wallet for $25.00, in stock. It is open to price offers.\n\nWould you like me to add one to "
+switch product -> "Could you please tell me which wallet you mean or describe it? We have a few wallets in the shop."
+switch product -> "We have one wallet: the Barkcloth Wallet, priced at $25.00 and it is in stock. It is open to price offers. What price wo"
+switch product -> "Could you please tell me which wallet you mean or describe it a bit? We have a few wallets in the shop."
+switch product -> "I can offer you Barkcloth Wallet for *$24.00* (regular price $25.00). Reply *deal* to accept, or make me an offer."
+switch product: wrong 0 of 6

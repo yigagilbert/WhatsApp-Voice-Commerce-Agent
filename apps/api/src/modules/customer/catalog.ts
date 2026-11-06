@@ -226,7 +226,9 @@ export class CustomerCatalog {
     const products = await this.visible(merchantId);
     const byId = products.find((p) => p.id === idOrName);
     if (byId) return this.view(byId);
-    const words = normalizeProductTokens(idOrName);
+    const words = normalizeProductTokens(
+      idOrName.replace(/^\s*(?:the|a|an|my|your|this|that)\s+/i, ''),
+    );
     const exact = products.find(
       (p) => normalizeProductTokens(p.name).join(' ') === words.join(' '),
     );

@@ -24,6 +24,11 @@ describe('judgeTranscript', () => {
     expect(judge(text, confidence)).toBe('noise');
   });
 
+  it('treats the prompt echoed back as noise, even with no confidence score', () => {
+    expect(judge('Kampala, Ntinda, Kololo, Nakasero, Mukono.')).toBe('noise');
+    expect(judge('Deliver it to Ntinda near Kololo, not Kampala please')).toBe('clear');
+  });
+
   it('reads back low confidence and other languages', () => {
     expect(judge('send me two baskets', 0.4)).toBe('unclear');
     expect(judge('nkwagala ebibbo bibiri', 0.9, 'lg')).toBe('unclear');

@@ -12,12 +12,11 @@ export const normalizeWords = (text: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const GREETING_WORD = '(?:hi+|hello+|hey+|hallo|hola|yo|greetings|howdy|oli otya|good (?:morning|afternoon|evening|day)|morning|afternoon|evening)';
+const GREETING_WORD =
+  '(?:hi+|hello+|hey+|hallo|hola|yo|greetings|howdy|oli otya|good (?:morning|afternoon|evening|day)|morning|afternoon|evening)';
 const FILLER =
   "(?:there|again|all|everyone|team|sir|madam|maam|ma'am|boss|friend|dear|katale|shop|bro|sis|please|pls|mam)";
-const GREETING_PATTERN = new RegExp(
-  `^${GREETING_WORD}(?: ${GREETING_WORD})*(?: ${FILLER})*$`,
-);
+const GREETING_PATTERN = new RegExp(`^${GREETING_WORD}(?: ${GREETING_WORD})*(?: ${FILLER})*$`);
 
 /** "hi there", "Hi 👋", "good morning sir": a greeting and nothing else. */
 export const isGreeting = (text: string): boolean => {
@@ -28,7 +27,7 @@ export const isGreeting = (text: string): boolean => {
 /** A bare wave with no words: the customer is saying hello. */
 export const isWave = (text: string): boolean =>
   /^[\p{Extended_Pictographic}\p{Emoji_Modifier}‍️\s]+$/u.test(text) &&
-  /[👋🙏🤝😀😃😊🙂]/u.test(text);
+  /👋|🙏|🤝|😀|😃|😊|🙂/u.test(text);
 
 /** Show-me-the-menu words, which never greet the customer again. */
 export const isMenuRequest = (text: string): boolean =>
@@ -73,7 +72,8 @@ const NOT_ADDRESS_START =
 const ADDRESS_SIGNAL =
   /\b(plot|street|st|road|rd|avenue|ave|lane|ln|close|drive|dr|estate|village|zone|ward|parish|district|apartment|apt|flat|house|building|block|floor|suite|shop|stage|near|opposite|behind|next to|beside|po box|box|kampala|entebbe|jinja|gulu|mbarara|wakiso|mukono|ntinda|kololo|nakasero|bukoto|kira|najjera|kansanga|muyenga|makindye|nansana|bweyogerere|naalya|lugogo)\b/;
 
-export type AddressReading = { kind: 'address' } | { kind: 'not_address'; reason: 'short' | 'chat' };
+export type AddressReading =
+  { kind: 'address' } | { kind: 'not_address'; reason: 'short' | 'chat' };
 
 /**
  * Is this text a delivery address? A short sentence like "wait add another one" must never become
@@ -94,7 +94,9 @@ export function readAddress(text: string): AddressReading {
   if (signal) return { kind: 'address' };
   // Two or more plain words with no signal ("Bugolobi Village Mall" has one; "Acacia Mall Gate")
   // are accepted: the customer sees them in the summary and must still reply ORDER.
-  return words.split(' ').length >= 2 ? { kind: 'address' } : { kind: 'not_address', reason: 'chat' };
+  return words.split(' ').length >= 2
+    ? { kind: 'address' }
+    : { kind: 'not_address', reason: 'chat' };
 }
 
 /** Text that reads as a place on its own, so it can correct an address without being asked for. */
@@ -134,7 +136,10 @@ export const newAddressIn = (text: string): string | null => {
 /** "pick up instead", "I'll collect it", "deliver instead": switching how they get the order. */
 export const wantsMethod = (text: string): 'DELIVERY' | 'PICKUP' | null => {
   const words = normalizeWords(text);
-  if (/\b(pick ?up|collect)\b.*\b(instead|myself|it|please)?$/.test(words) && words.split(' ').length <= 6)
+  if (
+    /\b(pick ?up|collect)\b.*\b(instead|myself|it|please)?$/.test(words) &&
+    words.split(' ').length <= 6
+  )
     return 'PICKUP';
   if (/^(deliver|delivery)( it)?( instead| please)?$|\bdeliver(y)? instead\b/.test(words))
     return 'DELIVERY';

@@ -1,0 +1,5 @@
+cold first hi 200 37.4 queries 13
+warm first-ever hi {"codes":{"200":60},"p50":30.1,"p95":37.6,"max":40.8,"dbP50":26.6}
+returning hello {"codes":{"200":12},"p50":21.1,"p95":25.7,"max":25.7,"dbP50":18.3}
+link lookup [ '1.39' ] queries 13 status 200
+default limits, 60 rapid {"200":60}

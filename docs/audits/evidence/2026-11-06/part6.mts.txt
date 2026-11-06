@@ -1,0 +1,9 @@
+import { boot, realModel, SHOP } from './lib.mts';
+const T = (r: any) => (r.body.replies ?? []).map((x: any) => String(x.text).replace(/\n+/g, ' ⏎ ')).join(' || ').slice(0, 300);
+const model = realModel(); const { send, app, container } = await boot(model); const db = container.db;
+const chat = '256700777555@c.us'; await db.merchantOperator.upsert({ where: { channel_externalId: { channel: 'whatsapp', externalId: chat } }, update: {}, create: { merchantId: SHOP, name: 'FB2', channel: 'whatsapp', externalId: chat } });
+let done = 0;
+for (let i = 0; i < 25 && done < 2; i++) { await send(chat, 'CANCEL'); await send(chat, 'Create a draft for Sarah Thompson: 2 Handmade Basket'); await send(chat, 'Sarah wants 2 Handmade Basket'); const b = model.usage.length; const r = await send(chat, 'add $20 shipping'); if (model.usage.slice(b).flatMap((u: any) => u.toolCalls).length || !/CONFIRM/.test(T(r))) continue; done++;
+  console.log('LLM with no tool:', T(r)); const code = /CONFIRM (\d{4})/.exec(T(r))![1]; const c = await send(chat, `CONFIRM ${code}`); console.log('CONFIRM →', T(c)); const m = /CONFIRM (\d{4})/.exec(T(c)); if (m) { const c2 = await send(chat, `CONFIRM ${m[1]}`); console.log('CONFIRM real →', T(c2)); }
+  const pay: any = await db.payment.findFirst({ orderBy: { createdAt: 'desc' } }); console.log('latest payment minor', pay?.amountMinor); }
+console.log('attempts done', done); await app.close(); process.exit(0);

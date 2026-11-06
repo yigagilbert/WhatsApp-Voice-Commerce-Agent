@@ -120,7 +120,7 @@ async function main() {
       message.type === 'audio'
         ? setTimeout(() => {
             void transport
-              .sendText(msg.from, "🎙️ Got your voice note, one moment…")
+              .sendText(msg.from, '🎙️ Got your voice note, one moment…')
               .catch(() => undefined);
           }, VOICE_ACK_DELAY_MS)
         : undefined;
@@ -189,7 +189,10 @@ async function main() {
         try {
           await handle(msg, mapped, clock);
         } catch (error) {
-          logger.error({ err: error, stages: clock.stages() }, 'failed to process WhatsApp message');
+          logger.error(
+            { err: error, stages: clock.stages() },
+            'failed to process WhatsApp message',
+          );
           await transport
             .sendText(
               msg.from,

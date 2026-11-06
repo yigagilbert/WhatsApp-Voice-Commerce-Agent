@@ -92,7 +92,8 @@ export const CUSTOMER_CLAIMS: ClaimRule[] = [
   },
   {
     claim: 'payment_received',
-    pattern: /\bpayment\b.*\b(received|confirmed|went through|successful)\b|\byou('ve| have) paid\b/i,
+    pattern:
+      /\bpayment\b.*\b(received|confirmed|went through|successful)\b|\byou('ve| have) paid\b/i,
     tools: ['my_orders'],
   },
   {

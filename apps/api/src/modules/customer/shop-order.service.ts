@@ -203,7 +203,9 @@ export class ShopOrderService {
     const wanted = await this.withCartLock(actor, async (tx) => {
       let cart = await this.cart(actor.merchant.id, actor.customer.id, now, tx);
       if (!cart) {
-        if ((await this.unpaidOrders(actor.merchant.id, actor.customer.id, tx)) >= MAX_UNPAID_ORDERS)
+        if (
+          (await this.unpaidOrders(actor.merchant.id, actor.customer.id, tx)) >= MAX_UNPAID_ORDERS
+        )
           throw new ConflictError(
             `You have ${MAX_UNPAID_ORDERS} unpaid orders. Please pay one (reply *orders*) or ask us for help before starting a new one.`,
           );
@@ -237,8 +239,7 @@ export class ShopOrderService {
       if (!line && cart.items.length >= MAX_CART_LINES)
         throw new ValidationError(`Your cart can hold ${MAX_CART_LINES} different products.`);
       this.assertStock(product.name, total, await this.available(product.id, cart.id, tx));
-      if (line)
-        await tx.orderItem.update({ where: { id: line.id }, data: { quantity: total } });
+      if (line) await tx.orderItem.update({ where: { id: line.id }, data: { quantity: total } });
       else
         await tx.orderItem.create({
           data: {
@@ -760,7 +761,8 @@ export class ShopOrderService {
       .replace(/\s+/g, ' ')
       .trim();
     if (step === 'name') {
-      if (clean.length > 60 || !readName(clean)) return 'Please send just your name (2–60 letters).';
+      if (clean.length > 60 || !readName(clean))
+        return 'Please send just your name (2–60 letters).';
       await this.db.order.update({ where: { id: orderId }, data: { contactName: clean } });
       if (actor.customer.source === 'WHATSAPP' && actor.customer.name === DEFAULT_NAME)
         await this.db.customer.update({ where: { id: actor.customer.id }, data: { name: clean } });

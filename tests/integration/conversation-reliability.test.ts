@@ -85,7 +85,8 @@ describe('conversation reliability (integration)', () => {
         ...extra,
       },
     });
-    if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}: ${res.body.slice(0, 200)}`);
+    if (res.statusCode !== 200)
+      throw new Error(`HTTP ${res.statusCode}: ${res.body.slice(0, 200)}`);
     return res.json();
   };
   const reply = async (from: string, text: string, extra: Partial<InboundChannelMessage> = {}) =>
@@ -137,7 +138,11 @@ describe('conversation reliability (integration)', () => {
       data: { merchantId: shop, name: 'Grace Owner', channel: 'whatsapp', externalId: admin },
     });
     accountId = (await container.whatsappAccounts.connect(shop, bot)).id;
-    await setAccount({ customerCommerceEnabled: true, deliveryEnabled: true, deliveryFeeMinor: 500 });
+    await setAccount({
+      customerCommerceEnabled: true,
+      deliveryEnabled: true,
+      deliveryFeeMinor: 500,
+    });
     const ugx = await container.whatsappAccounts.connect(ugxShop, ugxBot);
     await container.whatsappAccounts.update(
       ugxShop,
@@ -207,7 +212,9 @@ describe('conversation reliability (integration)', () => {
       const oldCode = /CONFIRM (\d{4})/.exec(first)![1]!;
 
       model.enqueue(
-        say(`*Draft order ${reference}*\nShipping — $20.00\n*Total — $44.00*\nReply *CONFIRM 6821*`),
+        say(
+          `*Draft order ${reference}*\nShipping — $20.00\n*Total — $44.00*\nReply *CONFIRM 6821*`,
+        ),
         call('update_draft_order', { order_reference: reference, shipping: 20 }),
         say('Done.'),
       );
@@ -238,7 +245,11 @@ describe('conversation reliability (integration)', () => {
       await setAccount({ paymentLinkMode: 'AUTO' });
       const [order] = await ordersOf(chat);
       await expect(
-        container.orders.updateDraft({ merchantId: shop, reference: order!.reference, shipping: 5 }),
+        container.orders.updateDraft({
+          merchantId: shop,
+          reference: order!.reference,
+          shipping: 5,
+        }),
       ).rejects.toThrow('confirmed its total');
     });
 
@@ -606,17 +617,17 @@ describe('conversation reliability (integration)', () => {
       await reply(chat, 'hi', { senderName: `Only${run}` });
       const name = `Only${run}`;
       const before = sender.to(chat).length;
-      model.enqueue(
-        call('reply_to_customer', { customer: name, message: 'Hi' }),
-        say('Sent it.'),
-      );
+      model.enqueue(call('reply_to_customer', { customer: name, message: 'Hi' }), say('Sent it.'));
       const text = await reply(admin, `reply to ${name}: Hi`);
       expect(text).toContain('Nothing was sent');
       expect(sender.to(chat)).toHaveLength(before);
 
       // The model saying the digits isn't enough; the merchant must have typed them.
       const digits = chat.split('@')[0]!;
-      model.enqueue(call('reply_to_customer', { customer: digits, message: 'Hi' }), say('Sent it.'));
+      model.enqueue(
+        call('reply_to_customer', { customer: digits, message: 'Hi' }),
+        say('Sent it.'),
+      );
       await reply(admin, `reply to ${digits}: Hi`);
       expect(sender.to(chat).at(-1)).toBe('Hi');
     });
@@ -855,7 +866,10 @@ describe('conversation reliability (integration)', () => {
       expect(model.requests).toHaveLength(0);
       expect(text).toContain(product.name);
       expect(text).toContain('$26.00');
-      await container.db.product.update({ where: { id: walletId }, data: { unitPriceMinor: 2500 } });
+      await container.db.product.update({
+        where: { id: walletId },
+        data: { unitPriceMinor: 2500 },
+      });
     });
 
     it('"make it three" on a product or a single-item cart changes the quantity', async () => {
@@ -1102,7 +1116,7 @@ describe('conversation reliability (integration)', () => {
       const userAt = messages.findLastIndex((m) => m.role === 'user');
       const card = messages[userAt - 1]!;
       expect(card.role).toBe('system');
-      expect(card.content).toContain('Product being discussed');
+      expect(card.content).toContain('Product last discussed');
       expect(card.content).toContain('Cart:');
     });
 

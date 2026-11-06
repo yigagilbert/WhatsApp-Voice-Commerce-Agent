@@ -1,0 +1,31 @@
+import { boot, newChat, ADMIN, realModel, pct, TimedModel } from './lib.mts';
+const stub = new TimedModel({ id: 'stub', async complete() { return { message: { role: 'assistant', content: 'Hi! How can I help?' } }; } });
+const summarise = (evs: any[]) => { const by: Record<string, number> = {}; let n = 0; for (const e of evs) { by[e.kind] = (by[e.kind] ?? 0) + e.ms; if (e.kind === 'db') n++; } return { dbQueries: n, dbMs: +(by.db ?? 0).toFixed(1), llmMs: +(by.llm ?? 0).toFixed(1) }; };
+const row = (name: string, r: any) => console.log(JSON.stringify({ name, totalMs: +r.total.toFixed(1), ...summarise(r.events), reply: r.body.replies?.[0]?.text?.slice(0, 60) }));
+{
+  const { send, app } = await boot(stub);
+  // Cold process, first-ever customer greeting
+  const chat = newChat();
+  const c = await send(chat, 'hi');
+  row('COLD process: first-ever customer "hi"', c);
+  console.log(c.events.map((e) => `   +${e.t.toFixed(0)}ms ${e.kind} ${e.label} ${e.ms.toFixed(1)}ms`).join('\n'));
+  const firsts: number[] = [], returning: number[] = [], adminRegex: number[] = [];
+  for (let i = 0; i < 60; i++) { const r = await send(newChat(), 'hi'); firsts.push(r.total); }
+  const known = newChat(); await send(known, 'hi');
+  for (let i = 0; i < 10; i++) { const r = await send(known, 'hello'); returning.push(r.total); await new Promise((r) => setTimeout(r, 4100)); }
+  const sample = await send(newChat(), 'hi');
+  console.log('WARM first-ever detail:\n' + sample.events.map((e) => `   +${e.t.toFixed(0)}ms ${e.kind} ${e.label} ${e.ms.toFixed(1)}ms`).join('\n'));
+  console.log(JSON.stringify({ warmFirstHi: { p50: pct(firsts, 50), p95: pct(firsts, 95) }, warmReturningHi: { p50: pct(returning, 50), p95: pct(returning, 95) } }));
+  await app.close();
+}
+{
+  const model = realModel();
+  const { send, app } = await boot(model);
+  const admin = [] as number[];
+  for (let i = 0; i < 8; i++) { const r = await send(ADMIN, 'hi'); admin.push(r.total); if (i === 0 || i === 7) row(`admin "hi" real LLM #${i}`, r); }
+  console.log(JSON.stringify({ adminHi: { p50: pct(admin, 50), p95: pct(admin, 95) }, usage: model.usage.slice(-2) }));
+  const variants = ['hi there', 'hello!', 'Hello, good morning', 'good morning sir', 'hey there', 'Hi 👋', 'how are you', 'are you open?', 'thanks', 'ok', 'oli otya', 'hi.'];
+  for (const v of variants) { const r = await send(newChat(), v); row(`customer first msg: "${v}"`, r); }
+  await app.close();
+}
+process.exit(0);

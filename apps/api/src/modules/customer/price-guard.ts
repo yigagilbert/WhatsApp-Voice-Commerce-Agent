@@ -72,9 +72,7 @@ export function checkReplyPrices(input: {
   allowedMinor: Iterable<number>;
   requiredMinor: number | null;
   backendText?: string;
-}):
-  | { ok: true }
-  | { ok: false; unexpected: number[]; missing: number | null; promises: string[] } {
+}): { ok: true } | { ok: false; unexpected: number[]; missing: number | null; promises: string[] } {
   const allowed = new Set(input.allowedMinor);
   const stated = moneyAmounts(input.reply, input.currency);
   const unexpected = stated.filter((a) => !allowed.has(a));

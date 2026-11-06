@@ -68,9 +68,15 @@ export const copy = {
         '',
         `"${transcript}"`,
         '',
-        'Is that right? Reply *YES* to continue, or send your request again.',
+        'Is that right? Reply *YES* to continue, or send it again.',
       ].join('\n'),
     ),
+  voiceNoise:
+    "I couldn't hear that clearly. Could you try again closer to the phone, or type it? 🙏",
+  heardPrefix: (transcript: string, reply: string) =>
+    `🎙️ Heard: “${transcript.replace(/\s+/g, ' ').trim().slice(0, 200)}”\n\n${reply}`,
+  voiceMustType: (word: string) =>
+    `Please type *${word}* to do that. For your safety I only take it as text, so a misheard word can't place or change an order.`,
   voiceUnclearDismissed: 'OK — please send your request again, or type it.',
   voiceConfirmationMustBeTyped: (word: string, code: string | undefined) =>
     `For your security, payment requests are approved by text only. Please type *${word}${code ? ` ${code}` : ' <code>'}* to continue.`,

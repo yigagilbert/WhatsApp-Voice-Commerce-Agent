@@ -9,6 +9,7 @@ import {
 import {
   chatIdToPhone,
   formatMoney,
+  parseConfirmationReply,
   type AuditService,
   type IdentifiedCustomer,
 } from '@vca/commerce';
@@ -62,7 +63,9 @@ import {
   wantsMethod,
   wantsPerson,
 } from './intents';
+import { copy } from '../agent/copy';
 import { CUSTOMER_CLAIMS, checkClaims } from '../agent/claim-guard';
+import { judgeTranscript, type VoiceNotes } from '../agent/voice-notes';
 import { resolveQuote, type MessageRefs, type ResolvedQuote } from '../agent/message-refs';
 
 const HOUR = 3_600_000;
@@ -75,6 +78,7 @@ const HISTORY_MAX_AGE_MS = 24 * HOUR;
 export const STALE_MESSAGE_MS = 6 * HOUR;
 /** How often a customer waiting for a person is reminded the bot can come back. */
 const HANDOFF_ACK_EVERY_MS = 30 * 60_000;
+const READ_BACK_TTL_MS = 10 * 60_000;
 
 const BROWSE = /^(browse|browse products|products|see products|show products|shop|catalog)[\s!.?]*$/i;
 const MORE = /^(more|next|more please|next page)[\s!.?]*$/i;
@@ -125,6 +129,8 @@ interface ShopState {
   checkout?: { orderId: string; step: CheckoutStep; quote: string | null } | undefined;
   /** During a hand-off: when the customer was last told the team has their message. */
   handoffAckAt?: number;
+  /** A voice note read back ("I heard… is that right?"), waiting for their yes. */
+  heard?: { text: string; at: number } | undefined;
 }
 
 type Account = WhatsAppAccount & { merchant: Merchant };
@@ -144,6 +150,10 @@ export interface CustomerConversationDeps {
   /** Customer cancellation of their own unpaid orders (optional). */
   lifecycle?: Pick<OrderLifecycleService, 'cancel'>;
   logger: Logger;
+  /** Voice notes to text (optional: without it, customers are asked to type). */
+  voice?: VoiceNotes;
+  voiceMinConfidence?: number;
+  voiceLanguages?: string[];
   /** Messages per customer per minute before the bot slows them down (default 15). */
   perMinute?: number;
 }
@@ -220,7 +230,7 @@ export class CustomerConversationService {
       throw error;
     }
 
-    const text = message.type === 'text' ? (message.text ?? '').trim() : '';
+    let text = message.type === 'text' ? (message.text ?? '').trim() : '';
 
     // Rate limit first, so a flooding customer can't flood the admins during a hand-off either.
     const limited = this.limit(customer.id);
@@ -247,13 +257,46 @@ export class CustomerConversationService {
     let state = ((conversation.context as { shop?: ShopState } | null)?.shop ??
       null) as ShopState | null;
 
+    // Voice notes become text here, then follow the same rules as typing. What can't be undone
+    // (placing an order, agreeing a price) still has to be typed: see the refusal below.
+    let fromVoice = false;
+    if (message.type === 'audio') {
+      const heard = await this.hear(message, account, conversation, state, stored.id);
+      if ('reply' in heard) return heard.reply;
+      text = heard.text;
+      fromVoice = true;
+    } else if (state?.heard) {
+      // A typed answer to "I heard… is that right?".
+      const pending = state.heard;
+      state = { ...state, heard: undefined };
+      await this.saveState(conversation, state);
+      const answer = parseConfirmationReply(text);
+      if (answer && !answer.code && Date.now() - pending.at < READ_BACK_TTL_MS) {
+        if (answer.kind === 'cancel')
+          return this.reply(conversation, 'OK, please send it again, or type it.');
+        text = pending.text;
+        fromVoice = true;
+      }
+    }
+
     if (conversation.handoffUntil && conversation.handoffUntil > new Date()) {
       if (wantsBot(text)) return this.leaveHandoff(account, conversation, customer);
       return this.duringHandoff(account, conversation, customer, message, text, state);
     }
 
-    if (message.type !== 'text' || !text)
+    if ((message.type !== 'text' && !fromVoice) || !text)
       return this.nonText(account, conversation, customer, message, state);
+
+    if (fromVoice) {
+      if (ORDER_WORD.test(text)) return this.reply(conversation, copy.voiceMustType('ORDER'));
+      if (DEAL.test(text)) return this.reply(conversation, copy.voiceMustType('deal'));
+      const cancelling = CANCEL_ORDER.exec(text);
+      if (cancelling)
+        return this.reply(
+          conversation,
+          copy.voiceMustType(`cancel ${cancelling[1]!.toUpperCase()}`),
+        );
+    }
 
     const actor: ShopActor = { merchant, customer, conversationId: conversation.id };
 
@@ -452,7 +495,58 @@ export class CustomerConversationService {
       throw error;
     }
 
-    return this.runAgent(account, conversation, customer, text, state, stored.id, quote, message);
+    return this.runAgent(
+      account,
+      conversation,
+      customer,
+      text,
+      state,
+      stored.id,
+      quote,
+      message,
+      fromVoice,
+    );
+  }
+
+  /** Turns a voice note into text, or into the reply to send instead. */
+  private async hear(
+    message: InboundChannelMessage,
+    account: Account,
+    conversation: Conversation,
+    state: ShopState | null,
+    storedId: string,
+  ): Promise<{ text: string } | { reply: InboundProcessingResult }> {
+    const voice = this.deps.voice;
+    const asReply = async (text: string) => ({ reply: await this.reply(conversation, text) });
+    if (!voice?.enabled)
+      return asReply("I can't listen to voice notes right now. Please type your message. 🙏");
+    const result = await voice.transcribe(message, account.merchantId);
+    if ('error' in result) return asReply(result.error);
+    await this.deps.db.message.update({
+      where: { id: storedId },
+      data: {
+        transcription: result.transcript,
+        detectedLanguage: result.language ?? null,
+        normalizedText: result.normalizedText,
+      },
+    });
+    const judged = judgeTranscript(
+      result,
+      this.deps.voiceMinConfidence ?? 0.5,
+      this.deps.voiceLanguages ?? ['en'],
+    );
+    if (judged === 'noise') return asReply(copy.voiceNoise);
+    const text = result.normalizedText.trim();
+    if (judged === 'unclear') {
+      await this.saveState(conversation, {
+        ...(state ?? { mode: 'menu' }),
+        heard: { text, at: Date.now() },
+      });
+      return asReply(
+        `I heard:\n\n“${plainText(result.transcript, 300)}”\n\nIs that right? Reply *yes* to continue, or send it again.`,
+      );
+    }
+    return { text };
   }
 
   /** A quoted message moves the customer's focus to what it was about. */
@@ -1075,6 +1169,7 @@ ${next.text}` : next.text,
     currentMessageId: string,
     quote: ResolvedQuote | null,
     message: InboundChannelMessage,
+    fromVoice = false,
   ) {
     const merchant = account.merchant;
     if (!chatModelReady(this.deps.chatModel))
@@ -1108,6 +1203,7 @@ ${next.text}` : next.text,
       verbatim: null,
       checkout: null,
       bargain: null,
+      fromVoice,
     };
     let result;
     try {
@@ -1117,6 +1213,7 @@ ${next.text}` : next.text,
         systemPrompt: buildCustomerPrompt({
           merchant,
           hasCatalogue: !!(await this.deps.storefront?.link(merchant.id)),
+          fromVoice,
         }),
         history,
         // Text quoted from an unresolved message comes from the device: it's the customer's content.
@@ -1164,7 +1261,12 @@ ${next.text}` : next.text,
       checkout:
         context.checkout ?? (context.verbatim || context.bargain ? undefined : state?.checkout),
     });
-    return this.reply(conversation, reply, context.attachments.slice(0, 3), context.refs ?? undefined);
+    return this.reply(
+      conversation,
+      fromVoice ? copy.heardPrefix(text, reply) : reply,
+      context.attachments.slice(0, 3),
+      context.refs ?? undefined,
+    );
   }
 
   /**
@@ -1274,10 +1376,19 @@ ${next.text}` : next.text,
       currency,
       allowedMinor: allowed,
       requiredMinor: context.bargain?.keyMinor ?? null,
+      backendText: [
+        ...result.steps.map((s) => JSON.stringify(s.result)),
+        ...history.filter((m) => m.role === 'assistant').map((m) => m.content ?? ''),
+      ].join('\n'),
     });
     if (check.ok) return result.reply;
     this.deps.logger.warn(
-      { unexpected: check.unexpected, missing: check.missing, conversationId: conversation.id },
+      {
+        unexpected: check.unexpected,
+        missing: check.missing,
+        promises: check.promises,
+        conversationId: conversation.id,
+      },
       'customer reply blocked by the price guard',
     );
     await this.deps.audit.record({
@@ -1286,7 +1397,12 @@ ${next.text}` : next.text,
       type: 'customer.price_guard',
       entityType: 'customer',
       entityId: customer.id,
-      data: { unexpectedMinor: check.unexpected, missingMinor: check.missing, currency },
+      data: {
+        unexpectedMinor: check.unexpected,
+        missingMinor: check.missing,
+        promises: check.promises,
+        currency,
+      },
     });
     return context.bargain?.message ?? PRICE_GUARD_REPLY;
   }

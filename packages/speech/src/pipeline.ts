@@ -49,7 +49,7 @@ export class SpeechPipeline {
 
   async process(
     audio: AudioInput,
-    options: { languageHint?: string; durationHintSeconds?: number } = {},
+    options: { languageHint?: string; durationHintSeconds?: number; prompt?: string } = {},
   ): Promise<SpeechPipelineResult> {
     const started = Date.now();
     const { stt, normalizer, languageDetector, translator, maxDurationSeconds } = this.deps;
@@ -67,7 +67,10 @@ export class SpeechPipeline {
     const sttStarted = Date.now();
     const transcription = await stt.transcribe(
       prepared,
-      options.languageHint ? { languageHint: options.languageHint } : {},
+      {
+        ...(options.languageHint ? { languageHint: options.languageHint } : {}),
+        ...(options.prompt ? { prompt: options.prompt } : {}),
+      },
     );
     const sttMs = Date.now() - sttStarted;
 

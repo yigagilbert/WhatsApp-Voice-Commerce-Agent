@@ -25,12 +25,7 @@ import {
   type InboundProcessingResult,
   type Logger,
 } from '@vca/shared';
-import {
-  AudioTooLongError,
-  decodeAudioMedia,
-  type SpeechPipeline,
-  type SpeechPipelineResult,
-} from '@vca/speech';
+import type { SpeechPipeline, SpeechPipelineResult } from '@vca/speech';
 import {
   STALE_MESSAGE_MS,
   plainText,
@@ -39,6 +34,7 @@ import {
 import { isCloser, isGreeting, isWave } from '../customer/intents';
 import { MERCHANT_CLAIMS, checkClaims } from './claim-guard';
 import { resolveQuote } from './message-refs';
+import { VoiceNotes, judgeTranscript } from './voice-notes';
 import { CART_REFERENCE } from '../storefront/storefront.service';
 import type { ConfirmationExecutor } from './confirmation-executor';
 import { approvalWord, copy } from './copy';
@@ -110,8 +106,18 @@ export class InboundMessageService {
   private readonly welcomedAt = new Map<string, number>();
   /** One chat's messages never overlap here, whichever worker or retry delivered them. */
   private readonly chats = new KeyedQueue();
+  private readonly voice: VoiceNotes;
 
-  constructor(private readonly deps: InboundServiceDeps) {}
+  constructor(private readonly deps: InboundServiceDeps) {
+    this.voice = new VoiceNotes({
+      db: deps.db,
+      audit: deps.audit,
+      speech: deps.speech,
+      mediaMaxBytes: deps.mediaMaxBytes,
+      voiceMaxDurationSeconds: deps.voiceMaxDurationSeconds,
+      logger: deps.logger,
+    });
+  }
 
   /** True if an unregistered sender should get the welcome now (once per cooldown per sender). */
   private shouldWelcome(key: string, now = Date.now()): boolean {
@@ -279,7 +285,7 @@ export class InboundMessageService {
       await this.setContext(conversation.id, { ...context, pendingTranscript: undefined });
 
     if (message.type === 'audio') {
-      const transcription = await this.transcribe(message, merchant);
+      const transcription = await this.voice.transcribe(message, merchant.id);
       if ('error' in transcription) return this.reply(conversation, transcription.error);
       voice = transcription;
       text = transcription.normalizedText.trim();
@@ -354,14 +360,16 @@ export class InboundMessageService {
           );
         }
       }
-      // Unreliable transcription — low confidence, or a language we don't support (English is
-      // the supported voice language) — is read back before anything acts on it.
-      const supported = this.deps.voiceLanguages ?? ['en'];
-      const unsupportedLanguage = !!voice.language && !supported.includes(voice.language);
-      if (
-        unsupportedLanguage ||
-        (voice.confidence !== undefined && voice.confidence < this.deps.voiceMinConfidence)
-      ) {
+      // Noise isn't read back as if someone said it. An unreliable transcription — low confidence,
+      // or a language we don't support (English is the supported voice language) — is read back
+      // before anything acts on it.
+      const heard = judgeTranscript(
+        voice,
+        this.deps.voiceMinConfidence,
+        this.deps.voiceLanguages ?? ['en'],
+      );
+      if (heard === 'noise') return voiceReply(copy.voiceNoise, 'noise');
+      if (heard === 'unclear') {
         await this.setContext(conversation.id, {
           ...context,
           pendingTranscript: {
@@ -424,17 +432,19 @@ export class InboundMessageService {
 
     // 6. The agent interprets everything else — identical for typed and transcribed requests.
     try {
+      const answer = await this.runAgent(
+        merchant,
+        conversation,
+        message.channel,
+        text,
+        language,
+        stored.id,
+        !!voice || !!pending,
+        operator.role,
+      );
+      // What was heard stays visible next to what was done, so a mishearing is easy to spot.
       return voiceReply(
-        await this.runAgent(
-          merchant,
-          conversation,
-          message.channel,
-          text,
-          language,
-          stored.id,
-          !!voice || !!pending,
-          operator.role,
-        ),
+        voice ? { ...answer, text: copy.heardPrefix(voice.transcript, answer.text) } : answer,
         'agent',
       );
     } catch (error) {
@@ -549,53 +559,6 @@ export class InboundMessageService {
       where: { id: conversationId },
       data: { context: JSON.parse(JSON.stringify(context)) as object },
     });
-  }
-
-  private async transcribe(message: InboundChannelMessage, merchant: Merchant) {
-    if (!this.deps.speech) return { error: copy.voiceComingSoon } as const;
-    if (!message.media) return { error: copy.voiceDownloadFailed } as const;
-    let result: SpeechPipelineResult;
-    try {
-      const audio = decodeAudioMedia({
-        dataBase64: message.media.dataBase64,
-        mimeType: message.media.mimeType,
-        maxBytes: this.deps.mediaMaxBytes,
-      });
-      result = await this.deps.speech.process(audio, {
-        ...(message.media.durationSeconds !== undefined
-          ? { durationHintSeconds: message.media.durationSeconds }
-          : {}),
-      });
-    } catch (error) {
-      if (error instanceof AudioTooLongError) {
-        this.deps.logger.info({ durationSeconds: error.durationSeconds }, 'voice note too long');
-        return { error: copy.voiceTooLong(this.deps.voiceMaxDurationSeconds) } as const;
-      }
-      if (isAppError(error) && error.httpStatus < 500) {
-        this.deps.logger.info({ reason: error.message }, 'voice note rejected');
-        return { error: copy.voiceInvalid } as const;
-      }
-      // Provider outage/timeout: no details reach the merchant.
-      this.deps.logger.warn({ err: error }, 'voice note processing failed');
-      return { error: copy.voiceUnavailable } as const;
-    }
-    await this.deps.audit.record({
-      merchantId: merchant.id,
-      actor: 'SYSTEM',
-      type: 'speech.transcribed',
-      data: {
-        language: result.language ?? null,
-        confidence: result.confidence ?? null,
-        audioSeconds: result.audioSeconds ?? null,
-        sttMs: result.sttMs,
-        providers: result.providers,
-        transcript: result.transcript.slice(0, 500),
-        ...(result.normalizedText !== result.transcript
-          ? { normalizedText: result.normalizedText.slice(0, 500) }
-          : {}),
-      },
-    });
-    return result;
   }
 
   private async handleConfirmationReply(

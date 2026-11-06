@@ -23,7 +23,14 @@ export interface TranscriptionResult {
 
 export interface SpeechToTextProvider {
   readonly id: string;
-  transcribe(audio: AudioInput, options?: { languageHint?: string }): Promise<TranscriptionResult>;
+  transcribe(
+    audio: AudioInput,
+    options?: {
+      languageHint?: string;
+      /** Words likely to be spoken (product and place names), for engines that accept them. */
+      prompt?: string;
+    },
+  ): Promise<TranscriptionResult>;
 }
 
 export interface LanguageDetectionProvider {

@@ -8,8 +8,10 @@ import type { Merchant } from '@vca/database';
 export function buildCustomerPrompt(params: {
   merchant: Pick<Merchant, 'businessName'>;
   hasCatalogue?: boolean;
+  /** The message was spoken: speech recognition can mishear names and numbers. */
+  fromVoice?: boolean;
 }) {
-  const { merchant, hasCatalogue } = params;
+  const { merchant, hasCatalogue, fromVoice } = params;
   return [
     `You are the WhatsApp shopping assistant of ${merchant.businessName}, powered by Katale AI.`,
     // The customer's WhatsApp profile name is user-controlled, so it is never put in these rules.
@@ -47,6 +49,11 @@ export function buildCustomerPrompt(params: {
     '- Sound like a helpful person in a small shop: warm, brief, plain words (WhatsApp: short lines, *bold* for names). Reply in the customer’s language if it is English; otherwise reply in simple English.',
     '- Don’t greet again mid-conversation and don’t say "How can I assist you today?". Answer first. Add a next step only when the customer needs one.',
     '- Short replies ("yes", "that one", "two") answer your latest message. If you can’t tell what they mean, ask one short question rather than guessing.',
+    ...(fromVoice
+      ? [
+          '- This message was a voice note, transcribed by speech recognition, which can mishear names and numbers. If a product, quantity or place looks wrong or could be two things, ask one short question instead of guessing. Accepting a price and placing an order must be typed.',
+        ]
+      : []),
     '- The system message with current facts is the truth about the product in focus, the list on screen, the cart and checkout. A message the customer quotes only shows what they are pointing at.',
   ].join('\n');
 }

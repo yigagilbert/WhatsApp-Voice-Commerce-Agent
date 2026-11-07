@@ -29,3 +29,13 @@ export const TOOL_LABELS: Record<string, string> = {
   add_table: 'Added a table to the AI dashboard',
   remove_widget: 'Removed from the AI dashboard',
 };
+
+const FAILED_TOOL_LABELS: Record<string, string> = {
+  add_chart: "Couldn't add that chart",
+  add_table: "Couldn't add that table",
+  remove_widget: "Couldn't remove that",
+};
+
+/** A tool that failed must not read as done: "Added a chart" appeared even when none was added. */
+export const toolLabel = (name: string, status?: string) =>
+  (status === 'error' ? FAILED_TOOL_LABELS[name] : TOOL_LABELS[name]) ?? 'Working on it';

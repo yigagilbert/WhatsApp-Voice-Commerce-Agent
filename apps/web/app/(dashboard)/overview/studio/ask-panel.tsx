@@ -2,9 +2,7 @@
 
 import type { AgAiChatMessage, AgAiChatSession, AgAiHarness } from 'ag-studio';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { PROMPT_STARTERS, TOOL_LABELS } from './prompts';
-
-const toolLabel = (name: string) => TOOL_LABELS[name] ?? 'Working on it';
+import { PROMPT_STARTERS, toolLabel } from './prompts';
 
 /**
  * The conversation, available on the everyday view. AG Studio only offers its own AI panel in edit
@@ -140,7 +138,7 @@ export function AskPanel({
                     return (
                       <p key={index} className="flex items-center gap-2 text-xs text-slate-500">
                         <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-leaf-500" />
-                        {toolLabel(part.toolCall.name)}
+                        {toolLabel(part.toolCall.name, part.toolCall.status)}
                       </p>
                     );
                   if (part.type === 'error')

@@ -156,6 +156,11 @@ export function addChart(state: AgReportState, spec: ChartSpec): CatalogResult {
     return { ok: false, error: `Unknown chart. Use one of: ${CHART_TYPE_IDS.join(', ')}.` };
   const groups = GROUPINGS[tableId] as Record<string, string>;
   const category = spec.groupBy ? groups[spec.groupBy] : undefined;
+  if (tableId === 'payments' && spec.groupBy === 'product')
+    return {
+      ok: false,
+      error: `${metric.label} isn't recorded per product. For revenue by product, use product_revenue, which shows sales before refunds, and say so.`,
+    };
   if (!category)
     return {
       ok: false,

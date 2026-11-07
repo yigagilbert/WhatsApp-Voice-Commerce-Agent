@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { describeEvent } from './activity';
+import { dateTime, formatDateTime } from './format';
 import { toChatCompletion } from './studio-llm';
 
 describe('describeEvent (Activity page)', () => {
@@ -121,5 +122,13 @@ describe('toChatCompletion (AG Studio → OpenAI-compatible)', () => {
         json_schema: { name: 'plan', schema: { type: 'object' } },
       },
     });
+  });
+});
+
+describe('dashboard times', () => {
+  it('shows one time for one event, in the shop timezone, wherever it is rendered', () => {
+    expect(dateTime('2026-11-07T12:00:00.000Z')).toBe('7 Nov 2026, 15:00');
+    expect(formatDateTime(new Date('2026-11-07T12:00:00.000Z'))).toBe('7 Nov 2026, 15:00');
+    expect(dateTime(null)).toBe('—');
   });
 });

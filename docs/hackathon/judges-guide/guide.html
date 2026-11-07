@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Katale AI: Judge's Guide</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      @page {
+        size: A4;
+        margin: 0;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      body {
+        font:
+          400 9.6pt/1.42 Geist,
+          sans-serif;
+        color: #2b3640;
+      }
+      .page {
+        position: relative;
+        width: 210mm;
+        height: 297mm;
+        padding: 13mm 15.5mm 16mm;
+        overflow: hidden;
+        break-after: page;
+      }
+      .page:last-child {
+        break-after: auto;
+      }
+      .foot {
+        position: absolute;
+        left: 15.5mm;
+        right: 15.5mm;
+        bottom: 9mm;
+        display: flex;
+        justify-content: space-between;
+        font-size: 7.5pt;
+        color: #7b8791;
+      }
+      .top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 7mm;
+      }
+      .top img {
+        height: 17mm;
+      }
+      .tag {
+        background: #e8f5e9;
+        color: #087030;
+        font-weight: 700;
+        font-size: 7.4pt;
+        letter-spacing: 0.08em;
+        padding: 3pt 9pt;
+        border-radius: 99px;
+      }
+      h1,
+      h2 {
+        font-family: 'Bricolage Grotesque', sans-serif;
+        color: #1c2329;
+        letter-spacing: -0.015em;
+      }
+      h1 {
+        font-size: 20.5pt;
+        line-height: 1.16;
+        font-weight: 800;
+      }
+      h1 span {
+        color: #0a8a3a;
+        display: block;
+      }
+      h2 {
+        font-size: 12pt;
+        font-weight: 700;
+        margin: 5.4mm 0 2mm;
+      }
+      p {
+        margin-bottom: 1.5mm;
+      }
+      .lede {
+        font-size: 10pt;
+        margin: 3mm 0 4mm;
+      }
+      a {
+        color: #087030;
+        text-decoration: none;
+      }
+      code {
+        font:
+          400 8.3pt 'Geist Mono',
+          monospace;
+        background: #f1f4f1;
+        padding: 0.5pt 3pt;
+        border-radius: 3pt;
+      }
+      .facts {
+        background: #fafbf9;
+        border: 0.6pt solid #e1e8de;
+        border-radius: 7pt;
+        padding: 2.6mm 3.6mm;
+        display: grid;
+        grid-template-columns: 27mm 1fr;
+        row-gap: 0.9mm;
+      }
+      .facts b {
+        font-weight: 600;
+        color: #1c2329;
+      }
+      ol {
+        padding-left: 5mm;
+      }
+      ol li {
+        margin-bottom: 0.9mm;
+      }
+      ol li::marker {
+        color: #087030;
+        font-weight: 700;
+      }
+      b {
+        font-weight: 600;
+        color: #1c2329;
+      }
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 2mm;
+      }
+      .flow div {
+        border: 0.6pt solid #e1e8de;
+        border-radius: 7pt;
+        padding: 2.4mm;
+        font-size: 8.5pt;
+      }
+      .flow .hl {
+        border-color: #0a8a3a;
+        background: #eef8ef;
+      }
+      .flow b {
+        display: block;
+        font-size: 9.6pt;
+        margin-bottom: 1mm;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 9pt;
+      }
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 1.5mm 0;
+        border-bottom: 0.6pt solid #e1e8de;
+        font-weight: 400;
+      }
+      th {
+        width: 34mm;
+        font-weight: 600;
+        color: #1c2329;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+      }
+      ul li {
+        position: relative;
+        padding-left: 4mm;
+        margin-bottom: 1mm;
+      }
+      ul li::before {
+        content: '';
+        position: absolute;
+        left: 0.4mm;
+        top: 1.7mm;
+        width: 1.4mm;
+        height: 1.4mm;
+        border-radius: 50%;
+        background: #18a048;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="page">
+      <div class="top">
+        <img src="../video/graphics/logo-full.png" alt="Katale AI" />
+        <span class="tag">JUDGE'S GUIDE</span>
+      </div>
+      <h1>Run a small shop from WhatsApp.<span>The AI prepares. Code handles the money.</span></h1>
+      <p class="lede">
+        Katale AI turns WhatsApp text and voice notes into priced orders, PayPal payment links,
+        stock updates and business insight. The AI only proposes: the backend calculates every
+        price, and payment requests need a typed one-time code from the merchant.
+      </p>
+      <div class="facts">
+        <b>Working demo</b><a href="https://kataleai.space">kataleai.space</a> <b>Source code</b
+        ><a href="https://github.com/yigagilbert/WhatsApp-Voice-Commerce-Agent"
+          >github.com/yigagilbert/WhatsApp-Voice-Commerce-Agent</a
+        >
+        <b>Sample shop</b
+        ><a href="https://kataleai.space/shop/kampala-crafts">kataleai.space/shop/kampala-crafts</a>
+        <b>Demo video</b><a href="https://youtu.be/yVa0QfD9Ixc">youtu.be/yVa0QfD9Ixc</a>
+        <b>Payments</b><span>PayPal Sandbox only. No real money moves.</span>
+      </div>
+
+      <h2>Test it in about 2 minutes</h2>
+      <p>
+        Sign in at kataleai.space with the sample login credentials in the testing instructions
+        section of the project details on Devpost. The <b>Agent console</b> runs the same AI
+        pipeline as WhatsApp, in your browser. Steps 7 and 8 use WhatsApp itself.
+      </p>
+      <ol>
+        <li>
+          <b>Agent console:</b> send <code>Which products are running low?</code> The answer comes
+          from live stock records.
+        </li>
+        <li>
+          <b>Agent console:</b> send <code>Create an order for Sarah for 2 handmade baskets</code>.
+          The backend prices a draft, and nothing reaches PayPal until an owner types the one-time
+          code.
+        </li>
+        <li>
+          <b>Products:</b> click a stock count, change it and press Enter. This is AG Grid inline
+          editing with server validation.
+        </li>
+        <li>
+          <b>Overview:</b> click the <code>How is this week going?</code> chip, then type
+          <code>Build me a chart of net revenue by channel</code>. AG Studio adds the chart to an
+          unsaved AI dashboard tab.
+        </li>
+        <li>
+          <b>Overview, Products &amp; inventory tab:</b> right-click a bar in Product revenue and
+          choose <b>See the records behind this</b>.
+        </li>
+        <li>
+          <b>Orders:</b> open an order, then <b>View the full trace</b> to follow message, AI
+          decision, approval and PayPal.
+        </li>
+        <li>
+          <b>WhatsApp as a customer (no setup):</b> open
+          <a href="https://kataleai.space/chat">kataleai.space/chat</a> and send <code>hi</code>.
+          Pick a product, then ask for a better price.
+        </li>
+        <li>
+          <b>WhatsApp as the merchant (optional):</b> open <b>Admins</b>, add your number in
+          international format (for example <code>+256700000000</code>), choose <b>Owner</b> to try
+          payment approval, and press <b>Send test</b>. Then try a question, an order or an English
+          voice note.
+        </li>
+      </ol>
+
+      <h2>Why WhatsApp</h2>
+      <p>
+        Small sellers in Africa already sell in chats, so Katale asks for no new app and no new
+        habit. In a
+        <a href="https://www.geopoll.com/blog/smartphone-and-social-media-usage-2025/"
+          >GeoPoll survey</a
+        >
+        (July 2025; 3,945 mobile users aged 18–50 in four African countries), 90% used WhatsApp and
+        64% used it for business. The sample skews younger and more affluent. The shop also has a
+        public page, with no login, whose link can go in a social media bio. Its cart continues in
+        WhatsApp.
+      </p>
+
+      <h2>What the video shows</h2>
+      <p>
+        A customer browses, checks out and pays <code>ORD-K6RQKZ</code> ($30) in PayPal Sandbox. A
+        separate order shows AI bargaining. The merchant then creates an order, approves it with a
+        typed code, and runs stock, charts and AG Studio. Phone footage is sped up in places, and
+        real customer details are blurred.
+      </p>
+      <div class="foot"><span>Katale AI · PayPal AI Hackathon 2026</span><span>1 of 2</span></div>
+    </section>
+
+    <section class="page">
+      <h2 style="margin-top: 0">How a payment stays safe</h2>
+      <div class="flow">
+        <div><b>1. AI prepares</b>Understands text and voice, then picks a typed tool.</div>
+        <div>
+          <b>2. Backend verifies</b>Customer, product, price, stock and totals from the database.
+        </div>
+        <div class="hl">
+          <b>3. Merchant approves</b>A one-time code bound to that one order. A spoken "confirm" is
+          refused.
+        </div>
+        <div><b>4. PayPal executes</b>Checkout, capture and signature-verified webhooks.</div>
+      </div>
+
+      <h2>How bargaining stays safe</h2>
+      <p>
+        Customers can haggle on WhatsApp, as they would at the market. For each product, the
+        merchant can set a private lowest price. The AI chooses how to say an offer, never the
+        number: the backend calculates each one, and the AI never sees the minimum. A price guard
+        checks every amount in an AI reply before it is sent, and the agreed price is what goes to
+        PayPal.
+      </p>
+
+      <h2>How we use PayPal</h2>
+      <table>
+        <tr>
+          <th>Orders v2</th>
+          <td>Creates the checkout link for each approved order and captures the payment.</td>
+        </tr>
+        <tr>
+          <th>Webhooks</th>
+          <td>
+            Verified by signature and idempotent. They mark orders paid, record refunds and raise
+            dispute alerts.
+          </td>
+        </tr>
+        <tr>
+          <th>Order tracking</th>
+          <td>
+            Sends carrier and tracking numbers when the merchant ships. Built, not shown in the
+            video.
+          </td>
+        </tr>
+        <tr>
+          <th>Disputes v1</th>
+          <td>
+            Lists cases, then submits the merchant's response after a typed code. Built, not shown
+            in the video.
+          </td>
+        </tr>
+        <tr>
+          <th>Reconciliation</th>
+          <td>Checks open payment links against PayPal.</td>
+        </tr>
+      </table>
+
+      <h2>How we use AG Grid and AG Studio</h2>
+      <table>
+        <tr>
+          <th>AG Grid</th>
+          <td>
+            Orders, products, payments, customers and disputes grids, with filters, sorting, CSV
+            export and inline editing of price and stock.
+          </td>
+        </tr>
+        <tr>
+          <th>AG Studio</th>
+          <td>The Overview dashboard: report pages, filters and right-click drill-through.</td>
+        </tr>
+        <tr>
+          <th>AG Studio AI</th>
+          <td>
+            The assistant answers from deterministic lookups and adds charts from a checked list of
+            metrics. Nothing is kept until the merchant saves it.
+          </td>
+        </tr>
+      </table>
+
+      <h2>Stack</h2>
+      <p>
+        Next.js and Tailwind dashboard; Fastify API; PostgreSQL with Prisma; whatsapp-web.js worker;
+        an OpenAI-compatible LLM (<code>gpt-4.1-mini</code>) with typed tools; OpenAI Whisper for
+        voice notes; Docker deployment.
+      </p>
+
+      <h2>Known limits</h2>
+      <ul>
+        <li>
+          <b>Where it works:</b> any WhatsApp number, but receiving money needs a PayPal business
+          account that can receive payments in the seller's country. PayPal doesn't support UGX,
+          KES, TZS or RWF, so prices are in USD or another PayPal currency.
+        </li>
+        <li>
+          <b>WhatsApp connection:</b> for now we use whatsapp-web.js, an unofficial client that
+          WhatsApp's terms don't allow and that can get a number blocked. We plan to move to the
+          official WhatsApp Business API soon after company registration.
+        </li>
+        <li>
+          <b>Voice:</b> English is the supported language. The voice note in the video was a test
+          take with a synthetic voice.
+        </li>
+        <li>
+          <b>Accounts:</b> one merchant per installation, with no self-serve multi-merchant sign-up
+          yet.
+        </li>
+      </ul>
+      <div class="foot"><span>Katale AI · PayPal AI Hackathon 2026</span><span>2 of 2</span></div>
+    </section>
+  </body>
+</html>

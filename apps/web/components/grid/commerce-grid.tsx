@@ -13,6 +13,7 @@ import {
   type IRowNode,
 } from 'ag-grid-community';
 import { formatMoney } from '@vca/commerce/money';
+import { formatDateTime } from '@/lib/format';
 
 // AG Grid Community (MIT): sorting, filtering, pagination, resizing, CSV export.
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -243,8 +244,4 @@ export const formatMinor = (
 };
 
 export const formatDate = (value: Date | string | null | undefined) =>
-  value
-    ? new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(
-        new Date(value),
-      )
-    : '';
+  value ? formatDateTime(value) : '';

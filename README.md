@@ -13,6 +13,10 @@ factual response, and submits it only after `SUBMIT 7312`.
 > **AI interprets and prepares; trusted backend services verify; the merchant explicitly approves
 > consequential actions; PayPal executes; Katale records the full audit trail.**
 
+> **For judges:** [demo video](https://youtu.be/yVa0QfD9Ixc) · [live demo](https://kataleai.space) ·
+> [sample shop](https://kataleai.space/shop/kampala-crafts). Sign-in details are in the testing
+> instructions on the Devpost project page. Payments use PayPal Sandbox: no real money moves.
+
 > Status: **live at https://kataleai.space** (Docker Hub images → VM → Nginx Proxy Manager → HTTPS,
 > PayPal **Sandbox**). English text and voice commerce are verified end to end in production.
 > Shipment tracking and disputes: see [PROJECT_STATUS.md](PROJECT_STATUS.md) for what is verified

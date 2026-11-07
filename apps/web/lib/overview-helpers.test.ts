@@ -2,6 +2,7 @@ import type { AgReportState } from 'ag-studio';
 import { describe, expect, it } from 'vitest';
 import type { AnalyticsDataset } from './types';
 import { addChart, addTable, AI_PAGE_ID } from '../app/(dashboard)/overview/studio/widget-catalog';
+import { toolLabel } from '../app/(dashboard)/overview/studio/prompts';
 import { createLookups } from '../app/(dashboard)/overview/studio/lookups';
 import { scopeDataset } from '../app/(dashboard)/overview/studio/data-sources';
 import { defaultReport } from '../app/(dashboard)/overview/studio/default-report';
@@ -265,7 +266,22 @@ describe('assistant widget catalog', () => {
       error: 'Stock on hand can be grouped by: product, category, stock_status.',
     });
     expect(addChart(defaultReport, { metric: 'net_revenue', chart: 'donut' }).ok).toBe(false);
+    const byProduct = addChart(defaultReport, {
+      metric: 'net_revenue',
+      chart: 'bar',
+      groupBy: 'product',
+    });
+    expect(byProduct).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('product_revenue'),
+    });
     expect(addChart(defaultReport, { metric: 'made_up' as never, chart: 'kpi' }).ok).toBe(false);
+  });
+
+  it('never labels a failed tool as done', () => {
+    expect(toolLabel('add_chart', 'complete')).toBe('Added a chart to the AI dashboard');
+    expect(toolLabel('add_chart', 'error')).toBe("Couldn't add that chart");
+    expect(toolLabel('top_products', 'error')).toBe('Working on it');
   });
 
   it('never charts what has no time dimension over time', () => {
